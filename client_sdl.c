@@ -59,6 +59,8 @@ SDL_Rect settings_win;
 SDL_Rect btn_toggle_debug;
 SDL_Rect btn_toggle_fps;    // NEW
 SDL_Rect btn_toggle_coords; // NEW
+int show_password = 0; // NEW: Toggle state
+SDL_Rect btn_show_pass; // NEW: UI Button Rect
 
 // Chat & Auth
 typedef struct { char msg[64]; Uint32 timestamp; } FloatingText;
@@ -282,33 +284,64 @@ void render_profile(SDL_Renderer *renderer) {
     }
 }
 
-// ... (render_auth_screen is same) ...
 void render_auth_screen(SDL_Renderer *renderer) {
     int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
     auth_box = (SDL_Rect){w/2-200, h/2-150, 400, 300};
     btn_login = (SDL_Rect){auth_box.x+20, auth_box.y+200, 160, 40};
     btn_register = (SDL_Rect){auth_box.x+220, auth_box.y+200, 160, 40};
+
+    // Define Checkbox Rect (Right of password field)
+    // Password field ends at x+130+200 = x+330. Let's put checkbox at x+340
+    btn_show_pass = (SDL_Rect){auth_box.x + 340, auth_box.y + 165 + 5, 15, 15};
+
     SDL_SetRenderDrawColor(renderer, 50, 50, 50, 255); SDL_RenderClear(renderer);
     SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255); SDL_RenderFillRect(renderer, &auth_box);
     SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255); SDL_RenderDrawRect(renderer, &auth_box);
+
     render_text(renderer, "C-MMO Login", auth_box.x + 200, auth_box.y + 20, col_white, 1);
     render_text(renderer, auth_message, auth_box.x + 200, auth_box.y + 70, col_red, 1);
+
     int y_start = auth_box.y + 120;
+    
+    // Username
     render_text(renderer, "Username:", auth_box.x + 20, y_start, col_white, 0);
     SDL_Rect user_rect = {auth_box.x + 130, y_start - 5, 200, 25};
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_RenderFillRect(renderer, &user_rect);
     SDL_SetRenderDrawColor(renderer, active_field == 0 ? 0 : 150, active_field == 0 ? 255 : 150, 0, 255); SDL_RenderDrawRect(renderer, &user_rect);
     render_text(renderer, auth_username, user_rect.x + 5, user_rect.y + 2, col_white, 0);
+
+    // Password
     render_text(renderer, "Password:", auth_box.x + 20, y_start + 50, col_white, 0);
     SDL_Rect pass_rect = {auth_box.x + 130, y_start + 45, 200, 25};
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_RenderFillRect(renderer, &pass_rect);
     SDL_SetRenderDrawColor(renderer, active_field == 1 ? 0 : 150, active_field == 1 ? 255 : 150, 0, 255); SDL_RenderDrawRect(renderer, &pass_rect);
-    char masked[MAX_INPUT_LEN+1]; memset(masked, '*', strlen(auth_password)); masked[strlen(auth_password)]=0;
-    render_text(renderer, masked, pass_rect.x + 5, pass_rect.y + 2, col_white, 0);
+    
+    // LOGIC: Show text or asterisks?
+    if (show_password) {
+        render_text(renderer, auth_password, pass_rect.x + 5, pass_rect.y + 2, col_white, 0);
+    } else {
+        char masked[MAX_INPUT_LEN+1]; 
+        memset(masked, '*', strlen(auth_password)); 
+        masked[strlen(auth_password)]=0;
+        render_text(renderer, masked, pass_rect.x + 5, pass_rect.y + 2, col_white, 0);
+    }
+
+    // Render Show Password Checkbox
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); 
+    SDL_RenderDrawRect(renderer, &btn_show_pass);
+    if (show_password) {
+        SDL_Rect inner = {btn_show_pass.x + 3, btn_show_pass.y + 3, btn_show_pass.w - 6, btn_show_pass.h - 6};
+        SDL_RenderFillRect(renderer, &inner);
+    }
+    // Label for checkbox (optional, small text)
+    render_text(renderer, "Show", btn_show_pass.x, btn_show_pass.y - 15, col_white, 0);
+
+    // Login/Register Buttons
     SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_login);
     render_text(renderer, "Login", btn_login.x + 80, btn_login.y + 10, col_white, 1);
     SDL_SetRenderDrawColor(renderer, 0, 0, 150, 255); SDL_RenderFillRect(renderer, &btn_register);
     render_text(renderer, "Register", btn_register.x + 80, btn_register.y + 10, col_white, 1);
+    
     SDL_RenderPresent(renderer);
 }
 
@@ -476,16 +509,24 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y) {
     }
 }
 
+
 void handle_auth_click(int mx, int my) {
     if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_login)) {
         Packet pkt; pkt.type = PACKET_LOGIN_REQUEST; strncpy(pkt.username, auth_username, 31); strncpy(pkt.password, auth_password, 31); send_packet(&pkt);
         strcpy(auth_message, "Logging in...");
-    } else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_register)) {
+    } 
+    else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_register)) {
         Packet pkt; pkt.type = PACKET_REGISTER_REQUEST; strncpy(pkt.username, auth_username, 31); strncpy(pkt.password, auth_password, 31); send_packet(&pkt);
         strcpy(auth_message, "Registering...");
-    } else if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){auth_box.x+130, auth_box.y+115, 200, 25})) {
+    } 
+    // NEW: Checkbox Toggle
+    else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_show_pass)) {
+        show_password = !show_password;
+    }
+    else if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){auth_box.x+130, auth_box.y+115, 200, 25})) {
         active_field = 0; SDL_StartTextInput();
-    } else if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){auth_box.x+130, auth_box.y+165, 200, 25})) {
+    } 
+    else if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){auth_box.x+130, auth_box.y+165, 200, 25})) {
         active_field = 1; SDL_StartTextInput();
     }
 }
