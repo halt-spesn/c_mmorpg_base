@@ -44,12 +44,21 @@ SDL_Rect popup_win;
 // Settings & Debug State
 int is_settings_open = 0;
 int show_debug_info = 0;
+int show_fps = 0;
+int show_coords = 0;
 int current_ping = 0;
 Uint32 last_ping_sent = 0;
+
+// FPS Calculation State
+int current_fps = 0;
+int frame_count = 0;
+Uint32 last_fps_check = 0;
 
 SDL_Rect btn_settings_toggle;
 SDL_Rect settings_win;
 SDL_Rect btn_toggle_debug;
+SDL_Rect btn_toggle_fps;    // NEW
+SDL_Rect btn_toggle_coords; // NEW
 
 // Chat & Auth
 typedef struct { char msg[64]; Uint32 timestamp; } FloatingText;
@@ -190,9 +199,9 @@ void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
 void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     if (!is_settings_open) return;
 
-    settings_win = (SDL_Rect){screen_w/2 - 150, screen_h/2 - 100, 300, 200};
+    // Taller window to fit 3 options
+    settings_win = (SDL_Rect){screen_w/2 - 150, screen_h/2 - 100, 300, 250};
     
-    // Window Body
     SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255); SDL_RenderFillRect(renderer, &settings_win);
     SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255); SDL_RenderDrawRect(renderer, &settings_win);
     
@@ -201,14 +210,32 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     // Option 1: Debug Info
     btn_toggle_debug = (SDL_Rect){settings_win.x + 20, settings_win.y + 50, 20, 20};
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_debug);
-    
     if (show_debug_info) {
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); 
         SDL_Rect check = {btn_toggle_debug.x + 4, btn_toggle_debug.y + 4, 12, 12};
         SDL_RenderFillRect(renderer, &check);
     }
-    
     render_text(renderer, "Show Debug Info", settings_win.x + 50, settings_win.y + 50, col_white, 0);
+
+    // Option 2: Show FPS
+    btn_toggle_fps = (SDL_Rect){settings_win.x + 20, settings_win.y + 90, 20, 20};
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_fps);
+    if (show_fps) {
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); 
+        SDL_Rect check = {btn_toggle_fps.x + 4, btn_toggle_fps.y + 4, 12, 12};
+        SDL_RenderFillRect(renderer, &check);
+    }
+    render_text(renderer, "Show FPS", settings_win.x + 50, settings_win.y + 90, col_white, 0);
+
+    // Option 3: Show Coords
+    btn_toggle_coords = (SDL_Rect){settings_win.x + 20, settings_win.y + 130, 20, 20};
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_coords);
+    if (show_coords) {
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); 
+        SDL_Rect check = {btn_toggle_coords.x + 4, btn_toggle_coords.y + 4, 12, 12};
+        SDL_RenderFillRect(renderer, &check);
+    }
+    render_text(renderer, "Show Coordinates", settings_win.x + 50, settings_win.y + 130, col_white, 0);
 }
 
 void render_popup(SDL_Renderer *renderer, int w, int h) {
@@ -285,6 +312,39 @@ void render_auth_screen(SDL_Renderer *renderer) {
     SDL_RenderPresent(renderer);
 }
 
+void render_hud(SDL_Renderer *renderer, int screen_h) {
+    int y = 10;
+    char buf[64];
+
+    // 1. Render FPS (Top-Left)
+    if (show_fps) {
+        snprintf(buf, 64, "FPS: %d", current_fps);
+        // Draw a tiny black box behind it for readability
+        int w, h; TTF_SizeText(font, buf, &w, &h);
+        SDL_Rect bg = {10, y, w+4, h};
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 150); SDL_RenderFillRect(renderer, &bg);
+        
+        render_text(renderer, buf, 12, y, col_green, 0);
+        y += 20;
+    }
+
+    // 2. Render Coords (Top-Left, under FPS)
+    if (show_coords) {
+        float px=0, py=0;
+        for(int i=0; i<MAX_CLIENTS; i++) 
+            if(local_players[i].active && local_players[i].id == local_player_id) 
+            { px=local_players[i].x; py=local_players[i].y; }
+
+        snprintf(buf, 64, "XY: %.0f, %.0f", px, py);
+        
+        int w, h; TTF_SizeText(font, buf, &w, &h);
+        SDL_Rect bg = {10, y, w+4, h};
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 150); SDL_RenderFillRect(renderer, &bg);
+
+        render_text(renderer, buf, 12, y, col_white, 0);
+    }
+}
+
 void render_game(SDL_Renderer *renderer) {
     int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
     float px=0, py=0;
@@ -354,6 +414,8 @@ void render_game(SDL_Renderer *renderer) {
 
     render_settings_menu(renderer, w, h);
     render_debug_overlay(renderer, w);
+    // NEW: Render HUD elements (FPS, Coords)
+    render_hud(renderer, h);
     
     SDL_RenderPresent(renderer);
 }
@@ -363,6 +425,14 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y) {
         // Toggle Debug
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_debug)) {
             show_debug_info = !show_debug_info;
+        }
+        // Toggle FPS
+        else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_fps)) {
+            show_fps = !show_fps;
+        }
+        // Toggle Coords
+        else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_coords)) {
+            show_coords = !show_coords;
         }
         // Click outside closes settings? Or a Close button. 
         // For now, toggle button closes it.
@@ -440,6 +510,13 @@ int main() {
     int key_up=0, key_down=0, key_left=0, key_right=0;
 
     while (running) {
+        frame_count++;
+        Uint32 now_fps = SDL_GetTicks();
+        if (now_fps > last_fps_check + 1000) {
+            current_fps = frame_count;
+            frame_count = 0;
+            last_fps_check = now_fps;
+        }
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) running = 0;
             if (client_state == STATE_AUTH) {
