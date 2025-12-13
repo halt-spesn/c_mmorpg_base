@@ -32,6 +32,17 @@ Player local_players[MAX_CLIENTS];
 int my_friends[20];
 int friend_count = 0;
 
+// BLOCKED SYSTEM
+int blocked_ids[50];
+int blocked_count = 0;
+int show_blocked_list = 0; // Toggle for the UI list
+
+// UI Rects
+SDL_Rect btn_hide_player;      // In Profile
+SDL_Rect btn_view_blocked;     // In Settings
+SDL_Rect blocked_win;          // The list window
+SDL_Rect btn_close_blocked;    // Close list
+
 // UI STATE
 int selected_player_id = -1;
 int pending_friend_req_id = -1;
@@ -94,6 +105,28 @@ SDL_Color col_magenta = {255,0,255,255}; // PM Color
 // --- Helpers ---
 void send_packet(Packet *pkt) { send(sock, pkt, sizeof(Packet), 0); }
 
+int is_blocked(int id) {
+    for(int i=0; i<blocked_count; i++) if(blocked_ids[i] == id) return 1;
+    return 0;
+}
+
+void toggle_block(int id) {
+    if (is_blocked(id)) {
+        // Unblock: Remove from array
+        for(int i=0; i<blocked_count; i++) {
+            if(blocked_ids[i] == id) {
+                // Shift remaining down
+                for(int j=i; j<blocked_count-1; j++) blocked_ids[j] = blocked_ids[j+1];
+                blocked_count--;
+                return;
+            }
+        }
+    } else {
+        // Block: Add to array
+        if(blocked_count < 50) blocked_ids[blocked_count++] = id;
+    }
+}
+
 void render_text(SDL_Renderer *renderer, const char *text, int x, int y, SDL_Color color, int center) {
     if (!text || strlen(text) == 0) return;
     SDL_Surface *surface = TTF_RenderText_Solid(font, text, color);
@@ -107,6 +140,11 @@ void render_text(SDL_Renderer *renderer, const char *text, int x, int y, SDL_Col
 }
 
 void add_chat_message(Packet *pkt) {
+    // 1. IGNORE BLOCKED PLAYERS
+    if (pkt->player_id != -1 && pkt->player_id != local_player_id) {
+        if (is_blocked(pkt->player_id)) return;
+    }
+
     for(int i=0; i<CHAT_HISTORY-1; i++) strcpy(chat_log[i], chat_log[i+1]);
     
     char entry[64];
@@ -250,26 +288,37 @@ void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
 
 void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     if (!is_settings_open) return;
-    settings_win = (SDL_Rect){screen_w/2 - 150, screen_h/2 - 100, 300, 250};
     
+    // Increase height for 4th option
+    settings_win = (SDL_Rect){screen_w/2 - 150, screen_h/2 - 100, 300, 290}; 
+    
+    // ... (Draw background and first 3 buttons exactly as before) ...
     SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255); SDL_RenderFillRect(renderer, &settings_win);
     SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255); SDL_RenderDrawRect(renderer, &settings_win);
     render_text(renderer, "Settings", settings_win.x + 150, settings_win.y + 10, col_white, 1);
 
+    // 1. Debug
     btn_toggle_debug = (SDL_Rect){settings_win.x + 20, settings_win.y + 50, 20, 20};
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_debug);
-    if (show_debug_info) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect check = {btn_toggle_debug.x + 4, btn_toggle_debug.y + 4, 12, 12}; SDL_RenderFillRect(renderer, &check); }
+    if (show_debug_info) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c={btn_toggle_debug.x+4,btn_toggle_debug.y+4,12,12}; SDL_RenderFillRect(renderer,&c); }
     render_text(renderer, "Show Debug Info", settings_win.x + 50, settings_win.y + 50, col_white, 0);
 
+    // 2. FPS
     btn_toggle_fps = (SDL_Rect){settings_win.x + 20, settings_win.y + 90, 20, 20};
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_fps);
-    if (show_fps) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect check = {btn_toggle_fps.x + 4, btn_toggle_fps.y + 4, 12, 12}; SDL_RenderFillRect(renderer, &check); }
+    if (show_fps) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c={btn_toggle_fps.x+4,btn_toggle_fps.y+4,12,12}; SDL_RenderFillRect(renderer,&c); }
     render_text(renderer, "Show FPS", settings_win.x + 50, settings_win.y + 90, col_white, 0);
 
+    // 3. Coords
     btn_toggle_coords = (SDL_Rect){settings_win.x + 20, settings_win.y + 130, 20, 20};
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_coords);
-    if (show_coords) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect check = {btn_toggle_coords.x + 4, btn_toggle_coords.y + 4, 12, 12}; SDL_RenderFillRect(renderer, &check); }
+    if (show_coords) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c={btn_toggle_coords.x+4,btn_toggle_coords.y+4,12,12}; SDL_RenderFillRect(renderer,&c); }
     render_text(renderer, "Show Coordinates", settings_win.x + 50, settings_win.y + 130, col_white, 0);
+
+    // 4. Blocked List (NEW)
+    btn_view_blocked = (SDL_Rect){settings_win.x + 20, settings_win.y + 180, 260, 30};
+    SDL_SetRenderDrawColor(renderer, 200, 50, 50, 255); SDL_RenderFillRect(renderer, &btn_view_blocked);
+    render_text(renderer, "Manage Blocked Players", btn_view_blocked.x + 130, btn_view_blocked.y + 5, col_white, 1);
 }
 
 void render_popup(SDL_Renderer *renderer, int w, int h) {
@@ -291,7 +340,6 @@ void render_popup(SDL_Renderer *renderer, int w, int h) {
     render_text(renderer, "Deny", btn_deny.x + 60, btn_deny.y + 5, col_white, 1);
 }
 
-// UPDATED: Now includes "Send Message" Button
 void render_profile(SDL_Renderer *renderer) {
     if (selected_player_id == -1 || selected_player_id == local_player_id) return;
     
@@ -299,12 +347,15 @@ void render_profile(SDL_Renderer *renderer) {
     for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == selected_player_id) { exists=1; name=local_players[i].username; }
     if (!exists) { selected_player_id = -1; return; }
 
+    // Increase height to 170 to fit 3rd button
+    profile_win.h = 170; 
+
     SDL_SetRenderDrawColor(renderer, 30, 30, 50, 230); SDL_RenderFillRect(renderer, &profile_win);
     SDL_SetRenderDrawColor(renderer, 200, 200, 255, 255); SDL_RenderDrawRect(renderer, &profile_win);
     render_text(renderer, name, profile_win.x + 100, profile_win.y + 10, col_white, 1);
 
+    // 1. Friend Button
     int is_friend = 0; for(int i=0; i<friend_count; i++) if(my_friends[i] == selected_player_id) is_friend = 1;
-
     SDL_Rect btn = btn_add_friend;
     if (!is_friend) {
         SDL_SetRenderDrawColor(renderer, 0, 100, 0, 255); SDL_RenderFillRect(renderer, &btn);
@@ -314,9 +365,62 @@ void render_profile(SDL_Renderer *renderer) {
         render_text(renderer, "- Remove Friend", btn.x + 90, btn.y + 5, col_white, 1);
     }
 
-    // PM Button
+    // 2. PM Button
     SDL_SetRenderDrawColor(renderer, 100, 0, 100, 255); SDL_RenderFillRect(renderer, &btn_send_pm);
     render_text(renderer, "Send Message", btn_send_pm.x + 90, btn_send_pm.y + 5, col_white, 1);
+
+    // 3. Hide Button (NEW)
+    btn_hide_player = (SDL_Rect){20, 130, 180, 30};
+    int hidden = is_blocked(selected_player_id);
+    if (hidden) {
+        SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); // Green to Unhide
+        SDL_RenderFillRect(renderer, &btn_hide_player);
+        render_text(renderer, "Unhide Player", btn_hide_player.x + 90, btn_hide_player.y + 5, col_white, 1);
+    } else {
+        SDL_SetRenderDrawColor(renderer, 200, 50, 50, 255); // Red to Hide
+        SDL_RenderFillRect(renderer, &btn_hide_player);
+        render_text(renderer, "Hide Player", btn_hide_player.x + 90, btn_hide_player.y + 5, col_white, 1);
+    }
+}
+
+void render_blocked_list(SDL_Renderer *renderer, int w, int h) {
+    if (!show_blocked_list) return;
+
+    blocked_win = (SDL_Rect){w/2 - 150, h/2 - 200, 300, 400};
+    
+    // Background
+    SDL_SetRenderDrawColor(renderer, 20, 20, 20, 255); SDL_RenderFillRect(renderer, &blocked_win);
+    SDL_SetRenderDrawColor(renderer, 200, 0, 0, 255); SDL_RenderDrawRect(renderer, &blocked_win);
+    
+    render_text(renderer, "Blocked Players", blocked_win.x + 150, blocked_win.y + 10, col_red, 1);
+
+    // Close Button
+    btn_close_blocked = (SDL_Rect){blocked_win.x + 260, blocked_win.y + 5, 30, 30};
+    SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_close_blocked);
+    render_text(renderer, "X", btn_close_blocked.x + 15, btn_close_blocked.y + 5, col_white, 1);
+
+    // List
+    int y_off = 50;
+    for(int i=0; i<blocked_count; i++) {
+        int id = blocked_ids[i];
+        
+        // Find name if online, else show ID
+        char display[64]; snprintf(display, 64, "ID: %d", id);
+        for(int p=0; p<MAX_CLIENTS; p++) 
+            if(local_players[p].active && local_players[p].id == id) 
+                snprintf(display, 64, "%s", local_players[p].username);
+
+        render_text(renderer, display, blocked_win.x + 20, blocked_win.y + y_off, col_white, 0);
+
+        // Unblock Button (Small 'X' or 'U')
+        SDL_Rect btn_unblock = {blocked_win.x + 200, blocked_win.y + y_off, 60, 25};
+        SDL_SetRenderDrawColor(renderer, 0, 100, 0, 255); SDL_RenderFillRect(renderer, &btn_unblock);
+        render_text(renderer, "Show", btn_unblock.x + 30, btn_unblock.y + 2, col_white, 1);
+
+        y_off += 35;
+    }
+    
+    if (blocked_count == 0) render_text(renderer, "(No hidden players)", blocked_win.x + 150, blocked_win.y + 100, col_white, 1);
 }
 
 void render_auth_screen(SDL_Renderer *renderer) {
@@ -373,6 +477,9 @@ void render_game(SDL_Renderer *renderer) {
     Uint32 now = SDL_GetTicks();
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (local_players[i].active) {
+            // --- HIDE BLOCKED PLAYERS ---
+            if (is_blocked(local_players[i].id)) continue;
+            // ---------------------------
             SDL_Rect dst = { (int)local_players[i].x - cam_x, (int)local_players[i].y - cam_y, PLAYER_WIDTH, PLAYER_HEIGHT };
             if (tex_player) SDL_RenderCopy(renderer, tex_player, NULL, &dst);
             else {
@@ -393,6 +500,7 @@ void render_game(SDL_Renderer *renderer) {
     render_profile(renderer);
     render_popup(renderer, w, h);
     render_settings_menu(renderer, w, h);
+    render_blocked_list(renderer, w, h); // NEW CALL
     render_debug_overlay(renderer, w);
     render_hud(renderer, h);
 
@@ -431,10 +539,28 @@ void render_game(SDL_Renderer *renderer) {
 }
 
 void handle_game_click(int mx, int my, int cam_x, int cam_y) {
+    if (show_blocked_list) {
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_close_blocked)) {
+            show_blocked_list = 0;
+            return;
+        }
+        // Check "Show/Unhide" buttons in list
+        int y_off = 50;
+        for(int i=0; i<blocked_count; i++) {
+            SDL_Rect btn_unblock = {blocked_win.x + 200, blocked_win.y + y_off, 60, 25};
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_unblock)) {
+                toggle_block(blocked_ids[i]); // Unblock
+                return;
+            }
+            y_off += 35;
+        }
+        return; // Don't click anything else if list is open
+    }
     if (is_settings_open) {
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_debug)) show_debug_info = !show_debug_info;
         else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_fps)) show_fps = !show_fps;
         else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_coords)) show_coords = !show_coords;
+        else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_view_blocked)) show_blocked_list = 1; // Open List
         return;
     }
     if (pending_friend_req_id != -1) {
@@ -459,6 +585,12 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y) {
             input_buffer[0] = 0;
             SDL_StartTextInput();
             selected_player_id = -1; 
+            return;
+        }
+        // NEW: Hide Button
+        else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_hide_player)) {
+            toggle_block(selected_player_id);
+            selected_player_id = -1; // Close profile
             return;
         }
     }
