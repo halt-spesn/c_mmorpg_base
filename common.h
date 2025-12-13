@@ -9,68 +9,46 @@
 #define MAP_HEIGHT 2000
 #define PLAYER_SPEED 4.0f
 
-// NEW: Status Enum
 typedef enum {
-    STATUS_ONLINE,
-    STATUS_AFK,
-    STATUS_DND,
-    STATUS_ROLEPLAY,
-    STATUS_TALK
+    STATUS_ONLINE, STATUS_AFK, STATUS_DND, STATUS_ROLEPLAY, STATUS_TALK
 } PlayerStatus;
 
 typedef enum {
-    PACKET_REGISTER_REQUEST,
-    PACKET_LOGIN_REQUEST,
-    PACKET_AUTH_RESPONSE,
-    PACKET_JOIN,
-    PACKET_MOVE,
-    PACKET_CHAT,
-    PACKET_UPDATE,
-    PACKET_FRIEND_LIST,
-    PACKET_FRIEND_REQUEST,
-    PACKET_FRIEND_INCOMING,
-    PACKET_FRIEND_RESPONSE,
-    PACKET_FRIEND_REMOVE,
-    PACKET_PING,
-    PACKET_PRIVATE_MESSAGE,
-    PACKET_STATUS_CHANGE // NEW
+    PACKET_REGISTER_REQUEST, PACKET_LOGIN_REQUEST, PACKET_AUTH_RESPONSE,
+    PACKET_JOIN, PACKET_MOVE, PACKET_CHAT, PACKET_UPDATE,
+    PACKET_FRIEND_LIST, PACKET_FRIEND_REQUEST, PACKET_FRIEND_INCOMING,
+    PACKET_FRIEND_RESPONSE, PACKET_FRIEND_REMOVE,
+    PACKET_PING, PACKET_PRIVATE_MESSAGE, PACKET_STATUS_CHANGE,
+    PACKET_COLOR_CHANGE // NEW
 } PacketType;
 
 typedef enum {
-    AUTH_SUCCESS,
-    AUTH_FAILURE,
-    AUTH_REGISTER_SUCCESS,
-    AUTH_REGISTER_FAILED_EXISTS,
-    AUTH_REGISTER_FAILED_DB
+    AUTH_SUCCESS, AUTH_FAILURE, AUTH_REGISTER_SUCCESS,
+    AUTH_REGISTER_FAILED_EXISTS, AUTH_REGISTER_FAILED_DB
 } AuthStatus;
 
 typedef struct {
     int id;
-    float x;
-    float y;
-    int direction; 
-    int is_moving; 
-    int active;
+    float x; float y;
+    int direction; int is_moving; int active;
     char username[32];
-    int status; // NEW: Holds PlayerStatus
+    int status;
+    uint8_t r, g, b; // NEW: Color components (0-255)
 } Player;
 
 typedef struct {
     PacketType type;
-    int player_id;
-    int target_id;
-    float dx; 
-    float dy;
+    int player_id; int target_id;
+    float dx; float dy;
     char msg[64];
     Player players[MAX_CLIENTS];
-    char username[32];
-    char password[32];
+    char username[32]; char password[32];
     AuthStatus status;
-    int friend_ids[20]; 
-    int friend_count;
+    int friend_ids[20]; int friend_count;
     int response_accepted;
     uint32_t timestamp;
-    int new_status; // NEW: Payload for status change
+    int new_status;
+    uint8_t r, g, b; // NEW: Payload for color change
 } Packet;
 
 #endif

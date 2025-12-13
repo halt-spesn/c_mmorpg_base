@@ -112,6 +112,12 @@ SDL_Color col_status_talk = {50, 150, 255, 255};
 const char* status_names[] = { "Online", "AFK", "Do Not Disturb", "Roleplay", "Open to Talk" };
 
 SDL_Rect btn_cycle_status; // For Settings Menu
+SDL_Rect btn_view_friends; // Bottom bar
+SDL_Rect friend_list_win;
+int show_friend_list = 0;
+
+// Color Sliders in Settings
+SDL_Rect slider_r, slider_g, slider_b;
 
 // --- Helpers ---
 void send_packet(Packet *pkt) { send(sock, pkt, sizeof(Packet), 0); }
@@ -310,8 +316,9 @@ void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
 void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     if (!is_settings_open) return;
     
-    // Increased height for 5th option
-    settings_win = (SDL_Rect){screen_w/2 - 150, screen_h/2 - 120, 300, 340}; 
+    // 1. INCREASE WINDOW HEIGHT
+    // Old: 460. New: 500 to fit the extra spacing
+    settings_win = (SDL_Rect){screen_w/2 - 150, screen_h/2 - 200, 300, 500}; 
     
     SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255); SDL_RenderFillRect(renderer, &settings_win);
     SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255); SDL_RenderDrawRect(renderer, &settings_win);
@@ -340,7 +347,7 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     SDL_SetRenderDrawColor(renderer, 200, 50, 50, 255); SDL_RenderFillRect(renderer, &btn_view_blocked);
     render_text(renderer, "Manage Blocked Players", btn_view_blocked.x + 130, btn_view_blocked.y + 5, col_white, 1);
 
-    // 5. Status Cycle (NEW)
+    // 5. Status Cycle
     int my_status = 0;
     for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) my_status = local_players[i].status;
 
@@ -352,6 +359,67 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     render_text(renderer, status_str, btn_cycle_status.x + 130, btn_cycle_status.y + 5, get_status_color(my_status), 1);
     
     render_text(renderer, "(Click to change)", btn_cycle_status.x + 130, btn_cycle_status.y + 40, col_white, 1);
+
+    // 6. Name Color
+    int my_r=255, my_g=255, my_b=255;
+    for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) { my_r=local_players[i].r; my_g=local_players[i].g; my_b=local_players[i].b; }
+
+    // 2. ADJUST START Y
+    // Old: settings_win.y + 260. New: settings_win.y + 300
+    // This gives ample space below the "(Click to change)" text
+    int start_y = settings_win.y + 300;
+    
+    render_text(renderer, "Name Color", settings_win.x + 150, start_y, (SDL_Color){my_r, my_g, my_b, 255}, 1);
+
+    // Sliders
+    slider_r = (SDL_Rect){settings_win.x + 50, start_y + 30, 200, 20};
+    slider_g = (SDL_Rect){settings_win.x + 50, start_y + 60, 200, 20};
+    slider_b = (SDL_Rect){settings_win.x + 50, start_y + 90, 200, 20};
+
+    // Draw R
+    SDL_SetRenderDrawColor(renderer, 50, 0, 0, 255); SDL_RenderFillRect(renderer, &slider_r);
+    SDL_Rect fill_r = {slider_r.x, slider_r.y, (int)((my_r/255.0)*200), 20};
+    SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); SDL_RenderFillRect(renderer, &fill_r);
+
+    // Draw G
+    SDL_SetRenderDrawColor(renderer, 0, 50, 0, 255); SDL_RenderFillRect(renderer, &slider_g);
+    SDL_Rect fill_g = {slider_g.x, slider_g.y, (int)((my_g/255.0)*200), 20};
+    SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255); SDL_RenderFillRect(renderer, &fill_g);
+
+    // Draw B
+    SDL_SetRenderDrawColor(renderer, 0, 0, 50, 255); SDL_RenderFillRect(renderer, &slider_b);
+    SDL_Rect fill_b = {slider_b.x, slider_b.y, (int)((my_b/255.0)*200), 20};
+    SDL_SetRenderDrawColor(renderer, 0, 0, 255, 255); SDL_RenderFillRect(renderer, &fill_b);
+}
+void render_friend_list(SDL_Renderer *renderer, int w, int h) {
+    if (!show_friend_list) return;
+
+    friend_list_win = (SDL_Rect){w/2 - 150, h/2 - 200, 300, 400};
+    SDL_SetRenderDrawColor(renderer, 20, 20, 20, 255); SDL_RenderFillRect(renderer, &friend_list_win);
+    SDL_SetRenderDrawColor(renderer, 0, 200, 0, 255); SDL_RenderDrawRect(renderer, &friend_list_win);
+    
+    render_text(renderer, "Friends List", friend_list_win.x + 150, friend_list_win.y + 10, col_green, 1);
+
+    // Close Button logic handled in click handler (reusing rect logic or adding specific btn)
+    SDL_Rect btn_close = {friend_list_win.x + 260, friend_list_win.y + 5, 30, 30};
+    SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_close);
+    render_text(renderer, "X", btn_close.x + 15, btn_close.y + 5, col_white, 1);
+
+    int y_off = 50;
+    for(int i=0; i<friend_count; i++) {
+        int fid = my_friends[i];
+        char display[64]; snprintf(display, 64, "ID: %d (Offline)", fid);
+        int online = 0;
+        
+        for(int p=0; p<MAX_CLIENTS; p++) 
+            if(local_players[p].active && local_players[p].id == fid) {
+                snprintf(display, 64, "%s (Online)", local_players[p].username);
+                online = 1;
+            }
+
+        render_text(renderer, display, friend_list_win.x + 20, friend_list_win.y + y_off, online ? col_white : col_btn, 0);
+        y_off += 30;
+    }
 }
 
 void render_popup(SDL_Renderer *renderer, int w, int h) {
@@ -533,9 +601,7 @@ void render_game(SDL_Renderer *renderer) {
                 else SDL_SetRenderDrawColor(renderer, 255, 50, 50, 255);
                 SDL_RenderFillRect(renderer, &dst);
             }
-            SDL_Color name_col = col_yellow; 
-            if (local_players[i].id == local_player_id) name_col = col_cyan; 
-            else { for(int f=0; f<friend_count; f++) if (my_friends[f] == local_players[i].id) name_col = col_green; }
+            SDL_Color name_col = {local_players[i].r, local_players[i].g, local_players[i].b, 255};
             
             if (local_players[i].id == selected_player_id) { SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderDrawRect(renderer, &dst); }
             render_text(renderer, local_players[i].username, dst.x+16, dst.y - 18, name_col, 1);
@@ -548,11 +614,17 @@ void render_game(SDL_Renderer *renderer) {
     render_settings_menu(renderer, w, h);
     render_blocked_list(renderer, w, h); // NEW CALL
     render_debug_overlay(renderer, w);
+    render_friend_list(renderer, w, h);
     render_hud(renderer, h);
 
     btn_chat_toggle = (SDL_Rect){10, h-40, 100, 30};
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_chat_toggle);
     render_text(renderer, is_chat_open ? "Close" : "Chat", btn_chat_toggle.x+50, btn_chat_toggle.y+5, col_white, 1);
+
+    // Friend Toggle (Middle)
+    btn_view_friends = (SDL_Rect){120, h-40, 100, 30};
+    SDL_SetRenderDrawColor(renderer, 0, 100, 0, 255); SDL_RenderFillRect(renderer, &btn_view_friends);
+    render_text(renderer, "Friends", btn_view_friends.x+50, btn_view_friends.y+5, col_white, 1);
 
     btn_settings_toggle = (SDL_Rect){120, h-40, 100, 30};
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_settings_toggle);
@@ -585,6 +657,11 @@ void render_game(SDL_Renderer *renderer) {
 }
 
 void handle_game_click(int mx, int my, int cam_x, int cam_y) {
+    if (show_friend_list) {
+        SDL_Rect btn_close = {friend_list_win.x + 260, friend_list_win.y + 5, 30, 30};
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_close)) show_friend_list = 0;
+        return; // Modal
+    }
     if (show_blocked_list) {
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_close_blocked)) {
             show_blocked_list = 0;
@@ -621,6 +698,26 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y) {
             Packet pkt; 
             pkt.type = PACKET_STATUS_CHANGE;
             pkt.new_status = my_status;
+            send_packet(&pkt);
+        }
+        // Check Sliders
+        int changed = 0;
+        int my_r, my_g, my_b; // Get current
+        for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) { my_r=local_players[i].r; my_g=local_players[i].g; my_b=local_players[i].b; }
+
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_r)) {
+            my_r = (int)(((mx - slider_r.x) / 200.0) * 255); changed = 1;
+        } 
+        else if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_g)) {
+            my_g = (int)(((mx - slider_g.x) / 200.0) * 255); changed = 1;
+        }
+        else if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_b)) {
+            my_b = (int)(((mx - slider_b.x) / 200.0) * 255); changed = 1;
+        }
+
+        if (changed) {
+            Packet pkt; pkt.type = PACKET_COLOR_CHANGE;
+            pkt.r = my_r; pkt.g = my_g; pkt.b = my_b;
             send_packet(&pkt);
         }
         return;

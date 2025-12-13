@@ -24,7 +24,10 @@ void init_db() {
                 "USERNAME TEXT NOT NULL UNIQUE,"
                 "PASSWORD TEXT NOT NULL,"
                 "X REAL NOT NULL,"
-                "Y REAL NOT NULL);";
+                "Y REAL NOT NULL,"
+                "R INTEGER DEFAULT 255,"
+                "G INTEGER DEFAULT 255,"
+                "B INTEGER DEFAULT 0);"; // Default Yellow
     sqlite3_exec(db, sql_users, 0, 0, 0);
 
     // Friends Table
@@ -78,19 +81,27 @@ AuthStatus register_user(const char *user, const char *pass) {
     sqlite3_prepare_v2(db, sql, -1, &stmt, 0); sqlite3_bind_text(stmt, 1, user, -1, SQLITE_STATIC);
     if (sqlite3_step(stmt) == SQLITE_ROW) count = 1; sqlite3_finalize(stmt);
     if (count > 0) return AUTH_REGISTER_FAILED_EXISTS;
-    snprintf(sql, 256, "INSERT INTO users (USERNAME, PASSWORD, X, Y) VALUES ('%s', '%s', 100.0, 100.0);", user, pass);
+    snprintf(sql, 256, "INSERT INTO users (USERNAME, PASSWORD, X, Y, R, G, B) VALUES ('%s', '%s', 100.0, 100.0, 255, 255, 0);", user, pass);
     sqlite3_exec(db, sql, 0, 0, 0); return AUTH_REGISTER_SUCCESS;
 }
 
-int login_user(const char *user, const char *pass, float *player_x, float *player_y) {
+int login_user(const char *user, const char *pass, float *player_x, float *player_y, uint8_t *r, uint8_t *g, uint8_t *b) {
     sqlite3_stmt *stmt; char sql[256];
-    snprintf(sql, 256, "SELECT X, Y FROM users WHERE USERNAME=? AND PASSWORD=?;");
+    snprintf(sql, 256, "SELECT X, Y, R, G, B FROM users WHERE USERNAME=? AND PASSWORD=?;");
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, 0) != SQLITE_OK) return 0;
     sqlite3_bind_text(stmt, 1, user, -1, SQLITE_STATIC); sqlite3_bind_text(stmt, 2, pass, -1, SQLITE_STATIC);
     int logged_in = 0;
-    if (sqlite3_step(stmt) == SQLITE_ROW) { *player_x = (float)sqlite3_column_double(stmt, 0); *player_y = (float)sqlite3_column_double(stmt, 1); logged_in = 1; }
+    if (sqlite3_step(stmt) == SQLITE_ROW) { 
+        *player_x = (float)sqlite3_column_double(stmt, 0); 
+        *player_y = (float)sqlite3_column_double(stmt, 1);
+        *r = (uint8_t)sqlite3_column_int(stmt, 2);
+        *g = (uint8_t)sqlite3_column_int(stmt, 3);
+        *b = (uint8_t)sqlite3_column_int(stmt, 4);
+        logged_in = 1; 
+    }
     sqlite3_finalize(stmt); return logged_in;
 }
+
 void save_player_location(const char *user, float x, float y) {
     char sql[256]; snprintf(sql, 256, "UPDATE users SET X=%f, Y=%f WHERE USERNAME='%s';", x, y, user); sqlite3_exec(db, sql, 0, 0, NULL);
 }
@@ -115,8 +126,8 @@ void handle_client_message(int index, Packet *pkt) {
         if (pkt->type == PACKET_REGISTER_REQUEST) {
             response.status = register_user(pkt->username, pkt->password);
         } else if (pkt->type == PACKET_LOGIN_REQUEST) {
-            float x, y;
-            if (login_user(pkt->username, pkt->password, &x, &y)) {
+            float x, y; uint8_t r, g, b; // Vars for color
+            if (login_user(pkt->username, pkt->password, &x, &y, &r, &g, &b)) {
                  int already = 0; for(int i=0; i<MAX_CLIENTS; i++) if(players[i].active && strcmp(players[i].username, pkt->username)==0) already=1;
                  if(already) response.status = AUTH_FAILURE; 
                  else {
@@ -124,6 +135,7 @@ void handle_client_message(int index, Packet *pkt) {
                     players[index].active = 1;
                     players[index].id = get_user_id(pkt->username); 
                     players[index].x = x; players[index].y = y;
+                    players[index].r = r; players[index].g = g; players[index].b = b;
                     strncpy(players[index].username, pkt->username, 31);
                     response.player_id = players[index].id;
                     send(client_sockets[index], &response, sizeof(Packet), 0);
@@ -253,6 +265,19 @@ void handle_client_message(int index, Packet *pkt) {
         
         // Announce change to everyone
         broadcast_state(); 
+    }
+    else if (pkt->type == PACKET_COLOR_CHANGE) {
+        // 1. Update Memory
+        players[index].r = pkt->r;
+        players[index].g = pkt->g;
+        players[index].b = pkt->b;
+        
+        // 2. Update DB
+        char sql[256];
+        snprintf(sql, 256, "UPDATE users SET R=%d, G=%d, B=%d WHERE ID=%d;", pkt->r, pkt->g, pkt->b, players[index].id);
+        sqlite3_exec(db, sql, 0, 0, 0);
+
+        broadcast_state();
     }
 }
 
