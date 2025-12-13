@@ -147,6 +147,12 @@ void reset_avatar_cache() {
     }
 }
 
+// New helper to handle array shifting
+void push_chat_line(const char *text) {
+    for(int i=0; i<CHAT_HISTORY-1; i++) strcpy(chat_log[i], chat_log[i+1]);
+    strncpy(chat_log[CHAT_HISTORY-1], text, 63);
+}
+
 void play_next_track() {
     if (music_count == 0) return;
     if (bgm) Mix_FreeMusic(bgm);
@@ -207,12 +213,14 @@ void render_text(SDL_Renderer *renderer, const char *text, int x, int y, SDL_Col
 }
 
 void add_chat_message(Packet *pkt) {
+    // 1. Block Check
     if (pkt->player_id != -1 && pkt->player_id != local_player_id) {
         if (is_blocked(pkt->player_id)) return;
     }
-    for(int i=0; i<CHAT_HISTORY-1; i++) strcpy(chat_log[i], chat_log[i+1]);
+
+    // 2. Format the Message into a temporary buffer
+    char entry[128]; 
     
-    char entry[64];
     if (pkt->type == PACKET_PRIVATE_MESSAGE) {
         char *sender_name = "Unknown"; char *target_name = "Unknown";
         for(int i=0; i<MAX_CLIENTS; i++) {
@@ -222,23 +230,53 @@ void add_chat_message(Packet *pkt) {
             }
         }
         if (pkt->player_id == local_player_id) {
-            snprintf(entry, 64, "To [%s]: %s", target_name, pkt->msg);
-            for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == pkt->player_id) { strncpy(floating_texts[i].msg, pkt->msg, 63); floating_texts[i].timestamp = SDL_GetTicks(); }
+            snprintf(entry, 128, "To [%s]: %s", target_name, pkt->msg);
         } else {
-            snprintf(entry, 64, "From [%s]: %s", sender_name, pkt->msg);
-            for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == pkt->player_id) { strncpy(floating_texts[i].msg, pkt->msg, 63); floating_texts[i].timestamp = SDL_GetTicks(); }
+            snprintf(entry, 128, "From [%s]: %s", sender_name, pkt->msg);
         }
     } else {
         char *name = "System";
         if (pkt->player_id != -1) {
             name = "Unknown"; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == pkt->player_id) name = local_players[i].username;
         }
-        snprintf(entry, 64, "[%s]: %s", name, pkt->msg);
-        if (pkt->player_id != -1) {
-            for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == pkt->player_id) { strncpy(floating_texts[i].msg, pkt->msg, 63); floating_texts[i].timestamp = SDL_GetTicks(); }
+        snprintf(entry, 128, "[%s]: %s", name, pkt->msg);
+    }
+
+    // 3. Floating Text Logic (Always show full message above head)
+    if (pkt->player_id != -1) {
+        for(int i=0; i<MAX_CLIENTS; i++) {
+            if(local_players[i].id == pkt->player_id) {
+                strncpy(floating_texts[i].msg, pkt->msg, 63);
+                floating_texts[i].timestamp = SDL_GetTicks();
+            }
         }
     }
-    strcpy(chat_log[CHAT_HISTORY-1], entry);
+
+    // 4. Width Check & Splitting
+    int w, h;
+    TTF_SizeText(font, entry, &w, &h);
+    
+    // Chat window is 300px wide. Text starts at x+15. Safe width ~270.
+    if (w > 270) {
+        // Find a safe split point (35 chars is roughly 270px at size 14)
+        int split_idx = 35;
+        if (strlen(entry) < 35) split_idx = strlen(entry);
+
+        char line1[64], line2[64];
+        
+        // Copy first part
+        strncpy(line1, entry, split_idx);
+        line1[split_idx] = '\0'; 
+        
+        // Copy second part (with indent)
+        snprintf(line2, 64, "  %s", entry + split_idx);
+
+        push_chat_line(line1);
+        push_chat_line(line2);
+    } else {
+        // Fits on one line
+        push_chat_line(entry);
+    }
 }
 
 void render_hud(SDL_Renderer *renderer, int screen_h) {
@@ -390,19 +428,52 @@ void render_popup(SDL_Renderer *renderer, int w, int h) {
     render_text(renderer, "Deny", btn_deny.x + 60, btn_deny.y + 5, col_white, 1);
 }
 
+// --- Role Helpers ---
+const char* get_role_name(int role) {
+    switch(role) {
+        case 1: return "ADMIN";        // ROLE_ADMIN
+        case 2: return "DEV";          // ROLE_DEVELOPER
+        case 3: return "CONTRIB";      // ROLE_CONTRIBUTOR
+        case 4: return "VIP";          // ROLE_VIP
+        default: return "Player";
+    }
+}
+
+SDL_Color get_role_color(int role) {
+    switch(role) {
+        case 1: return (SDL_Color){255, 50, 50, 255};   // Red (Admin)
+        case 2: return (SDL_Color){50, 150, 255, 255};  // Blue (Dev)
+        case 3: return (SDL_Color){0, 200, 100, 255};   // Teal (Contrib)
+        case 4: return (SDL_Color){255, 215, 0, 255};   // Gold (VIP)
+        default: return (SDL_Color){100, 100, 100, 255}; // Grey
+    }
+}
+
 void render_profile(SDL_Renderer *renderer) {
     if (selected_player_id == -1 || selected_player_id == local_player_id) return;
-    int exists = 0; char *name = "Unknown"; int status = 0; int idx = -1;
-    for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == selected_player_id) { exists=1; name=local_players[i].username; status=local_players[i].status; idx = i; }
+
+    // 1. Get Data (FETCH ROLE HERE)
+    int exists = 0; char *name = "Unknown"; int status = 0; int idx = -1; int role = 0;
+    for(int i=0; i<MAX_CLIENTS; i++) 
+        if(local_players[i].id == selected_player_id) { 
+            exists=1; 
+            name=local_players[i].username; 
+            status=local_players[i].status; 
+            role=local_players[i].role; // <--- This was missing in your client!
+            idx = i;
+        }
     if (!exists) { selected_player_id = -1; return; }
 
     int text_w = 0, text_h = 0; TTF_SizeText(font, name, &text_w, &text_h);
     int required_w = 100 + text_w + 20; if (required_w < 200) required_w = 200;
-    profile_win.w = required_w; profile_win.h = 240; 
+
+    profile_win.w = required_w; 
+    profile_win.h = 280; // Increased height
 
     SDL_SetRenderDrawColor(renderer, 30, 30, 50, 230); SDL_RenderFillRect(renderer, &profile_win);
     SDL_SetRenderDrawColor(renderer, 200, 200, 255, 255); SDL_RenderDrawRect(renderer, &profile_win);
-    
+
+    // Avatar
     SDL_Rect avatar_rect = {profile_win.x + 20, profile_win.y + 20, 64, 64};
     if (avatar_status[idx] == 0) { Packet req; req.type = PACKET_AVATAR_REQUEST; req.target_id = selected_player_id; send_packet(&req); avatar_status[idx] = 1; }
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_RenderFillRect(renderer, &avatar_rect);
@@ -410,10 +481,32 @@ void render_profile(SDL_Renderer *renderer) {
     else render_text(renderer, "?", avatar_rect.x + 25, avatar_rect.y + 20, col_white, 0);
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderDrawRect(renderer, &avatar_rect);
 
-    render_text(renderer, name, profile_win.x + 100, profile_win.y + 20, col_white, 0);
-    render_text(renderer, status_names[status], profile_win.x + 100, profile_win.y + 45, get_status_color(status), 0);
+    int text_x = profile_win.x + 100;
 
-    int btn_w = profile_win.w - 40; int start_y = profile_win.y + 90;
+    // Name
+    render_text(renderer, name, text_x, profile_win.y + 15, col_white, 0);
+
+    // --- NEW: ROLE TAG ---
+    if (role != 0) { 
+        const char* r_name = get_role_name(role);
+        int rw, rh; TTF_SizeText(font, r_name, &rw, &rh);
+        SDL_Rect role_box = {text_x, profile_win.y + 40, rw + 10, rh};
+        SDL_Color rc = get_role_color(role);
+
+        SDL_SetRenderDrawColor(renderer, rc.r, rc.g, rc.b, 255);
+        SDL_RenderFillRect(renderer, &role_box);
+        render_text(renderer, r_name, text_x + 5, profile_win.y + 40, col_black, 0);
+    }
+
+    // --- NEW: ID ---
+    char id_str[32]; snprintf(id_str, 32, "ID: %d", selected_player_id);
+    render_text(renderer, id_str, text_x, profile_win.y + 65, (SDL_Color){150,150,150,255}, 0);
+
+    // Status
+    render_text(renderer, status_names[status], text_x, profile_win.y + 90, get_status_color(status), 0);
+
+    // Buttons
+    int btn_w = profile_win.w - 40; int start_y = profile_win.y + 120;
     int is_friend = 0; for(int i=0; i<friend_count; i++) if(my_friends[i] == selected_player_id) is_friend = 1;
     SDL_Rect btn = {profile_win.x + 20, start_y, btn_w, 30}; 
     if (!is_friend) { SDL_SetRenderDrawColor(renderer, 0, 100, 0, 255); SDL_RenderFillRect(renderer, &btn); render_text(renderer, "+ Add Friend", btn.x + (btn_w/2), btn.y + 5, col_white, 1); } 
@@ -560,27 +653,58 @@ void render_game(SDL_Renderer *renderer) {
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_settings_toggle);
     render_text(renderer, "Settings", btn_settings_toggle.x+50, btn_settings_toggle.y+5, col_white, 1);
 
-    if(is_chat_open) {
+if(is_chat_open) {
         SDL_Rect win = {10, h-240, 300, 190};
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
         SDL_SetRenderDrawColor(renderer, 0,0,0,200); SDL_RenderFillRect(renderer, &win);
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
         
+        // 1. CLIP LOG (Prevents history bleeding)
+        SDL_RenderSetClipRect(renderer, &win); 
+
         for(int i=0; i<CHAT_HISTORY; i++) {
             SDL_Color line_col = col_white;
             if (strncmp(chat_log[i], "To [", 4) == 0 || strncmp(chat_log[i], "From [", 6) == 0) line_col = col_magenta;
+            // Draw logs with offset so they don't touch edges
             render_text(renderer, chat_log[i], 15, win.y+10+(i*15), line_col, 0);
         }
 
-        char buf[128];
+        SDL_RenderSetClipRect(renderer, NULL); // Disable Clip
+
+        // 2. INPUT SCROLLING LOGIC
+        char full_str[256];
+        SDL_Color input_col = col_cyan;
+        
+        // Construct the full prompt string
         if (chat_target_id != -1) {
             char *name = "Unknown";
             for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == chat_target_id) name = local_players[i].username;
-            snprintf(buf, 128, "To %s: %s_", name, input_buffer);
-            render_text(renderer, buf, 15, win.y+win.h-20, col_magenta, 0); 
+            snprintf(full_str, 256, "To %s: %s_", name, input_buffer);
+            input_col = col_magenta;
         } else {
-            snprintf(buf, 128, "> %s_", input_buffer);
-            render_text(renderer, buf, 15, win.y+win.h-20, col_cyan, 0);
+            snprintf(full_str, 256, "> %s_", input_buffer);
+        }
+
+        // Measure width
+        int w, h;
+        TTF_SizeText(font, full_str, &w, &h);
+        
+        // Safe width is ~270px (300px window - padding)
+        if (w <= 270) {
+            // Fits? Render normally
+            render_text(renderer, full_str, 15, win.y+win.h-20, input_col, 0);
+        } else {
+            // Too long? Find the suffix that fits
+            int len = strlen(full_str);
+            for(int i=0; i<len; i++) {
+                const char* sub = &full_str[i];
+                int sub_w;
+                TTF_SizeText(font, sub, &sub_w, &h);
+                if (sub_w <= 270) {
+                    render_text(renderer, sub, 15, win.y+win.h-20, input_col, 0);
+                    break;
+                }
+            }
         }
     }
     SDL_RenderPresent(renderer);
