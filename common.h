@@ -39,6 +39,14 @@ typedef enum {
     AUTH_REGISTER_FAILED_EXISTS, AUTH_REGISTER_FAILED_DB
 } AuthStatus;
 
+// NEW: Struct for Friend Data
+typedef struct {
+    int id;
+    char username[32];
+    char last_login[32]; // e.g. "2023-10-27 14:30"
+    int is_online;       // 1=Online, 0=Offline
+} FriendInfo;
+
 typedef struct {
     int id;
     float x; float y;
@@ -57,7 +65,9 @@ typedef struct {
     Player players[MAX_CLIENTS];
     char username[32]; char password[32];
     AuthStatus status;
-    int friend_ids[20]; int friend_count;
+    // UPDATED: Rich Friend Data
+    FriendInfo friends[20]; 
+    int friend_count;
     int response_accepted;
     uint32_t timestamp;
     int new_status;

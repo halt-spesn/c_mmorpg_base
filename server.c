@@ -8,6 +8,7 @@
 #include <math.h>
 #include "common.h"
 #include <sys/stat.h>
+#include <errno.h>
 
 Player players[MAX_CLIENTS];
 int client_sockets[MAX_CLIENTS];
@@ -15,7 +16,7 @@ sqlite3 *db;
 int next_player_id = 100;
 
 // --- Helper Prototypes ---
-void broadcast_state(); // Forward declaration
+void broadcast_state(); 
 
 // --- Database & Storage ---
 
@@ -40,7 +41,8 @@ void init_db() {
                 "R INTEGER DEFAULT 255,"
                 "G INTEGER DEFAULT 255,"
                 "B INTEGER DEFAULT 0,"
-                "ROLE INTEGER DEFAULT 0);"; 
+                "ROLE INTEGER DEFAULT 0,"
+                "LAST_LOGIN TEXT DEFAULT 'Never');"; 
     sqlite3_exec(db, sql_users, 0, 0, 0);
 
     char *sql_friends = "CREATE TABLE IF NOT EXISTS friends("
@@ -50,7 +52,7 @@ void init_db() {
                         "PRIMARY KEY (USER_ID, FRIEND_ID));";
     sqlite3_exec(db, sql_friends, 0, 0, 0);
     
-    // Auto-admin ID 100
+    // Ensure ID 1 is Admin
     sqlite3_exec(db, "UPDATE users SET ROLE=1 WHERE ID=1;", 0, 0, 0);
 }
 
@@ -81,16 +83,37 @@ void send_friend_list(int client_index) {
     pkt.type = PACKET_FRIEND_LIST;
     pkt.friend_count = 0;
 
-    char sql[256];
-    snprintf(sql, 256, "SELECT FRIEND_ID FROM friends WHERE USER_ID=%d AND STATUS=1;", my_id);
+    char sql[512];
+    snprintf(sql, 512, 
+        "SELECT f.FRIEND_ID, u.USERNAME, u.LAST_LOGIN "
+        "FROM friends f "
+        "JOIN users u ON f.FRIEND_ID = u.ID "
+        "WHERE f.USER_ID=%d AND f.STATUS=1;", my_id);
     
     sqlite3_stmt *stmt;
-    sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
-    while (sqlite3_step(stmt) == SQLITE_ROW && pkt.friend_count < 20) {
-        pkt.friend_ids[pkt.friend_count++] = sqlite3_column_int(stmt, 0);
-    }
-    sqlite3_finalize(stmt);
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, 0) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW && pkt.friend_count < 20) {
+            int fid = sqlite3_column_int(stmt, 0);
+            const unsigned char *fname = sqlite3_column_text(stmt, 1);
+            const unsigned char *flogin = sqlite3_column_text(stmt, 2);
 
+            pkt.friends[pkt.friend_count].id = fid;
+            strncpy(pkt.friends[pkt.friend_count].username, (const char*)fname, 31);
+            
+            if (flogin) strncpy(pkt.friends[pkt.friend_count].last_login, (const char*)flogin, 31);
+            else strcpy(pkt.friends[pkt.friend_count].last_login, "Unknown");
+
+            pkt.friends[pkt.friend_count].is_online = 0;
+            for(int i=0; i<MAX_CLIENTS; i++) {
+                if(players[i].active && players[i].id == fid) {
+                    pkt.friends[pkt.friend_count].is_online = 1;
+                    break;
+                }
+            }
+            pkt.friend_count++;
+        }
+        sqlite3_finalize(stmt);
+    }
     send(client_sockets[client_index], &pkt, sizeof(Packet), 0);
 }
 
@@ -104,13 +127,10 @@ AuthStatus register_user(const char *user, const char *pass) {
     sqlite3_exec(db, sql, 0, 0, 0); return AUTH_REGISTER_SUCCESS;
 }
 
-// FIXED: Added 'int *role' as the last argument
 int login_user(const char *user, const char *pass, float *player_x, float *player_y, uint8_t *r, uint8_t *g, uint8_t *b, int *role) {
     sqlite3_stmt *stmt;
     char sql[256];
-    // Select ROLE (column index 5)
     snprintf(sql, 256, "SELECT X, Y, R, G, B, ROLE FROM users WHERE USERNAME=? AND PASSWORD=?;");
-    
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, 0) != SQLITE_OK) return 0;
     sqlite3_bind_text(stmt, 1, user, -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt, 2, pass, -1, SQLITE_STATIC);
@@ -122,8 +142,13 @@ int login_user(const char *user, const char *pass, float *player_x, float *playe
         *r = (uint8_t)sqlite3_column_int(stmt, 2);
         *g = (uint8_t)sqlite3_column_int(stmt, 3);
         *b = (uint8_t)sqlite3_column_int(stmt, 4);
-        *role = sqlite3_column_int(stmt, 5); // Load Role from DB
+        *role = sqlite3_column_int(stmt, 5);
         logged_in = 1; 
+    }
+    if (logged_in) {
+        char update_sql[256];
+        snprintf(update_sql, 256, "UPDATE users SET LAST_LOGIN=datetime('now', 'localtime') WHERE USERNAME='%s';", user);
+        sqlite3_exec(db, update_sql, 0, 0, 0);
     }
     sqlite3_finalize(stmt);
     return logged_in;
@@ -133,20 +158,23 @@ void save_player_location(const char *user, float x, float y) {
     char sql[256]; snprintf(sql, 256, "UPDATE users SET X=%f, Y=%f WHERE USERNAME='%s';", x, y, user); sqlite3_exec(db, sql, 0, 0, NULL);
 }
 
-// --- Game Logic ---
-
 void init_game() {
     init_db();
     init_storage();
     for (int i = 0; i < MAX_CLIENTS; i++) { client_sockets[i] = 0; players[i].active = 0; players[i].id = -1; }
 }
 
-// MOVED UP: Defined here so process_admin_command can see it
 void broadcast_state() {
     Packet pkt; pkt.type = PACKET_UPDATE;
     memcpy(pkt.players, players, sizeof(players));
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (client_sockets[i] > 0 && players[i].id != -1) send(client_sockets[i], &pkt, sizeof(Packet), 0);
+    }
+}
+
+void broadcast_friend_update() {
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (client_sockets[i] > 0 && players[i].active) send_friend_list(i);
     }
 }
 
@@ -160,30 +188,20 @@ void process_admin_command(int sender_idx, char *msg) {
 
     char cmd[16], arg1[32], arg2[32];
     int args = sscanf(msg, "%s %s %s", cmd, arg1, arg2);
-
     int target_id = -1;
     int new_role = ROLE_PLAYER;
 
     if (strcmp(cmd, "/demote") == 0 && args >= 2) {
-        target_id = atoi(arg1);
-        new_role = ROLE_PLAYER;
+        target_id = atoi(arg1); new_role = ROLE_PLAYER;
     }
     else if (strcmp(cmd, "/promote") == 0 && args >= 3) {
-        new_role = get_role_id_from_name(arg1);
-        target_id = atoi(arg2);
-        if (new_role == -1) {
-            Packet err; err.type = PACKET_CHAT; err.player_id = -1;
-            strcpy(err.msg, "Invalid Role.");
-            send(client_sockets[sender_idx], &err, sizeof(Packet), 0);
-            return;
-        }
+        new_role = get_role_id_from_name(arg1); target_id = atoi(arg2);
+        if (new_role == -1) return;
     } else return;
 
     if (target_id != -1) {
-        char sql[256];
-        snprintf(sql, 256, "UPDATE users SET ROLE=%d WHERE ID=%d;", new_role, target_id);
-        char *err_msg = 0;
-        sqlite3_exec(db, sql, 0, 0, &err_msg);
+        char sql[256]; snprintf(sql, 256, "UPDATE users SET ROLE=%d WHERE ID=%d;", new_role, target_id);
+        char *err_msg = 0; sqlite3_exec(db, sql, 0, 0, &err_msg);
 
         for(int i=0; i<MAX_CLIENTS; i++) {
             if (players[i].active && players[i].id == target_id) {
@@ -193,11 +211,9 @@ void process_admin_command(int sender_idx, char *msg) {
                 send(client_sockets[i], &notif, sizeof(Packet), 0);
             }
         }
-
         Packet resp; resp.type = PACKET_CHAT; resp.player_id = -1;
         snprintf(resp.msg, 64, "User %d set to role %d.", target_id, new_role);
         send(client_sockets[sender_idx], &resp, sizeof(Packet), 0);
-
         broadcast_state();
     }
 }
@@ -208,34 +224,28 @@ void handle_client_message(int index, Packet *pkt) {
         if (pkt->type == PACKET_REGISTER_REQUEST) {
             response.status = register_user(pkt->username, pkt->password);
         } else if (pkt->type == PACKET_LOGIN_REQUEST) {
-            float x, y; 
-            uint8_t r, g, b; 
-            int role = 0; // Temp variable
-
-            // FIXED: Pass &role to the function
+            float x, y; uint8_t r, g, b; int role;
             if (login_user(pkt->username, pkt->password, &x, &y, &r, &g, &b, &role)) {
-                 int already = 0; 
-                 for(int i=0; i<MAX_CLIENTS; i++) 
-                    if(players[i].active && strcmp(players[i].username, pkt->username)==0) already=1;
-                 
+                 int already = 0; for(int i=0; i<MAX_CLIENTS; i++) if(players[i].active && strcmp(players[i].username, pkt->username)==0) already=1;
                  if(already) response.status = AUTH_FAILURE; 
                  else {
                     response.status = AUTH_SUCCESS;
                     players[index].active = 1;
                     players[index].id = get_user_id(pkt->username); 
-                    players[index].x = x; 
-                    players[index].y = y;
-                    players[index].r = r; 
-                    players[index].g = g; 
-                    players[index].b = b;
-                    
-                    // FIXED: Apply the role to the player struct
+                    // --- FIX: Force Admin for ID 1 ---
+                    if (players[index].id == 1) {
+                        role = ROLE_ADMIN; // Override whatever DB said
+                        // Save to DB so it sticks for next time
+                        sqlite3_exec(db, "UPDATE users SET ROLE=1 WHERE ID=1;", 0, 0, 0);
+                    }
+                    // ---------------------------------
+                    players[index].x = x; players[index].y = y;
+                    players[index].r = r; players[index].g = g; players[index].b = b;
                     players[index].role = role; 
-                    
                     strncpy(players[index].username, pkt->username, 31);
                     response.player_id = players[index].id;
                     send(client_sockets[index], &response, sizeof(Packet), 0);
-                    send_friend_list(index);
+                    broadcast_friend_update();
                     broadcast_state(); 
                     return;
                  }
@@ -262,10 +272,6 @@ void handle_client_message(int index, Packet *pkt) {
         if (pkt->msg[0] == '/') {
             if (strncmp(pkt->msg, "/promote", 8) == 0 || strncmp(pkt->msg, "/demote", 7) == 0) {
                 process_admin_command(index, pkt->msg);
-            } else {
-                // Friend commands parsing would go here or be processed similarly
-                // For now, let's assume /add was handled in a different function or here
-                // (Omitted friend cmd function to save space, assuming previous logic)
             }
         } else {
             Packet chatPkt = *pkt;
@@ -287,9 +293,13 @@ void handle_client_message(int index, Packet *pkt) {
     }
     else if (pkt->type == PACKET_FRIEND_RESPONSE) {
         if (pkt->response_accepted) {
-            int requester_id = pkt->target_id; int my_id = players[index].id;
-            char sql[512]; snprintf(sql, 512, "INSERT OR REPLACE INTO friends (USER_ID, FRIEND_ID, STATUS) VALUES (%d, %d, 1), (%d, %d, 1);", my_id, requester_id, requester_id, my_id);
-            sqlite3_exec(db, sql, 0, 0, 0);
+            int requester_id = pkt->target_id;
+            int my_id = players[index].id;
+            char sql[256]; char *err_msg = 0;
+            snprintf(sql, 256, "INSERT OR REPLACE INTO friends (USER_ID, FRIEND_ID, STATUS) VALUES (%d, %d, 1);", my_id, requester_id);
+            sqlite3_exec(db, sql, 0, 0, &err_msg);
+            snprintf(sql, 256, "INSERT OR REPLACE INTO friends (USER_ID, FRIEND_ID, STATUS) VALUES (%d, %d, 1);", requester_id, my_id);
+            sqlite3_exec(db, sql, 0, 0, &err_msg);
             send_friend_list(index);
             for(int i=0; i<MAX_CLIENTS; i++) if(players[i].id == requester_id) send_friend_list(i);
         }
@@ -341,6 +351,20 @@ void handle_client_message(int index, Packet *pkt) {
     }
 }
 
+// --- NEW HELPER: Receives exact bytes or fails ---
+int recv_full(int sockfd, void *buf, size_t len) {
+    size_t total = 0;
+    size_t bytes_left = len;
+    int n;
+    while(total < len) {
+        n = recv(sockfd, (char*)buf + total, bytes_left, 0);
+        if(n <= 0) return n; // Error or Disconnect
+        total += n;
+        bytes_left -= n;
+    }
+    return total;
+}
+
 int main() {
     int server_fd, new_socket, max_sd, sd;
     struct sockaddr_in address; fd_set readfds;
@@ -371,11 +395,28 @@ int main() {
             sd = client_sockets[i];
             if (FD_ISSET(sd, &readfds)) {
                 Packet pkt;
-                if (read(sd, &pkt, sizeof(Packet)) == 0) {
-                    close(sd); client_sockets[i] = 0;
-                    if(players[i].active) save_player_location(players[i].username, players[i].x, players[i].y);
-                    players[i].active = 0; broadcast_state();
-                } else { handle_client_message(i, &pkt); }
+                // --- FIXED NETWORK READ LOGIC ---
+                // We use MSG_WAITALL to ensure we get the full 17KB packet
+                // checking <= 0 ensures we catch errors and disconnects
+                int valread = recv(sd, &pkt, sizeof(Packet), MSG_WAITALL);
+                
+                if (valread <= 0) {
+                    // Client Disconnected or Error
+                    close(sd); 
+                    client_sockets[i] = 0;
+                    if(players[i].active) {
+                        save_player_location(players[i].username, players[i].x, players[i].y);
+                        // Update Last Seen
+                        char sql[256];
+                        snprintf(sql, 256, "UPDATE users SET LAST_LOGIN=datetime('now', 'localtime') WHERE ID=%d;", players[i].id);
+                        sqlite3_exec(db, sql, 0, 0, 0);
+                    }
+                    players[i].active = 0; 
+                    broadcast_state(); 
+                    broadcast_friend_update();
+                } else { 
+                    handle_client_message(i, &pkt); 
+                }
             }
         }
     }
