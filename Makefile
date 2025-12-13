@@ -16,7 +16,7 @@ CLIENT_CFLAGS = $(shell pkg-config --cflags sdl2 SDL2_image SDL2_ttf)
 
 # 2. Отримуємо прапори лінкування (шляхи до .so бібліотек)
 # pkg-config автоматично додасть -lSDL2 -lSDL2_image -lSDL2_ttf
-CLIENT_LDFLAGS = $(shell pkg-config --libs sdl2 SDL2_image SDL2_ttf) -lm -lGL
+CLIENT_LDFLAGS = $(shell pkg-config --libs sdl2 SDL2_image SDL2_ttf) -lSDL2_mixer -lm -lGL
 
 all: server client
 
