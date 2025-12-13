@@ -3,3 +3,5 @@ server
 mmorpg.db
 avatars/
 music/
+mmorpg.db-shm
+mmorpg.db-wal

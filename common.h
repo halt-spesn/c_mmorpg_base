@@ -73,7 +73,7 @@ typedef struct {
     int new_status;
     uint8_t r, g, b;
     int image_size;
-    uint8_t image_data[MAX_AVATAR_SIZE]; 
+    uint8_t image_data; 
 } Packet;
 
 #endif

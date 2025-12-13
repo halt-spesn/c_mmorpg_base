@@ -131,6 +131,8 @@ Mix_Music *bgm = NULL;
 int music_volume = 64; 
 SDL_Rect slider_volume; 
 
+uint8_t temp_avatar_buf[MAX_AVATAR_SIZE];
+
 // --- Helpers ---
 void send_packet(Packet *pkt) { send(sock, pkt, sizeof(Packet), 0); }
 
@@ -889,8 +891,14 @@ int main(int argc, char const *argv[]) {
                     if (fp) {
                         fseek(fp, 0, SEEK_END); long fsize = ftell(fp); fseek(fp, 0, SEEK_SET);
                         if (fsize > 0 && fsize <= MAX_AVATAR_SIZE) {
+                            // 1. Send Header
                             Packet pkt; pkt.type = PACKET_AVATAR_UPLOAD; pkt.image_size = fsize;
-                            fread(pkt.image_data, 1, fsize, fp); send_packet(&pkt);
+                            send_packet(&pkt);
+                            
+                            // 2. Send Body
+                            fread(temp_avatar_buf, 1, fsize, fp);
+                            send(sock, temp_avatar_buf, fsize, 0);
+                            
                             printf("Uploaded avatar: %ld bytes\n", fsize);
                         } else { printf("File too large! Max 16KB.\n"); }
                         fclose(fp);
@@ -996,22 +1004,32 @@ int main(int argc, char const *argv[]) {
                 if (pkt.type == PACKET_PING) current_ping = SDL_GetTicks() - pkt.timestamp;
                 
                 if (pkt.type == PACKET_AVATAR_RESPONSE) {
-                    int target_idx = -1;
-                    for(int i=0; i<MAX_CLIENTS; i++) 
-                        if(local_players[i].active && local_players[i].id == pkt.player_id) target_idx = i;
-                    
-                    if (target_idx != -1) {
-                        SDL_RWops *rw = SDL_RWFromMem(pkt.image_data, pkt.image_size);
-                        SDL_Surface *surf = IMG_Load_RW(rw, 1); 
-                        if (surf) {
-                            if (avatar_cache[target_idx]) SDL_DestroyTexture(avatar_cache[target_idx]);
-                            avatar_cache[target_idx] = SDL_CreateTextureFromSurface(renderer, surf);
-                            avatar_status[target_idx] = 2; 
-                            SDL_FreeSurface(surf);
+                    if (pkt.image_size > 0 && pkt.image_size <= MAX_AVATAR_SIZE) {
+                        // Read Body
+                        int total = 0;
+                        while(total < pkt.image_size) {
+                            int n = recv(sock, temp_avatar_buf + total, pkt.image_size - total, 0);
+                            if(n > 0) total += n;
+                        }
+
+                        // Process Image
+                        int target_idx = -1;
+                        for(int i=0; i<MAX_CLIENTS; i++) 
+                            if(local_players[i].active && local_players[i].id == pkt.player_id) target_idx = i;
+                        
+                        if (target_idx != -1) {
+                            SDL_RWops *rw = SDL_RWFromMem(temp_avatar_buf, pkt.image_size);
+                            SDL_Surface *surf = IMG_Load_RW(rw, 1); 
+                            if (surf) {
+                                if (avatar_cache[target_idx]) SDL_DestroyTexture(avatar_cache[target_idx]);
+                                avatar_cache[target_idx] = SDL_CreateTextureFromSurface(renderer, surf);
+                                avatar_status[target_idx] = 2; 
+                                SDL_FreeSurface(surf);
+                            }
                         }
                     }
                 }
-            }
+            }    
         }
 
         if (client_state == STATE_AUTH) render_auth_screen(renderer); else render_game(renderer);
