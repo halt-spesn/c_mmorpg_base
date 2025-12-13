@@ -7,8 +7,8 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
 #include <SDL2/SDL_image.h>
-#include <sys/utsname.h> // For Kernel info
-#include <GL/gl.h>       // For GPU info
+#include <sys/utsname.h>
+#include <GL/gl.h>
 #include "common.h"
 
 // --- Config ---
@@ -21,7 +21,7 @@
 
 // --- Globals ---
 int sock;
-char server_ip[16] = "127.0.0.1"; // Store IP for debug
+char server_ip[16] = "127.0.0.1";
 TTF_Font *font = NULL;
 SDL_Texture *tex_map = NULL;
 SDL_Texture *tex_player = NULL;
@@ -37,8 +37,9 @@ int selected_player_id = -1;
 int pending_friend_req_id = -1;
 char pending_friend_name[32] = "";
 
-SDL_Rect profile_win = {10, 10, 200, 80};
+SDL_Rect profile_win = {10, 10, 200, 130}; // Taller for PM button
 SDL_Rect btn_add_friend = {20, 50, 180, 30};
+SDL_Rect btn_send_pm    = {20, 90, 180, 30}; // NEW Button
 SDL_Rect popup_win;
 
 // Settings & Debug State
@@ -49,7 +50,7 @@ int show_coords = 0;
 int current_ping = 0;
 Uint32 last_ping_sent = 0;
 
-// FPS Calculation State
+// FPS Calculation
 int current_fps = 0;
 int frame_count = 0;
 Uint32 last_fps_check = 0;
@@ -57,10 +58,8 @@ Uint32 last_fps_check = 0;
 SDL_Rect btn_settings_toggle;
 SDL_Rect settings_win;
 SDL_Rect btn_toggle_debug;
-SDL_Rect btn_toggle_fps;    // NEW
-SDL_Rect btn_toggle_coords; // NEW
-int show_password = 0; // NEW: Toggle state
-SDL_Rect btn_show_pass; // NEW: UI Button Rect
+SDL_Rect btn_toggle_fps;
+SDL_Rect btn_toggle_coords;
 
 // Chat & Auth
 typedef struct { char msg[64]; Uint32 timestamp; } FloatingText;
@@ -69,6 +68,7 @@ FloatingText floating_texts[MAX_CLIENTS];
 char chat_log[CHAT_HISTORY][64];
 int chat_log_count = 0;
 int is_chat_open = 0;
+int chat_target_id = -1; // -1=Global, >0=PM Target
 char input_buffer[64] = "";
 
 typedef enum { STATE_AUTH, STATE_GAME } ClientState;
@@ -78,9 +78,10 @@ ClientState client_state = STATE_AUTH;
 char auth_username[MAX_INPUT_LEN+1] = "";
 char auth_password[MAX_INPUT_LEN+1] = "";
 int active_field = 0;
+int show_password = 0;
 char auth_message[128] = "Enter Credentials";
 
-SDL_Rect auth_box, btn_login, btn_register, btn_chat_toggle;
+SDL_Rect auth_box, btn_login, btn_register, btn_chat_toggle, btn_show_pass;
 SDL_Color col_white = {255,255,255,255};
 SDL_Color col_red = {255,50,50,255};
 SDL_Color col_yellow = {255,255,0,255};
@@ -88,6 +89,7 @@ SDL_Color col_cyan = {0,255,255,255};
 SDL_Color col_green = {0,255,0,255}; 
 SDL_Color col_btn = {100,100,100,255};
 SDL_Color col_black = {0,0,0,255};
+SDL_Color col_magenta = {255,0,255,255}; // PM Color
 
 // --- Helpers ---
 void send_packet(Packet *pkt) { send(sock, pkt, sizeof(Packet), 0); }
@@ -104,43 +106,107 @@ void render_text(SDL_Renderer *renderer, const char *text, int x, int y, SDL_Col
     SDL_DestroyTexture(texture);
 }
 
-void add_chat_message(int player_id, char *msg) {
+void add_chat_message(Packet *pkt) {
     for(int i=0; i<CHAT_HISTORY-1; i++) strcpy(chat_log[i], chat_log[i+1]);
-    char *name = "System";
-    if (player_id != -1) {
-        name = "Unknown";
-        for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == player_id) name = local_players[i].username;
-    }
-    snprintf(chat_log[CHAT_HISTORY-1], 64, "[%s]: %s", name, msg);
-    if (player_id != -1) {
+    
+    char entry[64];
+    
+    if (pkt->type == PACKET_PRIVATE_MESSAGE) {
+        char *sender_name = "Unknown";
+        char *target_name = "Unknown";
+        
         for(int i=0; i<MAX_CLIENTS; i++) {
-            if(local_players[i].id == player_id) {
-                strncpy(floating_texts[i].msg, msg, 63);
-                floating_texts[i].timestamp = SDL_GetTicks();
+            if (local_players[i].active) {
+                if (local_players[i].id == pkt->player_id) sender_name = local_players[i].username;
+                if (local_players[i].id == pkt->target_id) target_name = local_players[i].username;
+            }
+        }
+
+        if (pkt->player_id == local_player_id) {
+            // OUTGOING (I sent it)
+            snprintf(entry, 64, "To [%s]: %s", target_name, pkt->msg);
+
+            // --- ADD THIS BLOCK HERE ---
+            // Show floating text above MY head
+            for(int i=0; i<MAX_CLIENTS; i++) {
+                if(local_players[i].id == pkt->player_id) { // pkt->player_id is ME
+                    strncpy(floating_texts[i].msg, pkt->msg, 63);
+                    floating_texts[i].timestamp = SDL_GetTicks();
+                }
+            }
+            // ---------------------------
+        } else {
+            // INCOMING (Someone sent to me)
+            snprintf(entry, 64, "From [%s]: %s", sender_name, pkt->msg);
+            
+            // Show floating text above SENDER'S head
+            for(int i=0; i<MAX_CLIENTS; i++) {
+                if(local_players[i].id == pkt->player_id) {
+                    strncpy(floating_texts[i].msg, pkt->msg, 63);
+                    floating_texts[i].timestamp = SDL_GetTicks();
+                }
+            }
+        }
+    } else {
+        // Normal Chat
+        char *name = "System";
+        if (pkt->player_id != -1) {
+            name = "Unknown";
+            for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == pkt->player_id) name = local_players[i].username;
+        }
+        snprintf(entry, 64, "[%s]: %s", name, pkt->msg);
+        
+        // Floating text
+        if (pkt->player_id != -1) {
+            for(int i=0; i<MAX_CLIENTS; i++) {
+                if(local_players[i].id == pkt->player_id) {
+                    strncpy(floating_texts[i].msg, pkt->msg, 63);
+                    floating_texts[i].timestamp = SDL_GetTicks();
+                }
             }
         }
     }
+    strcpy(chat_log[CHAT_HISTORY-1], entry);
 }
 
-// --- Debug Renderer (Dynamic Size) ---
+// --- HUD & Debug ---
+
+void render_hud(SDL_Renderer *renderer, int screen_h) {
+    int y = 10;
+    char buf[64];
+
+    if (show_fps) {
+        snprintf(buf, 64, "FPS: %d", current_fps);
+        int w, h; TTF_SizeText(font, buf, &w, &h);
+        SDL_Rect bg = {10, y, w+4, h};
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 150); SDL_RenderFillRect(renderer, &bg);
+        render_text(renderer, buf, 12, y, col_green, 0); y += 20;
+    }
+
+    if (show_coords) {
+        float px=0, py=0;
+        for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { px=local_players[i].x; py=local_players[i].y; }
+        snprintf(buf, 64, "XY: %.0f, %.0f", px, py);
+        int w, h; TTF_SizeText(font, buf, &w, &h);
+        SDL_Rect bg = {10, y, w+4, h};
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 150); SDL_RenderFillRect(renderer, &bg);
+        render_text(renderer, buf, 12, y, col_white, 0);
+    }
+}
+
 void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
     if (!show_debug_info) return;
 
-    // Buffer to hold our lines before rendering
     char lines[10][128];
     int line_count = 0;
 
-    // 1. Prepare all strings
     snprintf(lines[line_count++], 128, "Ping: %d ms", current_ping);
     snprintf(lines[line_count++], 128, "Server IP: %s", server_ip);
 
     float px=0, py=0;
-    for(int i=0; i<MAX_CLIENTS; i++) 
-        if(local_players[i].active && local_players[i].id == local_player_id) 
-        { px=local_players[i].x; py=local_players[i].y; }
+    for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { px=local_players[i].x; py=local_players[i].y; }
     snprintf(lines[line_count++], 128, "Pos: %.1f, %.1f", px, py);
 
-    // GPU (No truncation!)
     const unsigned char *renderer_str = glGetString(GL_RENDERER);
     if (renderer_str) snprintf(lines[line_count++], 128, "GPU: %s", renderer_str);
     else snprintf(lines[line_count++], 128, "GPU: Unknown");
@@ -157,40 +223,24 @@ void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
         strcpy(compiler_name, "Clang");
     #elif defined(__GNUC__)
         strcpy(compiler_name, "GCC");
-    #elif defined(_MSC_VER)
-        strcpy(compiler_name, "MSVC");
     #endif
     snprintf(lines[line_count++], 128, "Compiler: %s %s", compiler_name, __VERSION__);
 
-    // 2. Measure Widths
-    int max_w = 200; // Minimum width
-    for(int i=0; i<line_count; i++) {
-        int w, h;
-        TTF_SizeText(font, lines[i], &w, &h);
-        if (w > max_w) max_w = w;
-    }
+    int max_w = 200; 
+    for(int i=0; i<line_count; i++) { int w, h; TTF_SizeText(font, lines[i], &w, &h); if (w > max_w) max_w = w; }
 
-    // 3. Calculate Box Geometry
-    int box_w = max_w + 20;       // Add padding
+    int box_w = max_w + 20;
     int box_h = (line_count * 20) + 10;
-    int start_x = screen_w - box_w - 10; // Anchor to right
-    int start_y = 10;
-
-    // Safety: If window is too narrow, don't go off-screen left
+    int start_x = screen_w - box_w - 10;
     if (start_x < 10) start_x = 10;
 
-    // 4. Render
-    SDL_Rect dbg_box = {start_x, start_y, box_w, box_h};
-    
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 150);
-    SDL_RenderFillRect(renderer, &dbg_box);
+    SDL_Rect dbg_box = {start_x, 10, box_w, box_h};
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 150); SDL_RenderFillRect(renderer, &dbg_box);
 
-    int y = start_y + 5;
+    int y = 15;
     for(int i=0; i<line_count; i++) {
-        // Render text color based on content (Green for Ping)
         SDL_Color color = col_white;
         if (strncmp(lines[i], "Ping:", 5) == 0) color = col_green;
-
         render_text(renderer, lines[i], dbg_box.x + 10, y, color, 0);
         y += 20;
     }
@@ -200,43 +250,25 @@ void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
 
 void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     if (!is_settings_open) return;
-
-    // Taller window to fit 3 options
     settings_win = (SDL_Rect){screen_w/2 - 150, screen_h/2 - 100, 300, 250};
     
     SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255); SDL_RenderFillRect(renderer, &settings_win);
     SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255); SDL_RenderDrawRect(renderer, &settings_win);
-    
     render_text(renderer, "Settings", settings_win.x + 150, settings_win.y + 10, col_white, 1);
 
-    // Option 1: Debug Info
     btn_toggle_debug = (SDL_Rect){settings_win.x + 20, settings_win.y + 50, 20, 20};
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_debug);
-    if (show_debug_info) {
-        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); 
-        SDL_Rect check = {btn_toggle_debug.x + 4, btn_toggle_debug.y + 4, 12, 12};
-        SDL_RenderFillRect(renderer, &check);
-    }
+    if (show_debug_info) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect check = {btn_toggle_debug.x + 4, btn_toggle_debug.y + 4, 12, 12}; SDL_RenderFillRect(renderer, &check); }
     render_text(renderer, "Show Debug Info", settings_win.x + 50, settings_win.y + 50, col_white, 0);
 
-    // Option 2: Show FPS
     btn_toggle_fps = (SDL_Rect){settings_win.x + 20, settings_win.y + 90, 20, 20};
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_fps);
-    if (show_fps) {
-        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); 
-        SDL_Rect check = {btn_toggle_fps.x + 4, btn_toggle_fps.y + 4, 12, 12};
-        SDL_RenderFillRect(renderer, &check);
-    }
+    if (show_fps) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect check = {btn_toggle_fps.x + 4, btn_toggle_fps.y + 4, 12, 12}; SDL_RenderFillRect(renderer, &check); }
     render_text(renderer, "Show FPS", settings_win.x + 50, settings_win.y + 90, col_white, 0);
 
-    // Option 3: Show Coords
     btn_toggle_coords = (SDL_Rect){settings_win.x + 20, settings_win.y + 130, 20, 20};
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_coords);
-    if (show_coords) {
-        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); 
-        SDL_Rect check = {btn_toggle_coords.x + 4, btn_toggle_coords.y + 4, 12, 12};
-        SDL_RenderFillRect(renderer, &check);
-    }
+    if (show_coords) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect check = {btn_toggle_coords.x + 4, btn_toggle_coords.y + 4, 12, 12}; SDL_RenderFillRect(renderer, &check); }
     render_text(renderer, "Show Coordinates", settings_win.x + 50, settings_win.y + 130, col_white, 0);
 }
 
@@ -255,15 +287,14 @@ void render_popup(SDL_Renderer *renderer, int w, int h) {
 
     SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_accept);
     render_text(renderer, "Accept", btn_accept.x + 60, btn_accept.y + 5, col_white, 1);
-
     SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_deny);
     render_text(renderer, "Deny", btn_deny.x + 60, btn_deny.y + 5, col_white, 1);
 }
 
+// UPDATED: Now includes "Send Message" Button
 void render_profile(SDL_Renderer *renderer) {
     if (selected_player_id == -1 || selected_player_id == local_player_id) return;
     
-    // Check if player still exists/visible
     int exists = 0; char *name = "Unknown";
     for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == selected_player_id) { exists=1; name=local_players[i].username; }
     if (!exists) { selected_player_id = -1; return; }
@@ -282,6 +313,10 @@ void render_profile(SDL_Renderer *renderer) {
         SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn);
         render_text(renderer, "- Remove Friend", btn.x + 90, btn.y + 5, col_white, 1);
     }
+
+    // PM Button
+    SDL_SetRenderDrawColor(renderer, 100, 0, 100, 255); SDL_RenderFillRect(renderer, &btn_send_pm);
+    render_text(renderer, "Send Message", btn_send_pm.x + 90, btn_send_pm.y + 5, col_white, 1);
 }
 
 void render_auth_screen(SDL_Renderer *renderer) {
@@ -289,105 +324,42 @@ void render_auth_screen(SDL_Renderer *renderer) {
     auth_box = (SDL_Rect){w/2-200, h/2-150, 400, 300};
     btn_login = (SDL_Rect){auth_box.x+20, auth_box.y+200, 160, 40};
     btn_register = (SDL_Rect){auth_box.x+220, auth_box.y+200, 160, 40};
-
-    // Define Checkbox Rect (Right of password field)
-    // Password field ends at x+130+200 = x+330. Let's put checkbox at x+340
     btn_show_pass = (SDL_Rect){auth_box.x + 340, auth_box.y + 165 + 5, 15, 15};
 
     SDL_SetRenderDrawColor(renderer, 50, 50, 50, 255); SDL_RenderClear(renderer);
     SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255); SDL_RenderFillRect(renderer, &auth_box);
     SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255); SDL_RenderDrawRect(renderer, &auth_box);
-
     render_text(renderer, "C-MMO Login", auth_box.x + 200, auth_box.y + 20, col_white, 1);
     render_text(renderer, auth_message, auth_box.x + 200, auth_box.y + 70, col_red, 1);
-
     int y_start = auth_box.y + 120;
-    
-    // Username
     render_text(renderer, "Username:", auth_box.x + 20, y_start, col_white, 0);
     SDL_Rect user_rect = {auth_box.x + 130, y_start - 5, 200, 25};
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_RenderFillRect(renderer, &user_rect);
     SDL_SetRenderDrawColor(renderer, active_field == 0 ? 0 : 150, active_field == 0 ? 255 : 150, 0, 255); SDL_RenderDrawRect(renderer, &user_rect);
     render_text(renderer, auth_username, user_rect.x + 5, user_rect.y + 2, col_white, 0);
-
-    // Password
     render_text(renderer, "Password:", auth_box.x + 20, y_start + 50, col_white, 0);
     SDL_Rect pass_rect = {auth_box.x + 130, y_start + 45, 200, 25};
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_RenderFillRect(renderer, &pass_rect);
     SDL_SetRenderDrawColor(renderer, active_field == 1 ? 0 : 150, active_field == 1 ? 255 : 150, 0, 255); SDL_RenderDrawRect(renderer, &pass_rect);
     
-    // LOGIC: Show text or asterisks?
-    if (show_password) {
-        render_text(renderer, auth_password, pass_rect.x + 5, pass_rect.y + 2, col_white, 0);
-    } else {
-        char masked[MAX_INPUT_LEN+1]; 
-        memset(masked, '*', strlen(auth_password)); 
-        masked[strlen(auth_password)]=0;
-        render_text(renderer, masked, pass_rect.x + 5, pass_rect.y + 2, col_white, 0);
-    }
+    if (show_password) { render_text(renderer, auth_password, pass_rect.x + 5, pass_rect.y + 2, col_white, 0); } 
+    else { char masked[MAX_INPUT_LEN+1]; memset(masked, '*', strlen(auth_password)); masked[strlen(auth_password)]=0; render_text(renderer, masked, pass_rect.x + 5, pass_rect.y + 2, col_white, 0); }
+    
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderDrawRect(renderer, &btn_show_pass);
+    if (show_password) { SDL_Rect inner = {btn_show_pass.x + 3, btn_show_pass.y + 3, btn_show_pass.w - 6, btn_show_pass.h - 6}; SDL_RenderFillRect(renderer, &inner); }
 
-    // Render Show Password Checkbox
-    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); 
-    SDL_RenderDrawRect(renderer, &btn_show_pass);
-    if (show_password) {
-        SDL_Rect inner = {btn_show_pass.x + 3, btn_show_pass.y + 3, btn_show_pass.w - 6, btn_show_pass.h - 6};
-        SDL_RenderFillRect(renderer, &inner);
-    }
-    // Label for checkbox (optional, small text)
-    render_text(renderer, "Show", btn_show_pass.x, btn_show_pass.y - 15, col_white, 0);
-
-    // Login/Register Buttons
     SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_login);
     render_text(renderer, "Login", btn_login.x + 80, btn_login.y + 10, col_white, 1);
     SDL_SetRenderDrawColor(renderer, 0, 0, 150, 255); SDL_RenderFillRect(renderer, &btn_register);
     render_text(renderer, "Register", btn_register.x + 80, btn_register.y + 10, col_white, 1);
-    
     SDL_RenderPresent(renderer);
-}
-
-void render_hud(SDL_Renderer *renderer, int screen_h) {
-    int y = 10;
-    char buf[64];
-
-    // 1. Render FPS (Top-Left)
-    if (show_fps) {
-        snprintf(buf, 64, "FPS: %d", current_fps);
-        // Draw a tiny black box behind it for readability
-        int w, h; TTF_SizeText(font, buf, &w, &h);
-        SDL_Rect bg = {10, y, w+4, h};
-        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 150); SDL_RenderFillRect(renderer, &bg);
-        
-        render_text(renderer, buf, 12, y, col_green, 0);
-        y += 20;
-    }
-
-    // 2. Render Coords (Top-Left, under FPS)
-    if (show_coords) {
-        float px=0, py=0;
-        for(int i=0; i<MAX_CLIENTS; i++) 
-            if(local_players[i].active && local_players[i].id == local_player_id) 
-            { px=local_players[i].x; py=local_players[i].y; }
-
-        snprintf(buf, 64, "XY: %.0f, %.0f", px, py);
-        
-        int w, h; TTF_SizeText(font, buf, &w, &h);
-        SDL_Rect bg = {10, y, w+4, h};
-        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 150); SDL_RenderFillRect(renderer, &bg);
-
-        render_text(renderer, buf, 12, y, col_white, 0);
-    }
 }
 
 void render_game(SDL_Renderer *renderer) {
     int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
-    float px=0, py=0;
-    for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { px=local_players[i].x; py=local_players[i].y; }
-    
-    int cam_x = (int)px - (w/2) + 16;
-    int cam_y = (int)py - (h/2) + 16;
-    if (cam_x < 0) cam_x = 0; if (cam_y < 0) cam_y = 0;
-    if (cam_x > map_w - w) cam_x = map_w - w; if (cam_y > map_h - h) cam_y = map_h - h;
-    if (w > map_w) cam_x = -(w - map_w)/2; if (h > map_h) cam_y = -(h - map_h)/2;
+    float px=0, py=0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { px=local_players[i].x; py=local_players[i].y; }
+    int cam_x = (int)px - (w/2) + 16; int cam_y = (int)py - (h/2) + 16;
+    if (w > map_w) cam_x = -(w - map_w)/2; if (h > map_h) cam_y = -(h - map_h)/2; 
 
     SDL_RenderClear(renderer);
     if (tex_map) { SDL_Rect dst = {-cam_x, -cam_y, map_w, map_h}; SDL_RenderCopy(renderer, tex_map, NULL, &dst); }
@@ -412,11 +384,7 @@ void render_game(SDL_Renderer *renderer) {
             if (local_players[i].id == local_player_id) name_col = col_cyan; 
             else { for(int f=0; f<friend_count; f++) if (my_friends[f] == local_players[i].id) name_col = col_green; }
             
-            if (local_players[i].id == selected_player_id) {
-                SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-                SDL_RenderDrawRect(renderer, &dst);
-            }
-
+            if (local_players[i].id == selected_player_id) { SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderDrawRect(renderer, &dst); }
             render_text(renderer, local_players[i].username, dst.x+16, dst.y - 18, name_col, 1);
             if (now - floating_texts[i].timestamp < 4000) render_text(renderer, floating_texts[i].msg, dst.x+16, dst.y - 38, col_white, 1);
         }
@@ -424,13 +392,14 @@ void render_game(SDL_Renderer *renderer) {
 
     render_profile(renderer);
     render_popup(renderer, w, h);
+    render_settings_menu(renderer, w, h);
+    render_debug_overlay(renderer, w);
+    render_hud(renderer, h);
 
-    // Chat Toggle
     btn_chat_toggle = (SDL_Rect){10, h-40, 100, 30};
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_chat_toggle);
     render_text(renderer, is_chat_open ? "Close" : "Chat", btn_chat_toggle.x+50, btn_chat_toggle.y+5, col_white, 1);
 
-    // Settings Toggle (Next to Chat)
     btn_settings_toggle = (SDL_Rect){120, h-40, 100, 30};
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_settings_toggle);
     render_text(renderer, "Settings", btn_settings_toggle.x+50, btn_settings_toggle.y+5, col_white, 1);
@@ -440,47 +409,40 @@ void render_game(SDL_Renderer *renderer) {
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
         SDL_SetRenderDrawColor(renderer, 0,0,0,200); SDL_RenderFillRect(renderer, &win);
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
-        for(int i=0; i<CHAT_HISTORY; i++) render_text(renderer, chat_log[i], 15, win.y+10+(i*15), col_white, 0);
-        char buf[80]; snprintf(buf, 80, "> %s_", input_buffer);
-        render_text(renderer, buf, 15, win.y+win.h-20, col_cyan, 0);
-    }
+        
+        for(int i=0; i<CHAT_HISTORY; i++) {
+            SDL_Color line_col = col_white;
+            if (strncmp(chat_log[i], "To [", 4) == 0 || strncmp(chat_log[i], "From [", 6) == 0) line_col = col_magenta;
+            render_text(renderer, chat_log[i], 15, win.y+10+(i*15), line_col, 0);
+        }
 
-    render_settings_menu(renderer, w, h);
-    render_debug_overlay(renderer, w);
-    // NEW: Render HUD elements (FPS, Coords)
-    render_hud(renderer, h);
-    
+        char buf[128];
+        if (chat_target_id != -1) {
+            char *name = "Unknown";
+            for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == chat_target_id) name = local_players[i].username;
+            snprintf(buf, 128, "To %s: %s_", name, input_buffer);
+            render_text(renderer, buf, 15, win.y+win.h-20, col_magenta, 0); 
+        } else {
+            snprintf(buf, 128, "> %s_", input_buffer);
+            render_text(renderer, buf, 15, win.y+win.h-20, col_cyan, 0);
+        }
+    }
     SDL_RenderPresent(renderer);
 }
 
 void handle_game_click(int mx, int my, int cam_x, int cam_y) {
     if (is_settings_open) {
-        // Toggle Debug
-        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_debug)) {
-            show_debug_info = !show_debug_info;
-        }
-        // Toggle FPS
-        else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_fps)) {
-            show_fps = !show_fps;
-        }
-        // Toggle Coords
-        else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_coords)) {
-            show_coords = !show_coords;
-        }
-        // Click outside closes settings? Or a Close button. 
-        // For now, toggle button closes it.
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_debug)) show_debug_info = !show_debug_info;
+        else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_fps)) show_fps = !show_fps;
+        else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_coords)) show_coords = !show_coords;
         return;
     }
-
     if (pending_friend_req_id != -1) {
         SDL_Rect btn_accept = {popup_win.x+20, popup_win.y+70, 120, 30};
         SDL_Rect btn_deny = {popup_win.x+160, popup_win.y+70, 120, 30};
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_accept)) {
-            Packet pkt; pkt.type = PACKET_FRIEND_RESPONSE; pkt.target_id = pending_friend_req_id; pkt.response_accepted = 1; send_packet(&pkt);
-            pending_friend_req_id = -1;
-        } else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_deny)) {
-            pending_friend_req_id = -1;
-        }
+            Packet pkt; pkt.type = PACKET_FRIEND_RESPONSE; pkt.target_id = pending_friend_req_id; pkt.response_accepted = 1; send_packet(&pkt); pending_friend_req_id = -1;
+        } else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_deny)) pending_friend_req_id = -1;
         return;
     }
 
@@ -489,6 +451,13 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y) {
             int is_friend = 0; for(int i=0; i<friend_count; i++) if(my_friends[i] == selected_player_id) is_friend = 1;
             if(!is_friend) { Packet pkt; pkt.type = PACKET_FRIEND_REQUEST; pkt.target_id = selected_player_id; send_packet(&pkt); } 
             else { Packet pkt; pkt.type = PACKET_FRIEND_REMOVE; pkt.target_id = selected_player_id; send_packet(&pkt); }
+            selected_player_id = -1; return;
+        }
+        else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_send_pm)) {
+            chat_target_id = selected_player_id;
+            is_chat_open = 1;
+            input_buffer[0] = 0;
+            SDL_StartTextInput();
             selected_player_id = -1; 
             return;
         }
@@ -498,35 +467,26 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y) {
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (local_players[i].active) {
             SDL_Rect r = { (int)local_players[i].x - cam_x, (int)local_players[i].y - cam_y, PLAYER_WIDTH, PLAYER_HEIGHT };
-            if (SDL_PointInRect(&(SDL_Point){mx, my}, &r)) {
-                selected_player_id = local_players[i].id;
-                clicked = 1;
-            }
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &r)) { selected_player_id = local_players[i].id; clicked = 1; }
         }
     }
-    if (!clicked && !SDL_PointInRect(&(SDL_Point){mx, my}, &profile_win) && !SDL_PointInRect(&(SDL_Point){mx, my}, &btn_chat_toggle)) {
+    if (!clicked && !SDL_PointInRect(&(SDL_Point){mx, my}, &profile_win) && !SDL_PointInRect(&(SDL_Point){mx, my}, &btn_chat_toggle) && !SDL_PointInRect(&(SDL_Point){mx, my}, &btn_settings_toggle)) {
         selected_player_id = -1;
     }
 }
-
 
 void handle_auth_click(int mx, int my) {
     if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_login)) {
         Packet pkt; pkt.type = PACKET_LOGIN_REQUEST; strncpy(pkt.username, auth_username, 31); strncpy(pkt.password, auth_password, 31); send_packet(&pkt);
         strcpy(auth_message, "Logging in...");
-    } 
-    else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_register)) {
+    } else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_register)) {
         Packet pkt; pkt.type = PACKET_REGISTER_REQUEST; strncpy(pkt.username, auth_username, 31); strncpy(pkt.password, auth_password, 31); send_packet(&pkt);
         strcpy(auth_message, "Registering...");
-    } 
-    // NEW: Checkbox Toggle
-    else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_show_pass)) {
+    } else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_show_pass)) {
         show_password = !show_password;
-    }
-    else if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){auth_box.x+130, auth_box.y+115, 200, 25})) {
+    } else if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){auth_box.x+130, auth_box.y+115, 200, 25})) {
         active_field = 0; SDL_StartTextInput();
-    } 
-    else if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){auth_box.x+130, auth_box.y+165, 200, 25})) {
+    } else if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){auth_box.x+130, auth_box.y+165, 200, 25})) {
         active_field = 1; SDL_StartTextInput();
     }
 }
@@ -543,7 +503,7 @@ int main() {
     struct sockaddr_in serv_addr;
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) return -1;
     serv_addr.sin_family = AF_INET; serv_addr.sin_port = htons(PORT);
-    inet_pton(AF_INET, server_ip, &serv_addr.sin_addr); // Use the variable
+    inet_pton(AF_INET, server_ip, &serv_addr.sin_addr);
     connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
 
     SDL_StartTextInput();
@@ -553,11 +513,8 @@ int main() {
     while (running) {
         frame_count++;
         Uint32 now_fps = SDL_GetTicks();
-        if (now_fps > last_fps_check + 1000) {
-            current_fps = frame_count;
-            frame_count = 0;
-            last_fps_check = now_fps;
-        }
+        if (now_fps > last_fps_check + 1000) { current_fps = frame_count; frame_count = 0; last_fps_check = now_fps; }
+
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) running = 0;
             if (client_state == STATE_AUTH) {
@@ -573,16 +530,12 @@ int main() {
                     if(active_field==1 && strlen(auth_password)<31) strcat(auth_password, event.text.text);
                 }
             } else {
-                // Game Inputs
                 if (event.type == SDL_MOUSEBUTTONDOWN) {
                      if (SDL_PointInRect(&(SDL_Point){event.button.x, event.button.y}, &btn_chat_toggle)) {
                         is_chat_open = !is_chat_open; if(is_chat_open) SDL_StartTextInput(); else SDL_StopTextInput();
                      } 
-                     else if (SDL_PointInRect(&(SDL_Point){event.button.x, event.button.y}, &btn_settings_toggle)) {
-                        is_settings_open = !is_settings_open;
-                     }
+                     else if (SDL_PointInRect(&(SDL_Point){event.button.x, event.button.y}, &btn_settings_toggle)) is_settings_open = !is_settings_open;
                      else {
-                        // Calculate Camera
                         int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
                         float px=0, py=0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { px=local_players[i].x; py=local_players[i].y; }
                         int cam_x = (int)px - (w/2) + 16; int cam_y = (int)py - (h/2) + 16;
@@ -590,15 +543,22 @@ int main() {
                         handle_game_click(event.button.x, event.button.y, cam_x, cam_y);
                      }
                 }
-
                 if (is_chat_open) {
                     if(event.type == SDL_KEYDOWN) {
                         if(event.key.keysym.sym == SDLK_RETURN) {
-                            if(strlen(input_buffer)>0) { Packet pkt; pkt.type = PACKET_CHAT; strcpy(pkt.msg, input_buffer); send_packet(&pkt); input_buffer[0]=0; }
+                            if(strlen(input_buffer)>0) { 
+                                if (chat_target_id != -1) {
+                                    Packet pkt; pkt.type = PACKET_PRIVATE_MESSAGE; pkt.target_id = chat_target_id; strcpy(pkt.msg, input_buffer); send_packet(&pkt);
+                                    chat_target_id = -1;
+                                } else {
+                                    Packet pkt; pkt.type = PACKET_CHAT; strcpy(pkt.msg, input_buffer); send_packet(&pkt); 
+                                }
+                                input_buffer[0]=0; 
+                            }
                             is_chat_open=0; SDL_StopTextInput();
                         }
                         else if(event.key.keysym.sym == SDLK_BACKSPACE && strlen(input_buffer)>0) input_buffer[strlen(input_buffer)-1]=0;
-                        else if(event.key.keysym.sym == SDLK_ESCAPE) { is_chat_open=0; SDL_StopTextInput(); }
+                        else if(event.key.keysym.sym == SDLK_ESCAPE) { is_chat_open=0; chat_target_id = -1; SDL_StopTextInput(); }
                     }
                     else if(event.type == SDL_TEXTINPUT && strlen(input_buffer)<60) strcat(input_buffer, event.text.text);
                 } else {
@@ -615,13 +575,8 @@ int main() {
             }
         }
 
-        // PING LOGIC (Every 1 second)
         Uint32 now = SDL_GetTicks();
-        if (client_state == STATE_GAME && now - last_ping_sent > 1000) {
-            Packet pkt; pkt.type = PACKET_PING; pkt.timestamp = now;
-            send_packet(&pkt);
-            last_ping_sent = now;
-        }
+        if (client_state == STATE_GAME && now - last_ping_sent > 1000) { Packet pkt; pkt.type = PACKET_PING; pkt.timestamp = now; send_packet(&pkt); last_ping_sent = now; }
 
         if (client_state == STATE_GAME && !is_chat_open && pending_friend_req_id == -1) {
             float dx = 0, dy = 0;
@@ -639,18 +594,10 @@ int main() {
                     else strcpy(auth_message, "Error.");
                 }
                 if (pkt.type == PACKET_UPDATE) memcpy(local_players, pkt.players, sizeof(local_players));
-                if (pkt.type == PACKET_CHAT) add_chat_message(pkt.player_id, pkt.msg);
-                if (pkt.type == PACKET_FRIEND_LIST) {
-                    friend_count = pkt.friend_count;
-                    for(int i=0; i<friend_count; i++) my_friends[i] = pkt.friend_ids[i];
-                }
-                if (pkt.type == PACKET_FRIEND_INCOMING) {
-                    pending_friend_req_id = pkt.player_id;
-                    strcpy(pending_friend_name, pkt.username);
-                }
-                if (pkt.type == PACKET_PING) {
-                    current_ping = SDL_GetTicks() - pkt.timestamp;
-                }
+                if (pkt.type == PACKET_CHAT || pkt.type == PACKET_PRIVATE_MESSAGE) add_chat_message(&pkt);
+                if (pkt.type == PACKET_FRIEND_LIST) { friend_count = pkt.friend_count; for(int i=0; i<friend_count; i++) my_friends[i] = pkt.friend_ids[i]; }
+                if (pkt.type == PACKET_FRIEND_INCOMING) { pending_friend_req_id = pkt.player_id; strcpy(pending_friend_name, pkt.username); }
+                if (pkt.type == PACKET_PING) current_ping = SDL_GetTicks() - pkt.timestamp;
             }
         }
 
@@ -661,5 +608,6 @@ int main() {
     if(tex_map) SDL_DestroyTexture(tex_map); if(tex_player) SDL_DestroyTexture(tex_player);
     close(sock); TTF_CloseFont(font); TTF_Quit(); IMG_Quit();
     SDL_DestroyRenderer(renderer); SDL_DestroyWindow(window); SDL_Quit();
-    return 0;
+ 
+   return 0;
 }

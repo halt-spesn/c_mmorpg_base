@@ -210,6 +210,39 @@ void handle_client_message(int index, Packet *pkt) {
            }
         }
     }
+    else if (pkt->type == PACKET_PRIVATE_MESSAGE) {
+        int target_id = pkt->target_id;
+        int sender_id = players[index].id;
+        
+        // Prepare packet
+        Packet pm;
+        pm.type = PACKET_PRIVATE_MESSAGE;
+        pm.player_id = sender_id;      // Who sent it
+        pm.target_id = target_id;      // Who it is for
+        strncpy(pm.msg, pkt->msg, 64);
+
+        // 1. Send to Target
+        int target_found = 0;
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+            if (players[i].active && players[i].id == target_id) {
+                if (client_sockets[i] > 0) {
+                    send(client_sockets[i], &pm, sizeof(Packet), 0);
+                    target_found = 1;
+                }
+                break;
+            }
+        }
+
+        // 2. Send Echo back to Sender (so it appears in their chat)
+        // If target not found, maybe send a system error message instead?
+        if (target_found) {
+            send(client_sockets[index], &pm, sizeof(Packet), 0);
+        } else {
+            Packet err; err.type = PACKET_CHAT; err.player_id = -1;
+            strcpy(err.msg, "Player not online.");
+            send(client_sockets[index], &err, sizeof(Packet), 0);
+        }
+    }
     else if (pkt->type == PACKET_PING) {
         // Echo back immediately
         send(client_sockets[index], pkt, sizeof(Packet), 0);

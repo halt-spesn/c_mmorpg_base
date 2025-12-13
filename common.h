@@ -22,7 +22,8 @@ typedef enum {
     PACKET_FRIEND_INCOMING,
     PACKET_FRIEND_RESPONSE,
     PACKET_FRIEND_REMOVE,
-    PACKET_PING             // NEW: For latency measurement
+    PACKET_PING,
+    PACKET_PRIVATE_MESSAGE // NEW
 } PacketType;
 
 typedef enum {
@@ -45,8 +46,8 @@ typedef struct {
 
 typedef struct {
     PacketType type;
-    int player_id;
-    int target_id;
+    int player_id;  // Sender
+    int target_id;  // Receiver (for PMs/Requests)
     float dx; 
     float dy;
     char msg[64];
@@ -57,8 +58,7 @@ typedef struct {
     int friend_ids[20]; 
     int friend_count;
     int response_accepted;
-    
-    uint32_t timestamp; // NEW: For ping
+    uint32_t timestamp;
 } Packet;
 
 #endif
