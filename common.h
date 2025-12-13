@@ -9,6 +9,15 @@
 #define MAP_HEIGHT 2000
 #define PLAYER_SPEED 4.0f
 
+// NEW: Status Enum
+typedef enum {
+    STATUS_ONLINE,
+    STATUS_AFK,
+    STATUS_DND,
+    STATUS_ROLEPLAY,
+    STATUS_TALK
+} PlayerStatus;
+
 typedef enum {
     PACKET_REGISTER_REQUEST,
     PACKET_LOGIN_REQUEST,
@@ -23,7 +32,8 @@ typedef enum {
     PACKET_FRIEND_RESPONSE,
     PACKET_FRIEND_REMOVE,
     PACKET_PING,
-    PACKET_PRIVATE_MESSAGE // NEW
+    PACKET_PRIVATE_MESSAGE,
+    PACKET_STATUS_CHANGE // NEW
 } PacketType;
 
 typedef enum {
@@ -42,12 +52,13 @@ typedef struct {
     int is_moving; 
     int active;
     char username[32];
+    int status; // NEW: Holds PlayerStatus
 } Player;
 
 typedef struct {
     PacketType type;
-    int player_id;  // Sender
-    int target_id;  // Receiver (for PMs/Requests)
+    int player_id;
+    int target_id;
     float dx; 
     float dy;
     char msg[64];
@@ -59,6 +70,7 @@ typedef struct {
     int friend_count;
     int response_accepted;
     uint32_t timestamp;
+    int new_status; // NEW: Payload for status change
 } Packet;
 
 #endif

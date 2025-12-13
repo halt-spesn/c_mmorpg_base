@@ -247,6 +247,13 @@ void handle_client_message(int index, Packet *pkt) {
         // Echo back immediately
         send(client_sockets[index], pkt, sizeof(Packet), 0);
     }
+    else if (pkt->type == PACKET_STATUS_CHANGE) {
+        // Update server state
+        players[index].status = pkt->new_status;
+        
+        // Announce change to everyone
+        broadcast_state(); 
+    }
 }
 
 int main() {
