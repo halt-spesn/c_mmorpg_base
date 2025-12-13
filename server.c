@@ -7,6 +7,7 @@
 #include <sqlite3.h>
 #include <math.h>
 #include "common.h"
+#include <sys/stat.h> // For mkdir
 
 Player players[MAX_CLIENTS];
 int client_sockets[MAX_CLIENTS];
@@ -37,6 +38,14 @@ void init_db() {
                         "STATUS INTEGER,"
                         "PRIMARY KEY (USER_ID, FRIEND_ID));";
     sqlite3_exec(db, sql_friends, 0, 0, 0);
+}
+
+void init_storage() {
+    // Create avatars directory if it doesn't exist
+    struct stat st = {0};
+    if (stat("avatars", &st) == -1) {
+        mkdir("avatars", 0700);
+    }
 }
 
 // Helper to get ID from Username
@@ -108,6 +117,7 @@ void save_player_location(const char *user, float x, float y) {
 
 void init_game() {
     init_db();
+    init_storage();
     for (int i = 0; i < MAX_CLIENTS; i++) { client_sockets[i] = 0; players[i].active = 0; players[i].id = -1; }
 }
 
@@ -278,6 +288,42 @@ void handle_client_message(int index, Packet *pkt) {
         sqlite3_exec(db, sql, 0, 0, 0);
 
         broadcast_state();
+    }
+    else if (pkt->type == PACKET_AVATAR_UPLOAD) {
+        if (pkt->image_size > 0 && pkt->image_size <= MAX_AVATAR_SIZE) {
+            char filepath[64];
+            snprintf(filepath, 64, "avatars/%d.img", players[index].id);
+            
+            FILE *fp = fopen(filepath, "wb");
+            if (fp) {
+                fwrite(pkt->image_data, 1, pkt->image_size, fp);
+                fclose(fp);
+                printf("Saved avatar for User %d (%d bytes)\n", players[index].id, pkt->image_size);
+                // We could broadcast an update here, but clients will lazy-load it
+            }
+        }
+    }
+    else if (pkt->type == PACKET_AVATAR_REQUEST) {
+        int target = pkt->target_id;
+        char filepath[64];
+        snprintf(filepath, 64, "avatars/%d.img", target);
+        
+        FILE *fp = fopen(filepath, "rb");
+        if (fp) {
+            Packet resp;
+            resp.type = PACKET_AVATAR_RESPONSE;
+            resp.player_id = target; // This ID belongs to the avatar owner
+            
+            fseek(fp, 0, SEEK_END);
+            resp.image_size = ftell(fp);
+            fseek(fp, 0, SEEK_SET);
+            
+            if (resp.image_size <= MAX_AVATAR_SIZE) {
+                fread(resp.image_data, 1, resp.image_size, fp);
+                send(client_sockets[index], &resp, sizeof(Packet), 0);
+            }
+            fclose(fp);
+        }
     }
 }
 

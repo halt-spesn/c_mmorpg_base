@@ -8,6 +8,8 @@
 #define MAP_WIDTH 2000
 #define MAP_HEIGHT 2000
 #define PLAYER_SPEED 4.0f
+// Max avatar size in bytes (16KB is enough for small PNG/JPG icons)
+#define MAX_AVATAR_SIZE 16384 
 
 typedef enum {
     STATUS_ONLINE, STATUS_AFK, STATUS_DND, STATUS_ROLEPLAY, STATUS_TALK
@@ -19,7 +21,10 @@ typedef enum {
     PACKET_FRIEND_LIST, PACKET_FRIEND_REQUEST, PACKET_FRIEND_INCOMING,
     PACKET_FRIEND_RESPONSE, PACKET_FRIEND_REMOVE,
     PACKET_PING, PACKET_PRIVATE_MESSAGE, PACKET_STATUS_CHANGE,
-    PACKET_COLOR_CHANGE // NEW
+    PACKET_COLOR_CHANGE,
+    PACKET_AVATAR_UPLOAD,   // Client -> Server (I have a new pic)
+    PACKET_AVATAR_REQUEST,  // Client -> Server (Give me pic for ID X)
+    PACKET_AVATAR_RESPONSE  // Server -> Client (Here is pic for ID X)
 } PacketType;
 
 typedef enum {
@@ -33,7 +38,7 @@ typedef struct {
     int direction; int is_moving; int active;
     char username[32];
     int status;
-    uint8_t r, g, b; // NEW: Color components (0-255)
+    uint8_t r, g, b;
 } Player;
 
 typedef struct {
@@ -48,7 +53,11 @@ typedef struct {
     int response_accepted;
     uint32_t timestamp;
     int new_status;
-    uint8_t r, g, b; // NEW: Payload for color change
+    uint8_t r, g, b;
+    
+    // IMAGE PAYLOAD
+    int image_size;
+    uint8_t image_data[MAX_AVATAR_SIZE]; 
 } Packet;
 
 #endif
