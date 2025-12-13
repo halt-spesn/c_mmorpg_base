@@ -51,7 +51,7 @@ typedef struct {
     int id;
     float x; float y;
     int direction; int is_moving; int active;
-    char username[32];
+    char username[64];
     int status;
     int role; // NEW: Role ID
     uint8_t r, g, b;
@@ -63,7 +63,7 @@ typedef struct {
     float dx; float dy;
     char msg[64];
     Player players[MAX_CLIENTS];
-    char username[32]; char password[32];
+    char username[64]; char password[64];
     AuthStatus status;
     // UPDATED: Rich Friend Data
     FriendInfo friends[20]; 

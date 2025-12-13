@@ -200,9 +200,24 @@ SDL_Color get_status_color(int status) {
     }
 }
 
+// Helper: Safely remove the last UTF-8 character
+void remove_last_utf8_char(char *str) {
+    int len = strlen(str);
+    if (len == 0) return;
+
+    // Move back while the byte is a "continuation byte" (starts with 10xxxxxx)
+    // 0xC0 is 11000000. If (byte & 0xC0) == 0x80, it's a continuation byte.
+    while (len > 0) {
+        len--;
+        // If it's a start byte (0xxxxxxx or 11xxxxxx), we stop deleting here
+        if ((str[len] & 0xC0) != 0x80) break; 
+    }
+    str[len] = '\0';
+}
+
 void render_text(SDL_Renderer *renderer, const char *text, int x, int y, SDL_Color color, int center) {
     if (!text || strlen(text) == 0) return;
-    SDL_Surface *surface = TTF_RenderText_Solid(font, text, color);
+    SDL_Surface *surface = TTF_RenderUTF8_Blended(font, text, color);
     if (!surface) return;
     SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surface);
     int rx = center ? x - (surface->w/2) : x;
@@ -889,8 +904,10 @@ int main(int argc, char const *argv[]) {
                 if(event.type == SDL_KEYDOWN) {
                     if(event.key.keysym.sym == SDLK_RETURN) handle_auth_click(btn_login.x+1, btn_login.y+1);
                     if(event.key.keysym.sym == SDLK_TAB) active_field = !active_field;
-                    if(event.key.keysym.sym == SDLK_BACKSPACE && active_field==0 && strlen(auth_username)>0) auth_username[strlen(auth_username)-1]=0;
-                    if(event.key.keysym.sym == SDLK_BACKSPACE && active_field==1 && strlen(auth_password)>0) auth_password[strlen(auth_password)-1]=0;
+                    if(event.key.keysym.sym == SDLK_BACKSPACE) {
+                if(active_field==0) remove_last_utf8_char(auth_username); // <--- NEW
+                if(active_field==1) remove_last_utf8_char(auth_password); // <--- NEW
+                }
                 }
                 if(event.type == SDL_TEXTINPUT) {
                     if(active_field==0 && strlen(auth_username)<31) strcat(auth_username, event.text.text);
@@ -926,7 +943,9 @@ int main(int argc, char const *argv[]) {
                             }
                             is_chat_open=0; SDL_StopTextInput();
                         }
-                        else if(event.key.keysym.sym == SDLK_BACKSPACE && strlen(input_buffer)>0) input_buffer[strlen(input_buffer)-1]=0;
+                        else if(event.key.keysym.sym == SDLK_BACKSPACE) {
+                        remove_last_utf8_char(input_buffer); // <--- NEW
+                        }
                         else if(event.key.keysym.sym == SDLK_ESCAPE) { is_chat_open=0; chat_target_id = -1; SDL_StopTextInput(); }
                     }
                     else if(event.type == SDL_TEXTINPUT && strlen(input_buffer)<60) strcat(input_buffer, event.text.text);
