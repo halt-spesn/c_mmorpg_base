@@ -133,8 +133,82 @@ SDL_Rect slider_volume;
 
 uint8_t temp_avatar_buf[MAX_AVATAR_SIZE];
 
+// --- Connection State ---
+char input_ip[64] = "127.0.0.1";
+char input_port[16] = "8888";
+int is_connected = 0;
+
+// --- Server List State ---
+typedef struct { char name[32]; char ip[64]; int port; } ServerEntry;
+ServerEntry server_list[10];
+int server_count = 0;
+int show_server_list = 0;
+SDL_Rect server_list_win;
+SDL_Rect btn_open_servers; // On login screen
+SDL_Rect btn_add_server;   // Inside list window
+
 // --- Helpers ---
 void send_packet(Packet *pkt) { send(sock, pkt, sizeof(Packet), 0); }
+
+void load_servers() {
+    FILE *fp = fopen("servers.txt", "r");
+    if (!fp) return;
+    server_count = 0;
+    while (fscanf(fp, "%s %s %d", server_list[server_count].name, server_list[server_count].ip, &server_list[server_count].port) == 3) {
+        server_count++;
+        if (server_count >= 10) break;
+    }
+    fclose(fp);
+}
+
+void save_servers() {
+    FILE *fp = fopen("servers.txt", "w");
+    if (!fp) return;
+    for(int i=0; i<server_count; i++) {
+        fprintf(fp, "%s %s %d\n", server_list[i].name, server_list[i].ip, server_list[i].port);
+    }
+    fclose(fp);
+}
+
+void add_server_to_list(const char* name, const char* ip, int port) {
+    if (server_count >= 10) return;
+    strcpy(server_list[server_count].name, name);
+    strcpy(server_list[server_count].ip, ip);
+    server_list[server_count].port = port;
+    server_count++;
+    save_servers();
+}
+
+int try_connect() {
+    if (is_connected) close(sock);
+    
+    struct sockaddr_in serv_addr;
+    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        strcpy(auth_message, "Socket Error");
+        return 0;
+    }
+    
+    serv_addr.sin_family = AF_INET; 
+    serv_addr.sin_port = htons(atoi(input_port));
+    
+    if (inet_pton(AF_INET, input_ip, &serv_addr.sin_addr) <= 0) {
+        strcpy(auth_message, "Invalid IP Address");
+        return 0;
+    }
+
+    if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+        strcpy(auth_message, "Connection Failed");
+        return 0;
+    }
+
+    // --- FIX: Update the global variable for Debug Menu ---
+    strcpy(server_ip, input_ip); 
+    // -----------------------------------------------------
+
+    is_connected = 1;
+    strcpy(auth_message, "Connected! Logging in...");
+    return 1;
+}
 
 int is_blocked(int id) {
     for(int i=0; i<blocked_count; i++) if(blocked_ids[i] == id) return 1;
@@ -552,37 +626,90 @@ void render_profile(SDL_Renderer *renderer) {
 
 void render_auth_screen(SDL_Renderer *renderer) {
     int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
-    auth_box = (SDL_Rect){w/2-200, h/2-150, 400, 300};
-    btn_login = (SDL_Rect){auth_box.x+20, auth_box.y+200, 160, 40};
-    btn_register = (SDL_Rect){auth_box.x+220, auth_box.y+200, 160, 40};
-    btn_show_pass = (SDL_Rect){auth_box.x + 340, auth_box.y + 165 + 5, 15, 15};
-
+    
+    // Taller box to fit IP/Port
+    auth_box = (SDL_Rect){w/2-200, h/2-200, 400, 400}; 
+    
     SDL_SetRenderDrawColor(renderer, 50, 50, 50, 255); SDL_RenderClear(renderer);
     SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255); SDL_RenderFillRect(renderer, &auth_box);
     SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255); SDL_RenderDrawRect(renderer, &auth_box);
+    
     render_text(renderer, "C-MMO Login", auth_box.x + 200, auth_box.y + 20, col_white, 1);
-    render_text(renderer, auth_message, auth_box.x + 200, auth_box.y + 70, col_red, 1);
-    int y_start = auth_box.y + 120;
+    render_text(renderer, auth_message, auth_box.x + 200, auth_box.y + 50, col_red, 1);
+
+    int y_start = auth_box.y + 80;
+
+    // 1. IP Field
+    render_text(renderer, "Server IP:", auth_box.x + 20, y_start, col_white, 0);
+    SDL_Rect ip_rect = {auth_box.x + 130, y_start - 5, 200, 25};
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_RenderFillRect(renderer, &ip_rect);
+    SDL_SetRenderDrawColor(renderer, active_field == 2 ? 0 : 150, active_field == 2 ? 255 : 150, 0, 255); SDL_RenderDrawRect(renderer, &ip_rect);
+    render_text(renderer, input_ip, ip_rect.x + 5, ip_rect.y + 2, col_white, 0);
+
+    // 2. Port Field
+    render_text(renderer, "Port:", auth_box.x + 20, y_start + 40, col_white, 0);
+    SDL_Rect port_rect = {auth_box.x + 130, y_start + 35, 80, 25};
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_RenderFillRect(renderer, &port_rect);
+    SDL_SetRenderDrawColor(renderer, active_field == 3 ? 0 : 150, active_field == 3 ? 255 : 150, 0, 255); SDL_RenderDrawRect(renderer, &port_rect);
+    render_text(renderer, input_port, port_rect.x + 5, port_rect.y + 2, col_white, 0);
+
+    // 3. Username
+    y_start += 90;
     render_text(renderer, "Username:", auth_box.x + 20, y_start, col_white, 0);
     SDL_Rect user_rect = {auth_box.x + 130, y_start - 5, 200, 25};
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_RenderFillRect(renderer, &user_rect);
     SDL_SetRenderDrawColor(renderer, active_field == 0 ? 0 : 150, active_field == 0 ? 255 : 150, 0, 255); SDL_RenderDrawRect(renderer, &user_rect);
     render_text(renderer, auth_username, user_rect.x + 5, user_rect.y + 2, col_white, 0);
+
+    // 4. Password
     render_text(renderer, "Password:", auth_box.x + 20, y_start + 50, col_white, 0);
     SDL_Rect pass_rect = {auth_box.x + 130, y_start + 45, 200, 25};
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_RenderFillRect(renderer, &pass_rect);
     SDL_SetRenderDrawColor(renderer, active_field == 1 ? 0 : 150, active_field == 1 ? 255 : 150, 0, 255); SDL_RenderDrawRect(renderer, &pass_rect);
     
+    btn_show_pass = (SDL_Rect){auth_box.x + 340, y_start + 50, 15, 15};
     if (show_password) { render_text(renderer, auth_password, pass_rect.x + 5, pass_rect.y + 2, col_white, 0); } 
     else { char masked[MAX_INPUT_LEN+1]; memset(masked, '*', strlen(auth_password)); masked[strlen(auth_password)]=0; render_text(renderer, masked, pass_rect.x + 5, pass_rect.y + 2, col_white, 0); }
-    
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderDrawRect(renderer, &btn_show_pass);
     if (show_password) { SDL_Rect inner = {btn_show_pass.x + 3, btn_show_pass.y + 3, btn_show_pass.w - 6, btn_show_pass.h - 6}; SDL_RenderFillRect(renderer, &inner); }
 
+    // Buttons
+    btn_login = (SDL_Rect){auth_box.x+20, auth_box.y+280, 160, 40};
+    btn_register = (SDL_Rect){auth_box.x+220, auth_box.y+280, 160, 40};
+    btn_open_servers = (SDL_Rect){auth_box.x+100, auth_box.y+340, 200, 30}; // Server List Button
+
     SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_login);
     render_text(renderer, "Login", btn_login.x + 80, btn_login.y + 10, col_white, 1);
+    
     SDL_SetRenderDrawColor(renderer, 0, 0, 150, 255); SDL_RenderFillRect(renderer, &btn_register);
     render_text(renderer, "Register", btn_register.x + 80, btn_register.y + 10, col_white, 1);
+
+    SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_open_servers);
+    render_text(renderer, "Saved Servers", btn_open_servers.x + 100, btn_open_servers.y + 5, col_white, 1);
+
+    // --- SERVER LIST POPUP ---
+    if (show_server_list) {
+        server_list_win = (SDL_Rect){w/2 + 220, h/2 - 200, 250, 400}; // To the right
+        SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255); SDL_RenderFillRect(renderer, &server_list_win);
+        SDL_SetRenderDrawColor(renderer, 200, 200, 0, 255); SDL_RenderDrawRect(renderer, &server_list_win);
+        
+        render_text(renderer, "Select Server", server_list_win.x + 125, server_list_win.y + 10, col_yellow, 1);
+        
+        int y_s = 50;
+        for(int i=0; i<server_count; i++) {
+            SDL_Rect row = {server_list_win.x + 10, server_list_win.y + y_s, 230, 30};
+            SDL_SetRenderDrawColor(renderer, 60, 60, 60, 255); SDL_RenderFillRect(renderer, &row);
+            
+            char label[64]; snprintf(label, 64, "%s (%s)", server_list[i].name, server_list[i].ip);
+            render_text(renderer, label, row.x + 5, row.y + 5, col_white, 0);
+            y_s += 35;
+        }
+
+        btn_add_server = (SDL_Rect){server_list_win.x + 20, server_list_win.y + 350, 210, 30};
+        SDL_SetRenderDrawColor(renderer, 0, 100, 0, 255); SDL_RenderFillRect(renderer, &btn_add_server);
+        render_text(renderer, "Save Current IP", btn_add_server.x + 105, btn_add_server.y + 5, col_white, 1);
+    }
+
     SDL_RenderPresent(renderer);
 }
 
@@ -839,22 +966,67 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
 }
 
 void handle_auth_click(int mx, int my) {
-    if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_login)) {
-        Packet pkt; pkt.type = PACKET_LOGIN_REQUEST; strncpy(pkt.username, auth_username, 31); strncpy(pkt.password, auth_password, 31); send_packet(&pkt);
-        strcpy(auth_message, "Logging in...");
-    } else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_register)) {
-        Packet pkt; pkt.type = PACKET_REGISTER_REQUEST; strncpy(pkt.username, auth_username, 31); strncpy(pkt.password, auth_password, 31); send_packet(&pkt);
-        strcpy(auth_message, "Registering...");
-    } else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_show_pass)) {
-        show_password = !show_password;
-    } else if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){auth_box.x+130, auth_box.y+115, 200, 25})) {
-        active_field = 0; SDL_StartTextInput();
-    } else if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){auth_box.x+130, auth_box.y+165, 200, 25})) {
-        active_field = 1; SDL_StartTextInput();
+    // 1. Server List Logic
+    if (show_server_list) {
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_add_server)) {
+            char name[32]; 
+            snprintf(name, 32, "Server_%d", server_count+1); // Fixed underscore
+            add_server_to_list(name, input_ip, atoi(input_port));
+            return;
+        }
+        int y_s = 50;
+        for(int i=0; i<server_count; i++) {
+            SDL_Rect row = {server_list_win.x + 10, server_list_win.y + y_s, 230, 30};
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &row)) {
+                strcpy(input_ip, server_list[i].ip);
+                sprintf(input_port, "%d", server_list[i].port);
+                show_server_list = 0; 
+                return;
+            }
+            y_s += 35;
+        }
+        if (!SDL_PointInRect(&(SDL_Point){mx, my}, &server_list_win)) show_server_list = 0;
+        return; // Return early if list was open to prevent clicking through it
     }
+
+    if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_open_servers)) {
+        show_server_list = !show_server_list;
+        return;
+    }
+
+    // --- FIX: Restore Password Checkbox Logic ---
+    if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_show_pass)) {
+        show_password = !show_password;
+        return;
+    }
+    // --------------------------------------------
+
+    // Login / Register Buttons
+    if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_login)) {
+        if (!is_connected) { if(!try_connect()) return; } 
+        Packet pkt; pkt.type = PACKET_LOGIN_REQUEST; 
+        strncpy(pkt.username, auth_username, 31); strncpy(pkt.password, auth_password, 31); 
+        send_packet(&pkt);
+        strcpy(auth_message, "Logging in...");
+    } 
+    else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_register)) {
+        if (!is_connected) { if(!try_connect()) return; } 
+        Packet pkt; pkt.type = PACKET_REGISTER_REQUEST; 
+        strncpy(pkt.username, auth_username, 31); strncpy(pkt.password, auth_password, 31); 
+        send_packet(&pkt);
+        strcpy(auth_message, "Registering...");
+    } 
+    
+    // Field Selection
+    int y_start = auth_box.y + 80;
+    if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){auth_box.x+130, y_start-5, 200, 25})) { active_field = 2; SDL_StartTextInput(); }
+    else if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){auth_box.x+130, y_start+35, 80, 25})) { active_field = 3; SDL_StartTextInput(); }
+    else if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){auth_box.x+130, y_start+85, 200, 25})) { active_field = 0; SDL_StartTextInput(); }
+    else if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){auth_box.x+130, y_start+135, 200, 25})) { active_field = 1; SDL_StartTextInput(); }
 }
 
 int main(int argc, char const *argv[]) {
+    // 1. Initialize SDL Components
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) return 1;
     if (TTF_Init() == -1) return 1;
     if (!(IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG) & (IMG_INIT_PNG | IMG_INIT_JPG))) printf("IMG Init Error: %s\n", IMG_GetError());
@@ -862,7 +1034,7 @@ int main(int argc, char const *argv[]) {
     font = TTF_OpenFont(FONT_PATH, FONT_SIZE);
     if (!font) { printf("Font missing: %s\n", FONT_PATH); return 1; }
 
-    SDL_Window *window = SDL_CreateWindow("test game", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 800, 600, SDL_WINDOW_SHOWN|SDL_WINDOW_RESIZABLE);
+    SDL_Window *window = SDL_CreateWindow("C MMO Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 800, 600, SDL_WINDOW_SHOWN|SDL_WINDOW_RESIZABLE);
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
 
     SDL_Surface *temp = IMG_Load(MAP_FILE); if (temp) { tex_map = SDL_CreateTextureFromSurface(renderer, temp); map_w=temp->w; map_h=temp->h; SDL_FreeSurface(temp); }
@@ -870,11 +1042,12 @@ int main(int argc, char const *argv[]) {
 
     init_audio();
 
-    struct sockaddr_in serv_addr;
-    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) return -1;
-    serv_addr.sin_family = AF_INET; serv_addr.sin_port = htons(PORT);
-    inet_pton(AF_INET, server_ip, &serv_addr.sin_addr);
-    connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
+    // --- FIX 1: REMOVED IMMEDIATE CONNECT ---
+    // Instead of connecting to 127.0.0.1 immediately, we load the list
+    // and wait for the user to click "Login"
+    load_servers(); 
+    sock = -1; // Set to invalid initially
+    // ----------------------------------------
 
     for(int i=0; i<MAX_CLIENTS; i++) { avatar_cache[i] = NULL; avatar_status[i] = 0; }
 
@@ -887,29 +1060,28 @@ int main(int argc, char const *argv[]) {
         Uint32 now_fps = SDL_GetTicks();
         if (now_fps > last_fps_check + 1000) { current_fps = frame_count; frame_count = 0; last_fps_check = now_fps; }
         
-        // FIXED: Only auto-play audio if we are IN GAME
+        // Auto-play audio only in game
         if (client_state == STATE_GAME && music_count > 0 && !Mix_PlayingMusic()) play_next_track();
-        // --- ADD THIS: Get Window Size Every Frame ---
+
+        // Get Dynamic Window Size
         int screen_w, screen_h;
         SDL_GetRendererOutputSize(renderer, &screen_w, &screen_h);
-        // ---------------------------------------------
+
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) running = 0;
+            
+            // Avatar Drag & Drop
             else if (event.type == SDL_DROPFILE) {
-                if (is_settings_open) {
+                if (is_settings_open && sock > 0) { // Check sock > 0
                     char* dropped_file = event.drop.file;
                     FILE *fp = fopen(dropped_file, "rb");
                     if (fp) {
                         fseek(fp, 0, SEEK_END); long fsize = ftell(fp); fseek(fp, 0, SEEK_SET);
                         if (fsize > 0 && fsize <= MAX_AVATAR_SIZE) {
-                            // 1. Send Header
                             Packet pkt; pkt.type = PACKET_AVATAR_UPLOAD; pkt.image_size = fsize;
                             send_packet(&pkt);
-                            
-                            // 2. Send Body
                             fread(temp_avatar_buf, 1, fsize, fp);
                             send(sock, temp_avatar_buf, fsize, 0);
-                            
                             printf("Uploaded avatar: %ld bytes\n", fsize);
                         } else { printf("File too large! Max 16KB.\n"); }
                         fclose(fp);
@@ -920,19 +1092,28 @@ int main(int argc, char const *argv[]) {
 
             if (client_state == STATE_AUTH) {
                 if(event.type == SDL_MOUSEBUTTONDOWN) handle_auth_click(event.button.x, event.button.y);
-                if(event.type == SDL_KEYDOWN) {
-                    if(event.key.keysym.sym == SDLK_RETURN) handle_auth_click(btn_login.x+1, btn_login.y+1);
-                    if(event.key.keysym.sym == SDLK_TAB) active_field = !active_field;
-                    if(event.key.keysym.sym == SDLK_BACKSPACE) {
-                if(active_field==0) remove_last_utf8_char(auth_username); // <--- NEW
-                if(active_field==1) remove_last_utf8_char(auth_password); // <--- NEW
-                }
-                }
+                
+                // Auth Input Handling (With UTF-8 Fix)
                 if(event.type == SDL_TEXTINPUT) {
                     if(active_field==0 && strlen(auth_username)<31) strcat(auth_username, event.text.text);
                     if(active_field==1 && strlen(auth_password)<31) strcat(auth_password, event.text.text);
+                    if(active_field==2 && strlen(input_ip)<63) strcat(input_ip, event.text.text);   // IP
+                    if(active_field==3 && strlen(input_port)<5) strcat(input_port, event.text.text); // Port
+                }
+                if(event.type == SDL_KEYDOWN) {
+                    if(event.key.keysym.sym == SDLK_RETURN) handle_auth_click(btn_login.x+1, btn_login.y+1);
+                    if(event.key.keysym.sym == SDLK_TAB) {
+                        active_field++; if(active_field > 3) active_field = 0;
+                    }
+                    if(event.key.keysym.sym == SDLK_BACKSPACE) {
+                        if(active_field==0) remove_last_utf8_char(auth_username);
+                        if(active_field==1) remove_last_utf8_char(auth_password);
+                        if(active_field==2 && strlen(input_ip)>0) input_ip[strlen(input_ip)-1] = 0;
+                        if(active_field==3 && strlen(input_port)>0) input_port[strlen(input_port)-1] = 0;
+                    }
                 }
             } else {
+                // Game Input Handling
                 if (event.type == SDL_MOUSEBUTTONDOWN) {
                      if (SDL_PointInRect(&(SDL_Point){event.button.x, event.button.y}, &btn_chat_toggle)) {
                         is_chat_open = !is_chat_open; if(is_chat_open) SDL_StartTextInput(); else SDL_StopTextInput();
@@ -944,8 +1125,9 @@ int main(int argc, char const *argv[]) {
                         float px=0, py=0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { px=local_players[i].x; py=local_players[i].y; }
                         int cam_x = (int)px - (w/2) + 16; int cam_y = (int)py - (h/2) + 16;
                         if (w > map_w) cam_x = -(w - map_w)/2; if (h > map_h) cam_y = -(h - map_h)/2;
-                       // UPDATE THE CALL HERE: Pass screen_w and screen_h
-                     handle_game_click(event.button.x, event.button.y, cam_x, cam_y, screen_w, screen_h);
+                        
+                        // Pass screen_w/h to handle Close buttons correctly
+                        handle_game_click(event.button.x, event.button.y, cam_x, cam_y, screen_w, screen_h);
                      }
                 }
                 if (is_chat_open) {
@@ -963,7 +1145,7 @@ int main(int argc, char const *argv[]) {
                             is_chat_open=0; SDL_StopTextInput();
                         }
                         else if(event.key.keysym.sym == SDLK_BACKSPACE) {
-                        remove_last_utf8_char(input_buffer); // <--- NEW
+                            remove_last_utf8_char(input_buffer);
                         }
                         else if(event.key.keysym.sym == SDLK_ESCAPE) { is_chat_open=0; chat_target_id = -1; SDL_StopTextInput(); }
                     }
@@ -983,65 +1165,71 @@ int main(int argc, char const *argv[]) {
         }
 
         Uint32 now = SDL_GetTicks();
-        if (client_state == STATE_GAME && now - last_ping_sent > 1000) { Packet pkt; pkt.type = PACKET_PING; pkt.timestamp = now; send_packet(&pkt); last_ping_sent = now; }
+        // Send Ping/Move only if connected
+        if (sock > 0 && client_state == STATE_GAME) {
+            if (now - last_ping_sent > 1000) { Packet pkt; pkt.type = PACKET_PING; pkt.timestamp = now; send_packet(&pkt); last_ping_sent = now; }
 
-        if (client_state == STATE_GAME && !is_chat_open && pending_friend_req_id == -1) {
-            float dx = 0, dy = 0;
-            if (key_up) dy = -1; if (key_down) dy = 1; if (key_left) dx = -1; if (key_right) dx = 1;
-            if (dx != 0 || dy != 0) { Packet pkt; pkt.type = PACKET_MOVE; pkt.dx = dx; pkt.dy = dy; send_packet(&pkt); }
+            if (!is_chat_open && pending_friend_req_id == -1) {
+                float dx = 0, dy = 0;
+                if (key_up) dy = -1; if (key_down) dy = 1; if (key_left) dx = -1; if (key_right) dx = 1;
+                if (dx != 0 || dy != 0) { Packet pkt; pkt.type = PACKET_MOVE; pkt.dx = dx; pkt.dy = dy; send_packet(&pkt); }
+            }
         }
 
-        int bytes; ioctl(sock, FIONREAD, &bytes);
-        if (bytes > 0) {
-            Packet pkt; 
-            if (recv(sock, &pkt, sizeof(Packet), 0) > 0) {
-                if (pkt.type == PACKET_AUTH_RESPONSE) {
-                    if (pkt.status == AUTH_SUCCESS) { 
-                        client_state = STATE_GAME; 
-                        local_player_id = pkt.player_id; 
-                        SDL_StopTextInput(); 
-                        if (music_count > 0) play_next_track();
-                    }
-                    else if (pkt.status == AUTH_REGISTER_SUCCESS) strcpy(auth_message, "Success! Login now.");
-                    else strcpy(auth_message, "Error.");
-                }
-                if (pkt.type == PACKET_UPDATE) memcpy(local_players, pkt.players, sizeof(local_players));
-                if (pkt.type == PACKET_CHAT || pkt.type == PACKET_PRIVATE_MESSAGE) add_chat_message(&pkt);
-                if (pkt.type == PACKET_FRIEND_LIST) { 
-                    friend_count = pkt.friend_count; 
-                    // Copy the whole struct array
-                    memcpy(my_friends, pkt.friends, sizeof(pkt.friends)); 
-                }                if (pkt.type == PACKET_FRIEND_INCOMING) { pending_friend_req_id = pkt.player_id; strcpy(pending_friend_name, pkt.username); }
-                if (pkt.type == PACKET_PING) current_ping = SDL_GetTicks() - pkt.timestamp;
-                
-                if (pkt.type == PACKET_AVATAR_RESPONSE) {
-                    if (pkt.image_size > 0 && pkt.image_size <= MAX_AVATAR_SIZE) {
-                        // Read Body
-                        int total = 0;
-                        while(total < pkt.image_size) {
-                            int n = recv(sock, temp_avatar_buf + total, pkt.image_size - total, 0);
-                            if(n > 0) total += n;
+        // --- FIX 2: NETWORK READING (Only if connected) ---
+        if (sock > 0) {
+            int bytes; 
+            if (ioctl(sock, FIONREAD, &bytes) != -1 && bytes > 0) {
+                Packet pkt; 
+                // Read Packet Header (Blocking within this tick is ok for small packets, or use MSG_DONTWAIT)
+                if (recv(sock, &pkt, sizeof(Packet), MSG_WAITALL) > 0) {
+                    if (pkt.type == PACKET_AUTH_RESPONSE) {
+                        if (pkt.status == AUTH_SUCCESS) { 
+                            client_state = STATE_GAME; 
+                            local_player_id = pkt.player_id; 
+                            SDL_StopTextInput(); 
+                            if (music_count > 0) play_next_track();
                         }
-
-                        // Process Image
-                        int target_idx = -1;
-                        for(int i=0; i<MAX_CLIENTS; i++) 
-                            if(local_players[i].active && local_players[i].id == pkt.player_id) target_idx = i;
-                        
-                        if (target_idx != -1) {
-                            SDL_RWops *rw = SDL_RWFromMem(temp_avatar_buf, pkt.image_size);
-                            SDL_Surface *surf = IMG_Load_RW(rw, 1); 
-                            if (surf) {
-                                if (avatar_cache[target_idx]) SDL_DestroyTexture(avatar_cache[target_idx]);
-                                avatar_cache[target_idx] = SDL_CreateTextureFromSurface(renderer, surf);
-                                avatar_status[target_idx] = 2; 
-                                SDL_FreeSurface(surf);
+                        else if (pkt.status == AUTH_REGISTER_SUCCESS) strcpy(auth_message, "Success! Login now.");
+                        else strcpy(auth_message, "Error.");
+                    }
+                    if (pkt.type == PACKET_UPDATE) memcpy(local_players, pkt.players, sizeof(local_players));
+                    if (pkt.type == PACKET_CHAT || pkt.type == PACKET_PRIVATE_MESSAGE) add_chat_message(&pkt);
+                    if (pkt.type == PACKET_FRIEND_LIST) { 
+                        friend_count = pkt.friend_count; 
+                        memcpy(my_friends, pkt.friends, sizeof(pkt.friends)); 
+                    }                
+                    if (pkt.type == PACKET_FRIEND_INCOMING) { pending_friend_req_id = pkt.player_id; strcpy(pending_friend_name, pkt.username); }
+                    if (pkt.type == PACKET_PING) current_ping = SDL_GetTicks() - pkt.timestamp;
+                    
+                    // Avatar Stream Handling
+                    if (pkt.type == PACKET_AVATAR_RESPONSE) {
+                        if (pkt.image_size > 0 && pkt.image_size <= MAX_AVATAR_SIZE) {
+                            int total = 0;
+                            while(total < pkt.image_size) {
+                                int n = recv(sock, temp_avatar_buf + total, pkt.image_size - total, 0);
+                                if(n > 0) total += n;
+                            }
+                            int target_idx = -1;
+                            for(int i=0; i<MAX_CLIENTS; i++) 
+                                if(local_players[i].active && local_players[i].id == pkt.player_id) target_idx = i;
+                            
+                            if (target_idx != -1) {
+                                SDL_RWops *rw = SDL_RWFromMem(temp_avatar_buf, pkt.image_size);
+                                SDL_Surface *surf = IMG_Load_RW(rw, 1); 
+                                if (surf) {
+                                    if (avatar_cache[target_idx]) SDL_DestroyTexture(avatar_cache[target_idx]);
+                                    avatar_cache[target_idx] = SDL_CreateTextureFromSurface(renderer, surf);
+                                    avatar_status[target_idx] = 2; 
+                                    SDL_FreeSurface(surf);
+                                }
                             }
                         }
                     }
-                }
-            }    
+                }    
+            }
         }
+        // --------------------------------------------------
 
         if (client_state == STATE_AUTH) render_auth_screen(renderer); else render_game(renderer);
         SDL_Delay(16);
@@ -1049,7 +1237,8 @@ int main(int argc, char const *argv[]) {
     
     if(tex_map) SDL_DestroyTexture(tex_map); if(tex_player) SDL_DestroyTexture(tex_player);
     if(bgm) Mix_FreeMusic(bgm); Mix_CloseAudio();
-    close(sock); TTF_CloseFont(font); TTF_Quit(); IMG_Quit();
+    if(sock > 0) close(sock); 
+    TTF_CloseFont(font); TTF_Quit(); IMG_Quit();
     SDL_DestroyRenderer(renderer); SDL_DestroyWindow(window); SDL_Quit();
     return 0;
 }
