@@ -162,6 +162,7 @@ SDL_Rect btn_inbox;
 // --- Add Friend Popup State ---
 int show_add_friend_popup = 0;
 char input_friend_id[10] = "";
+char friend_popup_msg[128] = "";
 
 SDL_Rect btn_friend_add_id_rect; // Global to store position for click handler
 SDL_Rect friend_win_rect;
@@ -557,10 +558,14 @@ void render_add_friend_popup(SDL_Renderer *renderer, int w, int h) {
     
     render_text(renderer, "Add Friend by ID", pop.x+80, pop.y+10, col_green, 0);
     
-    // --- UPDATED: Input Field with Cursor ---
+    // --- NEW: Status Message ---
+    // If message starts with "Error", render in Red, otherwise Yellow
+    SDL_Color status_col = (strncmp(friend_popup_msg, "Error", 5) == 0) ? col_red : col_yellow;
+    render_text(renderer, friend_popup_msg, pop.x+150, pop.y+35, status_col, 1); // 1 = Centered
+    // ---------------------------
+    
     SDL_Rect input_rect = {pop.x+50, pop.y+60, 200, 30};
     render_input_with_cursor(renderer, input_rect, input_friend_id, active_field == 20, 0);
-    // ----------------------------------------
 
     SDL_Rect btn_ok = {pop.x+50, pop.y+130, 80, 30};
     SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_ok);
@@ -1283,7 +1288,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         
         // "Add ID" Button
         SDL_Rect btn_add_id = {f_win.x + 20, f_win.y + 45, 100, 30};
-        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_add_id)) { show_add_friend_popup = 1; input_friend_id[0] = 0; return; }
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_add_id)) { show_add_friend_popup = 1; input_friend_id[0] = 0; friend_popup_msg[0] = 0; return; }
 
         // --- NEW: Delete Buttons ---
         int y_off = 85; 
