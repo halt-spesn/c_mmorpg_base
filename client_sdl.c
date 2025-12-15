@@ -484,10 +484,17 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     SDL_Rect fill_vol = {slider_volume.x, slider_volume.y, (int)((music_volume/128.0)*200), 20};
     SDL_SetRenderDrawColor(renderer, 0, 200, 255, 255); SDL_RenderFillRect(renderer, &fill_vol);
     SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255); SDL_RenderDrawRect(renderer, &slider_volume);
-
+    // --- NEW: Disconnect Button ---
+    SDL_Rect btn_disconnect = {settings_win.x + 20, settings_win.y + 500, 260, 30};
+    SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); // Red button
+    SDL_RenderFillRect(renderer, &btn_disconnect);
+    render_text(renderer, "Disconnect / Logout", btn_disconnect.x + 130, btn_disconnect.y + 5, col_white, 1);
+    
+    // Move drag text down slightly if needed
     render_text(renderer, "Drag & Drop Image here", settings_win.x + 150, settings_win.y + 550, col_yellow, 1);
     render_text(renderer, "to upload Avatar (<16KB)", settings_win.x + 150, settings_win.y + 570, col_yellow, 1);
 }
+
 void render_friend_list(SDL_Renderer *renderer, int w, int h) {
     if (!show_friend_list) return;
 
@@ -922,6 +929,38 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             float pct = (mx - slider_volume.x) / 200.0f; if (pct < 0) pct = 0; if (pct > 1) pct = 1;
             music_volume = (int)(pct * 128); Mix_VolumeMusic(music_volume);
         }
+        // --- NEW: Handle Disconnect Click ---
+        SDL_Rect btn_disconnect = {settings_win.x + 20, settings_win.y + 500, 260, 30};
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_disconnect)) {
+            // 1. Close Socket
+            if(sock > 0) close(sock);
+            sock = -1;
+            is_connected = 0;
+
+            // 2. Stop Audio
+            Mix_HaltMusic(); // <--- ADD THIS LINE
+            
+            // 2. Reset State
+            client_state = STATE_AUTH;
+            is_settings_open = 0;
+            local_player_id = -1;
+            
+            // Clear Players
+            for(int i=0; i<MAX_CLIENTS; i++) {
+                local_players[i].active = 0;
+                local_players[i].id = -1;
+            }
+            
+            // Clear Friends & Chat
+            friend_count = 0;
+            chat_log_count = 0;
+            for(int i=0; i<CHAT_HISTORY; i++) strcpy(chat_log[i], "");
+            
+            // Clear Auth Message
+            strcpy(auth_message, "Logged out.");
+            return;
+        }
+
         return;
     }
     
