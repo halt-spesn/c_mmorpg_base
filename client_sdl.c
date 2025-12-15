@@ -173,6 +173,10 @@ SDL_Rect btn_blocked_close_rect;
 
 int cursor_pos = 0; // Tracks current text cursor index
 
+int unread_chat_count = 0;
+int show_unread_counter = 1; // Default ON
+SDL_Rect btn_toggle_unread;
+
 // --- Helpers ---
 void send_packet(Packet *pkt) { send(sock, pkt, sizeof(Packet), 0); }
 
@@ -609,14 +613,13 @@ void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
 void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     if (!is_settings_open) return;
     
-    // Main Settings Window
+    // Window Setup
     settings_win = (SDL_Rect){screen_w/2 - 150, screen_h/2 - 300, 300, 600}; 
-    
     SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255); SDL_RenderFillRect(renderer, &settings_win);
     SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255); SDL_RenderDrawRect(renderer, &settings_win);
     render_text(renderer, "Settings", settings_win.x + 150, settings_win.y + 10, col_white, 1);
 
-    // 1. Toggles
+    // 1. Toggles (Debug, FPS, Coords)
     btn_toggle_debug = (SDL_Rect){settings_win.x + 20, settings_win.y + 50, 20, 20};
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_debug);
     if (show_debug_info) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c={btn_toggle_debug.x+4,btn_toggle_debug.y+4,12,12}; SDL_RenderFillRect(renderer,&c); }
@@ -632,37 +635,44 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     if (show_coords) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c={btn_toggle_coords.x+4,btn_toggle_coords.y+4,12,12}; SDL_RenderFillRect(renderer,&c); }
     render_text(renderer, "Show Coordinates", settings_win.x + 50, settings_win.y + 130, col_white, 0);
 
-    // 2. Blocked Players
-    btn_view_blocked = (SDL_Rect){settings_win.x + 20, settings_win.y + 170, 260, 30};
+    // --- NEW: Unread Counter Toggle (y = 170) ---
+    btn_toggle_unread = (SDL_Rect){settings_win.x + 20, settings_win.y + 170, 20, 20};
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_unread);
+    if (show_unread_counter) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c={btn_toggle_unread.x+4,btn_toggle_unread.y+4,12,12}; SDL_RenderFillRect(renderer,&c); }
+    render_text(renderer, "Show Unread Counter", settings_win.x + 50, settings_win.y + 170, col_white, 0);
+
+    // 2. Blocked Players (Shifted Down to 210)
+    btn_view_blocked = (SDL_Rect){settings_win.x + 20, settings_win.y + 210, 260, 30};
     SDL_SetRenderDrawColor(renderer, 200, 50, 50, 255); SDL_RenderFillRect(renderer, &btn_view_blocked);
     render_text(renderer, "Manage Blocked Players", btn_view_blocked.x + 130, btn_view_blocked.y + 5, col_white, 1);
 
-    // 3. ID Display & Nickname Change
+    // 3. ID Display (Shifted Down to 250)
     char id_str[32]; snprintf(id_str, 32, "My ID: %d", local_player_id);
-    render_text(renderer, id_str, settings_win.x + 150, settings_win.y + 210, (SDL_Color){150, 150, 255, 255}, 1);
+    render_text(renderer, id_str, settings_win.x + 150, settings_win.y + 250, (SDL_Color){150, 150, 255, 255}, 1);
 
+    // Status (Shifted to 270)
     int my_status = 0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) my_status = local_players[i].status;
-    btn_cycle_status = (SDL_Rect){settings_win.x + 20, settings_win.y + 230, 260, 30};
+    btn_cycle_status = (SDL_Rect){settings_win.x + 20, settings_win.y + 270, 260, 30};
     SDL_SetRenderDrawColor(renderer, 50, 50, 100, 255); SDL_RenderFillRect(renderer, &btn_cycle_status);
     char status_str[64]; snprintf(status_str, 64, "Status: %s", status_names[my_status]);
     render_text(renderer, status_str, btn_cycle_status.x + 130, btn_cycle_status.y + 5, get_status_color(my_status), 1);
 
-    // Change Nickname Button
-    SDL_Rect btn_nick = {settings_win.x + 20, settings_win.y + 270, 260, 30};
+    // Change Nickname Button (Shifted to 310)
+    SDL_Rect btn_nick = {settings_win.x + 20, settings_win.y + 310, 260, 30};
     SDL_SetRenderDrawColor(renderer, 100, 50, 150, 255); 
     SDL_RenderFillRect(renderer, &btn_nick);
     render_text(renderer, "Change Nickname", btn_nick.x + 130, btn_nick.y + 5, col_white, 1);
 
-    // 4. Color Sliders (Shifted down to Y=320)
-    int start_y = settings_win.y + 320;
+    // 4. Color Sliders (Shifted down to Y=360)
+    int start_y = settings_win.y + 360;
     int my_r=255, my_g=255, my_b=255;
     for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) { my_r=local_players[i].r; my_g=local_players[i].g; my_b=local_players[i].b; }
     render_text(renderer, "Name Color", settings_win.x + 150, start_y, (SDL_Color){my_r, my_g, my_b, 255}, 1);
-
+    
     slider_r = (SDL_Rect){settings_win.x + 50, start_y + 30, 200, 20};
     slider_g = (SDL_Rect){settings_win.x + 50, start_y + 60, 200, 20};
     slider_b = (SDL_Rect){settings_win.x + 50, start_y + 90, 200, 20};
-
+    
     SDL_SetRenderDrawColor(renderer, 50, 0, 0, 255); SDL_RenderFillRect(renderer, &slider_r);
     SDL_Rect fill_r = {slider_r.x, slider_r.y, (int)((my_r/255.0)*200), 20};
     SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); SDL_RenderFillRect(renderer, &fill_r);
@@ -691,6 +701,7 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     render_text(renderer, "Drag & Drop Image here", settings_win.x + 150, settings_win.y + 560, col_yellow, 1);
     render_text(renderer, "to upload Avatar (<16KB)", settings_win.x + 150, settings_win.y + 580, col_yellow, 1);
 
+    // --- POPUP: Change Nickname ---
     if (show_nick_popup) {
         SDL_Rect pop = {screen_w/2 - 150, screen_h/2 - 150, 300, 300};
         SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255); SDL_RenderFillRect(renderer, &pop);
@@ -700,22 +711,17 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
         render_text(renderer, auth_message, pop.x+150, pop.y+35, col_red, 1);
 
         int y = pop.y + 60;
-        
-        // 1. New Nick
         render_text(renderer, "New Name:", pop.x+20, y, col_white, 0);
         render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, y+20, 260, 25}, nick_new, active_field==10, 0);
 
-        // 2. Confirm
         y += 60;
         render_text(renderer, "Type 'CONFIRM':", pop.x+20, y, col_white, 0);
         render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, y+20, 260, 25}, nick_confirm, active_field==11, 0);
 
-        // 3. Password
         y += 60;
         render_text(renderer, "Current Password:", pop.x+20, y, col_white, 0);
-        render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, y+20, 260, 25}, nick_pass, active_field==12, 1); // 1 = Masked
+        render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, y+20, 260, 25}, nick_pass, active_field==12, 1); 
 
-        // Buttons
         SDL_Rect btn_submit = {pop.x+20, pop.y+240, 120, 30};
         SDL_Rect btn_cancel = {pop.x+160, pop.y+240, 120, 30};
         SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_submit);
@@ -1062,6 +1068,18 @@ void render_game(SDL_Renderer *renderer) {
     btn_chat_toggle = (SDL_Rect){10, h-40, 100, 30};
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_chat_toggle);
     render_text(renderer, is_chat_open ? "Close" : "Chat", btn_chat_toggle.x+50, btn_chat_toggle.y+5, col_white, 1);
+    // --- NEW: Unread Badge ---
+    if (show_unread_counter && unread_chat_count > 0 && !is_chat_open) {
+        // Draw Red Box
+        SDL_Rect badge = {btn_chat_toggle.x + 80, btn_chat_toggle.y - 10, 20, 20};
+        SDL_SetRenderDrawColor(renderer, 200, 0, 0, 255); 
+        SDL_RenderFillRect(renderer, &badge);
+        
+        // Draw Number
+        char num[8]; 
+        snprintf(num, 8, "%d", unread_chat_count > 9 ? 9 : unread_chat_count); // Cap visual at 9
+        render_text(renderer, num, badge.x + 10, badge.y + 2, col_white, 1);
+    }
 
     btn_view_friends = (SDL_Rect){120, h-40, 100, 30};
     SDL_SetRenderDrawColor(renderer, 0, 100, 0, 255); SDL_RenderFillRect(renderer, &btn_view_friends);
@@ -1233,6 +1251,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_debug)) show_debug_info = !show_debug_info;
         else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_fps)) show_fps = !show_fps;
         else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_coords)) show_coords = !show_coords;
+        else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_unread)) show_unread_counter = !show_unread_counter;
         else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_view_blocked)) show_blocked_list = 1; 
         else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_cycle_status)) {
             int my_status = 0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) my_status = local_players[i].status;
@@ -1240,7 +1259,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             Packet pkt; pkt.type = PACKET_STATUS_CHANGE; pkt.new_status = my_status; send_packet(&pkt);
         }
         
-        SDL_Rect btn_nick = {settings_win.x + 20, settings_win.y + 270, 260, 30};
+        SDL_Rect btn_nick = {settings_win.x + 20, settings_win.y + 310, 260, 30};
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_nick)) {
             show_nick_popup = 1; nick_new[0] = 0; nick_confirm[0] = 0; nick_pass[0] = 0;
             strcpy(auth_message, "Enter details."); return;
@@ -1512,11 +1531,17 @@ int main(int argc, char const *argv[]) {
                 if (event.type == SDL_MOUSEBUTTONDOWN) {
                      int mx = event.button.x * scale_x; int my = event.button.y * scale_y;
                      
-                     // HUD Logic
-                     if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_chat_toggle)) {
+                        // HUD Logic
+                        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_chat_toggle)) {
                         is_chat_open = !is_chat_open; 
-                        if(is_chat_open) SDL_StartTextInput(); else SDL_StopTextInput();
-                     } 
+                        
+                        if(is_chat_open) {
+                            unread_chat_count = 0; // Reset counter
+                            SDL_StartTextInput();
+                        } else {
+                            SDL_StopTextInput();
+                        }
+                     }
                      else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_settings_toggle)) {
                         is_settings_open = !is_settings_open;
                         if (!is_settings_open) { show_nick_popup = 0; show_blocked_list = 0; active_field = -1; }
@@ -1596,7 +1621,17 @@ int main(int argc, char const *argv[]) {
                         else strcpy(auth_message, "Error.");
                     }
                     if (pkt.type == PACKET_UPDATE) memcpy(local_players, pkt.players, sizeof(local_players));
-                    if (pkt.type == PACKET_CHAT || pkt.type == PACKET_PRIVATE_MESSAGE) add_chat_message(&pkt);
+                    if (pkt.type == PACKET_CHAT || pkt.type == PACKET_PRIVATE_MESSAGE) {
+                        add_chat_message(&pkt);
+                        
+                        // Increment ONLY if it is a chat packet and chat is closed
+                        if (!is_chat_open) unread_chat_count++;
+
+                        // Also capture system messages for the popup here
+                        if (pkt.player_id == -1 && show_add_friend_popup) {
+                            strncpy(friend_popup_msg, pkt.msg, 127);
+                        }
+                    }
                     if (pkt.type == PACKET_FRIEND_LIST) { friend_count = pkt.friend_count; memcpy(my_friends, pkt.friends, sizeof(pkt.friends)); }                
                     if (pkt.type == PACKET_FRIEND_INCOMING) { 
                         if (inbox_count < 10) {
