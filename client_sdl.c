@@ -202,6 +202,11 @@ int my_r2 = 255, my_g2 = 255, my_b2 = 255; // Local state for now
 
 int saved_r = 255, saved_g = 255, saved_b = 255;
 
+int selection_start = 0; // Index where selection begins
+int selection_len = 0;   // Length of selection (can be negative for left-selection)
+int is_dragging = 0;     // For mouse drag selection
+SDL_Rect active_input_rect;
+
 // --- Helpers ---
 void send_packet(Packet *pkt) { send(sock, pkt, sizeof(Packet), 0); }
 
@@ -263,57 +268,171 @@ void load_config() {
         fclose(fp);
     }
 }
+
+int get_cursor_pos_from_click(const char *text, int mouse_x, int rect_x) {
+    if (!text || strlen(text) == 0) return 0;
+    
+    int len = strlen(text);
+    int best_index = 0;
+    int min_dist = 10000; // Arbitrary large number
+
+    // Iterate through valid UTF-8 indices
+    for (int i = 0; i <= len; ) {
+        char temp[256];
+        strncpy(temp, text, i);
+        temp[i] = 0;
+        
+        int w, h;
+        TTF_SizeText(font, temp, &w, &h);
+        
+        // +5 is the padding offset used in render_input_with_cursor
+        int text_screen_x = rect_x + 5 + w;
+        int dist = abs(mouse_x - text_screen_x);
+        
+        if (dist < min_dist) {
+            min_dist = dist;
+            best_index = i;
+        }
+
+        // Advance to next UTF-8 character start
+        if (i == len) break;
+        do { i++; } while (i < len && (text[i] & 0xC0) == 0x80);
+    }
+    return best_index;
+}
+
+// Helper: Delete currently selected text
+void delete_selection(char *buffer) {
+    if (selection_len == 0) return;
+
+    int start = selection_start;
+    int len = selection_len;
+    
+    // Normalize if selection goes backwards
+    if (len < 0) {
+        start += len; // move start back
+        len = -len;   // make len positive
+    }
+
+    int total_len = strlen(buffer);
+    if (start < 0) start = 0;
+    if (start + len > total_len) len = total_len - start;
+
+    // Shift text left
+    memmove(buffer + start, buffer + start + len, total_len - start - len + 1);
+    
+    // Reset cursor and selection
+    cursor_pos = start;
+    selection_len = 0;
+}
+
+
+
 void handle_text_edit(char *buffer, int max_len, SDL_Event *ev) {
     int len = strlen(buffer);
+    const Uint8 *state = SDL_GetKeyboardState(NULL);
+    int shift_pressed = state[SDL_SCANCODE_LSHIFT] || state[SDL_SCANCODE_RSHIFT];
+    int ctrl_pressed = state[SDL_SCANCODE_LCTRL] || state[SDL_SCANCODE_RCTRL];
 
     if (ev->type == SDL_TEXTINPUT) {
+        // If text is selected, delete it first
+        if (selection_len != 0) delete_selection(buffer);
+        
         int add_len = strlen(ev->text.text);
-        if (len + add_len <= max_len) {
-            // Shift content to the right to make space
-            memmove(buffer + cursor_pos + add_len, buffer + cursor_pos, len - cursor_pos + 1);
-            // Insert new text
+        if (strlen(buffer) + add_len <= max_len) {
+            memmove(buffer + cursor_pos + add_len, buffer + cursor_pos, strlen(buffer) - cursor_pos + 1);
             memcpy(buffer + cursor_pos, ev->text.text, add_len);
             cursor_pos += add_len;
         }
     } 
     else if (ev->type == SDL_KEYDOWN) {
-        if (ev->key.keysym.sym == SDLK_LEFT) {
-            if (cursor_pos > 0) {
-                // Move back one character (handle multi-byte UTF-8)
-                do { cursor_pos--; } while (cursor_pos > 0 && (buffer[cursor_pos] & 0xC0) == 0x80);
+        // --- COPY (Ctrl+C) ---
+        if (ctrl_pressed && ev->key.keysym.sym == SDLK_c) {
+            if (selection_len != 0) {
+                int start = selection_start;
+                int slen = selection_len;
+                if (slen < 0) { start += slen; slen = -slen; }
+                
+                char *clip_buf = malloc(slen + 1);
+                if (clip_buf) {
+                    strncpy(clip_buf, buffer + start, slen);
+                    clip_buf[slen] = 0;
+                    SDL_SetClipboardText(clip_buf);
+                    free(clip_buf);
+                }
             }
+        }
+        // --- PASTE (Ctrl+V) ---
+        else if (ctrl_pressed && ev->key.keysym.sym == SDLK_v) {
+            if (SDL_HasClipboardText()) {
+                char *text = SDL_GetClipboardText();
+                if (text) {
+                    if (selection_len != 0) delete_selection(buffer);
+                    
+                    int add_len = strlen(text);
+                    if (strlen(buffer) + add_len <= max_len) {
+                        memmove(buffer + cursor_pos + add_len, buffer + cursor_pos, strlen(buffer) - cursor_pos + 1);
+                        memcpy(buffer + cursor_pos, text, add_len);
+                        cursor_pos += add_len;
+                    }
+                    SDL_free(text);
+                }
+            }
+        }
+        // --- CUT (Ctrl+X) ---
+        else if (ctrl_pressed && ev->key.keysym.sym == SDLK_x) {
+            if (selection_len != 0) {
+                // Copy logic
+                int start = selection_start;
+                int slen = selection_len;
+                if (slen < 0) { start += slen; slen = -slen; }
+                char *clip_buf = malloc(slen + 1);
+                if (clip_buf) {
+                    strncpy(clip_buf, buffer + start, slen);
+                    clip_buf[slen] = 0;
+                    SDL_SetClipboardText(clip_buf);
+                    free(clip_buf);
+                }
+                // Delete logic
+                delete_selection(buffer);
+            }
+        }
+        // --- SELECT ALL (Ctrl+A) ---
+        else if (ctrl_pressed && ev->key.keysym.sym == SDLK_a) {
+            cursor_pos = len;
+            selection_start = 0;
+            selection_len = len;
+        }
+        // --- NAVIGATION & SELECTION ---
+        else if (ev->key.keysym.sym == SDLK_LEFT) {
+            if (shift_pressed && selection_len == 0) selection_start = cursor_pos;
+            
+            if (cursor_pos > 0) {
+                do { cursor_pos--; if(shift_pressed) selection_len--; } 
+                while (cursor_pos > 0 && (buffer[cursor_pos] & 0xC0) == 0x80);
+            }
+            if (!shift_pressed) selection_len = 0;
         }
         else if (ev->key.keysym.sym == SDLK_RIGHT) {
+            if (shift_pressed && selection_len == 0) selection_start = cursor_pos;
+
             if (cursor_pos < len) {
-                // Move forward one character
-                do { cursor_pos++; } while (cursor_pos < len && (buffer[cursor_pos] & 0xC0) == 0x80);
+                do { cursor_pos++; if(shift_pressed) selection_len++; } 
+                while (cursor_pos < len && (buffer[cursor_pos] & 0xC0) == 0x80);
             }
+            if (!shift_pressed) selection_len = 0;
         }
         else if (ev->key.keysym.sym == SDLK_BACKSPACE) {
-            if (cursor_pos > 0) {
+            if (selection_len != 0) {
+                delete_selection(buffer);
+            } else if (cursor_pos > 0) {
                 int end = cursor_pos;
                 int start = end;
-                // Find start of previous character
                 do { start--; } while (start > 0 && (buffer[start] & 0xC0) == 0x80);
-                
-                // Shift content left to overwrite
                 memmove(buffer + start, buffer + end, len - end + 1);
                 cursor_pos = start;
             }
         }
-        else if (ev->key.keysym.sym == SDLK_DELETE) {
-            if (cursor_pos < len) {
-                int start = cursor_pos;
-                int end = start;
-                // Find end of current character
-                do { end++; } while (end < len && (buffer[end] & 0xC0) == 0x80);
-                
-                // Shift content left
-                memmove(buffer + start, buffer + end, len - end + 1);
-            }
-        }
-        else if (ev->key.keysym.sym == SDLK_HOME) cursor_pos = 0;
-        else if (ev->key.keysym.sym == SDLK_END) cursor_pos = len;
     }
 }
 
@@ -614,7 +733,7 @@ void render_input_with_cursor(SDL_Renderer *renderer, SDL_Rect rect, char *buffe
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_RenderFillRect(renderer, &rect);
     SDL_SetRenderDrawColor(renderer, is_active ? 0 : 100, is_active ? 255 : 100, 0, 255); SDL_RenderDrawRect(renderer, &rect);
 
-    // 2. Prepare Display
+    // 2. Prepare Display Text
     char display[256];
     if (is_password) {
         memset(display, '*', strlen(buffer)); display[strlen(buffer)] = 0;
@@ -622,7 +741,32 @@ void render_input_with_cursor(SDL_Renderer *renderer, SDL_Rect rect, char *buffe
         strcpy(display, buffer);
     }
 
-    // 3. Render Text (USE RAW RENDERER HERE)
+    // --- NEW: Render Selection Highlight ---
+    if (is_active && selection_len != 0) {
+        int start = selection_start;
+        int len = selection_len;
+        
+        // Handle reverse selection
+        if (len < 0) { start += len; len = -len; }
+
+        // Measure width up to Start
+        char temp_start[256]; strncpy(temp_start, display, start); temp_start[start] = 0;
+        int w_start = 0, h; if (start > 0) TTF_SizeText(font, temp_start, &w_start, &h);
+
+        // Measure width of Selection
+        char temp_sel[256]; strncpy(temp_sel, display + start, len); temp_sel[len] = 0;
+        int w_sel = 0; if (len > 0) TTF_SizeText(font, temp_sel, &w_sel, &h);
+
+        // Draw Blue Box behind text
+        SDL_Rect sel_rect = {rect.x + 5 + w_start, rect.y + 4, w_sel, 20};
+        SDL_SetRenderDrawColor(renderer, 0, 100, 255, 128); // Semi-transparent blue
+        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+        SDL_RenderFillRect(renderer, &sel_rect);
+        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+    }
+    // ----------------------------------------
+
+    // 3. Render Text (Raw)
     render_raw_text(renderer, display, rect.x + 5, rect.y + 2, col_white, 0);
 
     // 4. Render Cursor
@@ -1370,6 +1514,46 @@ void render_game(SDL_Renderer *renderer) {
         // 2. Combine for Display
         snprintf(full_str, 256, "%s%s", prefix, input_buffer);
 
+        // --- NEW: Render Chat Selection Highlight ---
+        if (selection_len != 0) {
+            int start = selection_start;
+            int len = selection_len;
+            if (len < 0) { start += len; len = -len; }
+
+            // Calculate offset X (Prefix + Text before selection)
+            char text_before[256];
+            snprintf(text_before, 256, "%s", prefix);
+            strncat(text_before, input_buffer, start); // Add buffer up to start index
+            
+            int w_before = 0, h;
+            TTF_SizeText(font, text_before, &w_before, &h);
+
+            // Calculate width of selection
+            char text_sel[256];
+            strncpy(text_sel, input_buffer + start, len);
+            text_sel[len] = 0;
+            
+            int w_sel = 0;
+            if (len > 0) TTF_SizeText(font, text_sel, &w_sel, &h);
+
+            // Draw Blue Box
+            // render_x is 15 (defined in previous code block usually)
+            int render_x = 15; 
+            int render_y = win.y + win.h - 20;
+            
+            SDL_Rect sel_rect = {render_x + w_before, render_y + 2, w_sel, 20};
+            
+            // Clip to chat window width so it doesn't spill out
+            if (sel_rect.x + sel_rect.w > 285) sel_rect.w = 285 - sel_rect.x;
+
+            if (sel_rect.w > 0) {
+                SDL_SetRenderDrawColor(renderer, 0, 100, 255, 128);
+                SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+                SDL_RenderFillRect(renderer, &sel_rect);
+                SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+            }
+        }
+
         // 3. Render Text (Simple scrolling check)
         int w, h;
         TTF_SizeText(font, full_str, &w, &h);
@@ -1415,10 +1599,7 @@ void render_game(SDL_Renderer *renderer) {
 
 void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
 
-    // ============================================================
-    // LAYER 1: HUD BUTTONS (Always Top Priority)
-    // ============================================================
-    
+    // 1. HUD BUTTONS
     SDL_Rect btn_inbox_check = {w - 50, 10, 40, 40};
     if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_inbox_check)) {
         is_inbox_open = !is_inbox_open;
@@ -1426,9 +1607,35 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         return;
     }
 
-    // ============================================================
-    // LAYER 2: MODAL WINDOWS (Popups & Overlays)
-    // ============================================================
+    // --- NEW: CHAT INPUT CLICK ---
+    if (is_chat_open) {
+        SDL_Rect chat_win = {10, h-240, 300, 190};
+        // Input area is roughly the bottom 25 pixels
+        SDL_Rect input_area = {10, h-70, 300, 30}; // Approximate based on render_game logic
+        
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &input_area)) {
+            // Need to account for the "To [Name]: " prefix width
+            int prefix_w = 0, ph;
+            char prefix[64];
+            if (chat_target_id != -1) {
+                char *name = "Unknown"; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == chat_target_id) name = local_players[i].username;
+                snprintf(prefix, 64, "To %s: ", name);
+            } else { strcpy(prefix, "> "); }
+            TTF_SizeText(font, prefix, &prefix_w, &ph);
+            // Set State
+            active_input_rect = input_area;
+            // Adjust rect.x virtually for the helper to account for prefix
+            active_input_rect.x += (5 + prefix_w); 
+
+            cursor_pos = get_cursor_pos_from_click(input_buffer, mx, active_input_rect.x);
+            selection_start = cursor_pos;
+            selection_len = 0;
+            is_dragging = 1;
+            SDL_StartTextInput();
+            return;
+        }
+    }
+    // -----------------------------
 
     // 2A. Inbox Window
     if (is_inbox_open) {
@@ -1455,7 +1662,13 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
     if (show_add_friend_popup) {
         SDL_Rect pop = {w/2 - 150, h/2 - 100, 300, 200};
         SDL_Rect input = {pop.x+50, pop.y+60, 200, 30};
-        if (SDL_PointInRect(&(SDL_Point){mx, my}, &input)) { active_field = 20; SDL_StartTextInput(); return; }
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &input)) { 
+            active_field = 20; SDL_StartTextInput(); 
+            active_input_rect = input;
+            cursor_pos = get_cursor_pos_from_click(input_friend_id, mx, input.x); // NEW
+            selection_start = cursor_pos; selection_len = 0; is_dragging = 1;
+            return; 
+        }
         SDL_Rect btn_ok = {pop.x+50, pop.y+130, 80, 30};
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_ok)) {
             int id = atoi(input_friend_id);
@@ -1486,7 +1699,6 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_friend_add_id_rect)) {
             show_add_friend_popup = 1; input_friend_id[0] = 0; return;
         }
-        
         int win_w = friend_win_rect.w; 
         int y_off = 85; 
         for(int i=0; i<friend_count; i++) {
@@ -1497,25 +1709,47 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             }
             y_off += 30;
         }
-
-        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_friend_close_rect)) {
-            show_friend_list = 0; return;
-        }
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_friend_close_rect)) { show_friend_list = 0; return; }
         return; 
     }
 
-    // ============================================================
-    // LAYER 3: SETTINGS MENU
-    // ============================================================
-
+    // 3. SETTINGS
     if (is_settings_open) {
-        // A. Nickname Popup (Highest priority in Settings)
         if (show_nick_popup) {
-            SDL_Rect pop = {w/2 - 150, h/2 - 150, 300, 300};
-            int y = pop.y + 60;
-            if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){pop.x+20, y+20, 260, 25})) { active_field = 10; SDL_StartTextInput(); return; }
-            y += 60; if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){pop.x+20, y+20, 260, 25})) { active_field = 11; SDL_StartTextInput(); return; }
-            y += 60; if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){pop.x+20, y+20, 260, 25})) { active_field = 12; SDL_StartTextInput(); return; }
+        SDL_Rect pop = {w/2 - 150, h/2 - 150, 300, 300};
+        int y = pop.y + 60;
+
+        // 1. New Nickname Field
+        SDL_Rect r_new = {pop.x+20, y+20, 260, 25};
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &r_new)) { 
+            active_field = 10; SDL_StartTextInput();
+            active_input_rect = r_new; // <--- Set Active Rect
+            cursor_pos = get_cursor_pos_from_click(nick_new, mx, r_new.x);
+            selection_start = cursor_pos; selection_len = 0; is_dragging = 1; // <--- Init Drag
+            return; 
+        }
+        
+        y += 60;
+        // 2. Confirm Field
+        SDL_Rect r_con = {pop.x+20, y+20, 260, 25};
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &r_con)) { 
+            active_field = 11; SDL_StartTextInput();
+            active_input_rect = r_con;
+            cursor_pos = get_cursor_pos_from_click(nick_confirm, mx, r_con.x);
+            selection_start = cursor_pos; selection_len = 0; is_dragging = 1;
+            return; 
+        }
+
+        y += 60;
+        // 3. Password Field
+        SDL_Rect r_pass = {pop.x+20, y+20, 260, 25};
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &r_pass)) { 
+            active_field = 12; SDL_StartTextInput();
+            active_input_rect = r_pass;
+            cursor_pos = get_cursor_pos_from_click(nick_pass, mx, r_pass.x);
+            selection_start = cursor_pos; selection_len = 0; is_dragging = 1;
+            return; 
+        }
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){pop.x+20, pop.y+240, 120, 30})) {
                 Packet pkt; pkt.type = PACKET_CHANGE_NICK_REQUEST;
                 strncpy(pkt.username, nick_new, 31); strncpy(pkt.msg, nick_confirm, 63); strncpy(pkt.password, nick_pass, 31);
@@ -1525,21 +1759,11 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             return;
         }
 
-        // B. Check Scrolled Content
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &settings_view_port)) {
-            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_debug)) {
-                show_debug_info = !show_debug_info;
-                save_config(); // <--- SAVE
-            }
-            else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_fps)) {
-                show_fps = !show_fps;
-                save_config(); // <--- SAVE
-            }
-            else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_coords)) {
-                show_coords = !show_coords;
-                save_config(); // <--- SAVE
-            }
-            else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_unread)) show_unread_counter = !show_unread_counter;
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_debug)) { show_debug_info = !show_debug_info; save_config(); }
+            else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_fps)) { show_fps = !show_fps; save_config(); }
+            else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_coords)) { show_coords = !show_coords; save_config(); }
+            else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_unread)) { show_unread_counter = !show_unread_counter; save_config(); }
             else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_view_blocked)) show_blocked_list = 1; 
             else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_cycle_status)) {
                 int my_status = 0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) my_status = local_players[i].status;
@@ -1553,7 +1777,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
                 strcpy(auth_message, "Enter details."); return;
             }
 
-            // --- FIXED SLIDERS SET 1 (Primary Color) ---
+            // Sliders Set 1
             int changed = 0; int my_r = 0, my_g = 0, my_b = 0; 
             for(int i=0; i<MAX_CLIENTS; i++) { if(local_players[i].active && local_players[i].id == local_player_id) { my_r=local_players[i].r; my_g=local_players[i].g; my_b=local_players[i].b; } }
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_r)) { my_r = (int)(((float)(mx - slider_r.x) / slider_r.w) * 255); changed = 1; } 
@@ -1561,23 +1785,12 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             else if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_b)) { my_b = (int)(((float)(mx - slider_b.x) / slider_b.w) * 255); changed = 1; }
             if (changed) { 
                 if(my_r < 0) my_r = 0; if(my_r > 255) my_r = 255; if(my_g < 0) my_g = 0; if(my_g > 255) my_g = 255; if(my_b < 0) my_b = 0; if(my_b > 255) my_b = 255;
-                
-                // 1. Send Packet
                 Packet pkt; pkt.type = PACKET_COLOR_CHANGE; pkt.r = my_r; pkt.g = my_g; pkt.b = my_b; send_packet(&pkt); 
-                
-                // 2. FORCE UPDATE LOCAL PLAYER (Crucial for Save)
-                for(int i=0; i<MAX_CLIENTS; i++) {
-                    if(local_players[i].active && local_players[i].id == local_player_id) {
-                        local_players[i].r = my_r; local_players[i].g = my_g; local_players[i].b = my_b;
-                    }
-                }
-                
-                // 3. Save Config
+                for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { local_players[i].r = my_r; local_players[i].g = my_g; local_players[i].b = my_b; }
                 save_config();
             }
-            // -------------------------------------------
 
-            // Sliders Set 2 (Secondary Color - Local)
+            // Sliders Set 2
             int changed2 = 0;
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_r2)) { my_r2 = (int)(((float)(mx - slider_r2.x) / slider_r2.w) * 255); changed2 = 1; } 
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_g2)) { my_g2 = (int)(((float)(mx - slider_g2.x) / slider_g2.w) * 255); changed2 = 1; }
@@ -1609,13 +1822,10 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
                 strcpy(auth_message, "Logged out."); return;
             }
         }
-        return; // Settings blocks lower layers
+        return; 
     }
 
-    // ============================================================
-    // LAYER 4: GAME WORLD & TOASTS
-    // ============================================================
-
+    // 4. WORLD
     if (pending_friend_req_id != -1) {
         SDL_Rect btn_accept = {popup_win.x+20, popup_win.y+70, 120, 30};
         SDL_Rect btn_deny = {popup_win.x+160, popup_win.y+70, 120, 30};
@@ -1705,12 +1915,31 @@ void handle_auth_click(int mx, int my) {
         strcpy(auth_message, "Registering...");
     } 
     
-    // Field Selection
-    int y_start = auth_box.y + 80;
-    if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){auth_box.x+130, y_start-5, 200, 25})) { active_field = 2; SDL_StartTextInput(); }
-    else if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){auth_box.x+130, y_start+35, 80, 25})) { active_field = 3; SDL_StartTextInput(); }
-    else if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){auth_box.x+130, y_start+85, 200, 25})) { active_field = 0; SDL_StartTextInput(); }
-    else if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){auth_box.x+130, y_start+135, 200, 25})) { active_field = 1; SDL_StartTextInput(); }
+int y_start = auth_box.y + 80;
+// Helper macro to reduce repetition
+    #define CHECK_FIELD(rect, id, buffer) \
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &rect)) { \
+            active_field = id; \
+            SDL_StartTextInput(); \
+            active_input_rect = rect; \
+            cursor_pos = get_cursor_pos_from_click(buffer, mx, rect.x); \
+            selection_start = cursor_pos; \
+            selection_len = 0; \
+            is_dragging = 1; \
+            return; \
+        }
+    
+    SDL_Rect r_ip = {auth_box.x+130, y_start-5, 200, 25};
+    CHECK_FIELD(r_ip, 2, input_ip);
+
+    SDL_Rect r_port = {auth_box.x+130, y_start+35, 80, 25};
+    CHECK_FIELD(r_port, 3, input_port);
+
+    SDL_Rect r_user = {auth_box.x+130, y_start+85, 200, 25};
+    CHECK_FIELD(r_user, 0, auth_username);
+
+    SDL_Rect r_pass = {auth_box.x+130, y_start+135, 200, 25};
+    CHECK_FIELD(r_pass, 1, auth_password);
 }
 
 int main(int argc, char const *argv[]) {
@@ -1769,8 +1998,37 @@ int main(int argc, char const *argv[]) {
             else if(active_field==12) len=strlen(nick_pass);
             else if(active_field==20) len=strlen(input_friend_id);
             cursor_pos = len;
+            selection_len = 0;
             last_active_field = active_field;
         }
+        else if (event.type == SDL_MOUSEBUTTONUP) {
+                is_dragging = 0;
+            }
+            else if (event.type == SDL_MOUSEMOTION) {
+                if (is_dragging) {
+                    // Identify which buffer we are editing
+                    char *target = NULL;
+                    if (is_chat_open) target = input_buffer;
+                    else if (active_field == 0) target = auth_username;
+                    else if (active_field == 1) target = auth_password;
+                    else if (active_field == 2) target = input_ip;
+                    else if (active_field == 3) target = input_port;
+                    else if (active_field == 10) target = nick_new;
+                    else if (active_field == 11) target = nick_confirm;
+                    else if (active_field == 12) target = nick_pass;
+                    else if (active_field == 20) target = input_friend_id;
+
+                    if (target) {
+                        int mx = event.motion.x * scale_x; // Scale mouse pos
+                        
+                        // Update cursor based on mouse pos
+                        cursor_pos = get_cursor_pos_from_click(target, mx, active_input_rect.x);
+                        
+                        // Calculate selection length (Cursor - Start)
+                        selection_len = cursor_pos - selection_start;
+                    }
+                }
+            }
         if (is_chat_open != was_chat_open) {
             if(is_chat_open) cursor_pos = strlen(input_buffer);
             was_chat_open = is_chat_open;
