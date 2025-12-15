@@ -215,6 +215,11 @@ int show_documentation = 0;
 SDL_Rect btn_contributors_rect;
 SDL_Rect btn_documentation_rect;
 
+int show_role_list = 0;
+struct { int id; char name[32]; int role; } staff_list[50];
+int staff_count = 0;
+SDL_Rect btn_staff_list_rect;
+
 // --- Helpers ---
 void send_packet(Packet *pkt) { send(sock, pkt, sizeof(Packet), 0); }
 
@@ -735,6 +740,26 @@ void render_text(SDL_Renderer *renderer, const char *text, int x, int y, SDL_Col
     TTF_SetFontStyle(font, original_style);
 }
 
+// --- Role Helpers ---
+const char* get_role_name(int role) {
+    switch(role) {
+        case 1: return "ADMIN";        // ROLE_ADMIN
+        case 2: return "DEV";          // ROLE_DEVELOPER
+        case 3: return "CONTRIB";      // ROLE_CONTRIBUTOR
+        case 4: return "VIP";          // ROLE_VIP
+        default: return "Player";
+    }
+}
+
+SDL_Color get_role_color(int role) {
+    switch(role) {
+        case 1: return (SDL_Color){255, 50, 50, 255};   // Red (Admin)
+        case 2: return (SDL_Color){50, 150, 255, 255};  // Blue (Dev)
+        case 3: return (SDL_Color){0, 200, 100, 255};   // Teal (Contrib)
+        case 4: return (SDL_Color){255, 215, 0, 255};   // Gold (VIP)
+        default: return (SDL_Color){100, 100, 100, 255}; // Grey
+    }
+}
 
 void render_input_with_cursor(SDL_Renderer *renderer, SDL_Rect rect, char *buffer, int is_active, int is_password) {
     // 1. Draw Box
@@ -976,6 +1001,39 @@ void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
     }
 }
 
+void render_role_list(SDL_Renderer *renderer, int w, int h) {
+    if (!show_role_list) return;
+
+    SDL_Rect win = {w/2 - 200, h/2 - 225, 400, 450};
+    
+    SDL_SetRenderDrawColor(renderer, 30, 30, 40, 255); SDL_RenderFillRect(renderer, &win);
+    SDL_SetRenderDrawColor(renderer, 200, 200, 255, 255); SDL_RenderDrawRect(renderer, &win);
+
+    render_text(renderer, "Server Staff List", win.x + 200, win.y + 15, col_cyan, 1);
+
+    SDL_Rect btn_close = {win.x + 360, win.y + 5, 30, 30};
+    SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_close);
+    render_text(renderer, "X", btn_close.x + 10, btn_close.y + 5, col_white, 0);
+
+    int y = win.y + 50;
+    
+    if (staff_count == 0) {
+        render_text(renderer, "Loading...", win.x + 200, y + 20, col_white, 1);
+    }
+
+    for (int i = 0; i < staff_count; i++) {
+        char buffer[128];
+        const char* role_name = get_role_name(staff_list[i].role);
+        SDL_Color c = get_role_color(staff_list[i].role);
+
+        // Format: [ROLE] Name (ID: X)
+        snprintf(buffer, 128, "[%s] %s (ID: %d)", role_name, staff_list[i].name, staff_list[i].id);
+        
+        render_text(renderer, buffer, win.x + 20, y, c, 0);
+        y += 25;
+    }
+}
+
 void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     if (!is_settings_open) return;
     
@@ -1105,14 +1163,22 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_disconnect_rect);
     render_text(renderer, "Disconnect / Logout", btn_disconnect_rect.x + 150, btn_disconnect_rect.y + 5, col_white, 1); y += 40;
 
-    // --- NEW: Documentation & Contributors Buttons ---
-    btn_documentation_rect = (SDL_Rect){start_x, y, 145, 30};
+    int btn_w = 95; // 300 total width / 3 approx   
+    
+    // 1. Docs
+    btn_documentation_rect = (SDL_Rect){start_x, y, btn_w, 30};
     SDL_SetRenderDrawColor(renderer, 0, 100, 150, 255); SDL_RenderFillRect(renderer, &btn_documentation_rect);
-    render_text(renderer, "Docs/Help", btn_documentation_rect.x + 72, btn_documentation_rect.y + 5, col_white, 1);
+    render_text(renderer, "Docs", btn_documentation_rect.x + 47, btn_documentation_rect.y + 5, col_white, 1);
 
-    btn_contributors_rect = (SDL_Rect){start_x + 155, y, 145, 30};
+    // 2. Staff (NEW)
+    btn_staff_list_rect = (SDL_Rect){start_x + 100, y, btn_w, 30};
+    SDL_SetRenderDrawColor(renderer, 150, 100, 0, 255); SDL_RenderFillRect(renderer, &btn_staff_list_rect);
+    render_text(renderer, "Staff", btn_staff_list_rect.x + 47, btn_staff_list_rect.y + 5, col_white, 1);
+
+    // 3. Credits
+    btn_contributors_rect = (SDL_Rect){start_x + 200, y, btn_w, 30};
     SDL_SetRenderDrawColor(renderer, 0, 150, 100, 255); SDL_RenderFillRect(renderer, &btn_contributors_rect);
-    render_text(renderer, "Credits", btn_contributors_rect.x + 72, btn_contributors_rect.y + 5, col_white, 1);
+    render_text(renderer, "Credits", btn_contributors_rect.x + 47, btn_contributors_rect.y + 5, col_white, 1);
     
     y += 40;
     // -------------------------------------------------
@@ -1228,27 +1294,6 @@ void render_popup(SDL_Renderer *renderer, int w, int h) {
     render_text(renderer, "Accept", btn_accept.x + 60, btn_accept.y + 5, col_white, 1);
     SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_deny);
     render_text(renderer, "Deny", btn_deny.x + 60, btn_deny.y + 5, col_white, 1);
-}
-
-// --- Role Helpers ---
-const char* get_role_name(int role) {
-    switch(role) {
-        case 1: return "ADMIN";        // ROLE_ADMIN
-        case 2: return "DEV";          // ROLE_DEVELOPER
-        case 3: return "CONTRIB";      // ROLE_CONTRIBUTOR
-        case 4: return "VIP";          // ROLE_VIP
-        default: return "Player";
-    }
-}
-
-SDL_Color get_role_color(int role) {
-    switch(role) {
-        case 1: return (SDL_Color){255, 50, 50, 255};   // Red (Admin)
-        case 2: return (SDL_Color){50, 150, 255, 255};  // Blue (Dev)
-        case 3: return (SDL_Color){0, 200, 100, 255};   // Teal (Contrib)
-        case 4: return (SDL_Color){255, 215, 0, 255};   // Gold (VIP)
-        default: return (SDL_Color){100, 100, 100, 255}; // Grey
-    }
 }
 
 void render_profile(SDL_Renderer *renderer) {
@@ -1559,6 +1604,7 @@ void render_game(SDL_Renderer *renderer) {
     render_add_friend_popup(renderer, w, h); 
     render_contributors(renderer, w, h);
     render_documentation(renderer, w, h);
+    render_role_list(renderer, w, h);
     render_debug_overlay(renderer, w);
     render_hud(renderer, h);
 
@@ -1709,7 +1755,7 @@ void render_game(SDL_Renderer *renderer) {
 void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
 
     // ============================================================
-    // LAYER 1: HUD BUTTONS (Always Top Priority)
+    // LAYER 1: HUD BUTTONS
     // ============================================================
     
     SDL_Rect btn_inbox_check = {w - 50, 10, 40, 40};
@@ -1719,7 +1765,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         return;
     }
 
-    // --- CHAT INPUT CLICK ---
+    // --- CHAT INPUT ---
     if (is_chat_open) {
         SDL_Rect input_area = {10, h-70, 300, 30}; 
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &input_area)) {
@@ -1729,8 +1775,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
                 snprintf(prefix, 64, "To %s: ", name);
             } else { strcpy(prefix, "> "); }
             TTF_SizeText(font, prefix, &prefix_w, &ph);
-            active_input_rect = input_area;
-            active_input_rect.x += (5 + prefix_w); 
+            active_input_rect = input_area; active_input_rect.x += (5 + prefix_w); 
             cursor_pos = get_cursor_pos_from_click(input_buffer, mx, active_input_rect.x);
             selection_start = cursor_pos; selection_len = 0; is_dragging = 1;
             SDL_StartTextInput(); return;
@@ -1741,13 +1786,12 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
     // LAYER 2: MODAL WINDOWS
     // ============================================================
 
-    // 2A. Inbox Window
+    // 2A. Inbox
     if (is_inbox_open) {
         SDL_Rect win = {w - 320, 60, 300, 300};
         int y = win.y + 40;
         for(int i=0; i<inbox_count; i++) {
-            SDL_Rect btn_acc = {win.x+170, y+25, 50, 20};
-            SDL_Rect btn_deny = {win.x+230, y+25, 50, 20};
+            SDL_Rect btn_acc = {win.x+170, y+25, 50, 20}; SDL_Rect btn_deny = {win.x+230, y+25, 50, 20};
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_acc)) {
                 Packet pkt; pkt.type = PACKET_FRIEND_RESPONSE; pkt.target_id = inbox[i].id; pkt.response_accepted = 1; send_packet(&pkt);
                 for(int k=i; k<inbox_count-1; k++) inbox[k] = inbox[k+1]; inbox_count--; return;
@@ -1767,19 +1811,14 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         SDL_Rect pop = {w/2 - 150, h/2 - 100, 300, 200};
         SDL_Rect input = {pop.x+50, pop.y+60, 200, 30};
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &input)) { 
-            active_field = 20; SDL_StartTextInput(); 
-            active_input_rect = input;
+            active_field = 20; SDL_StartTextInput(); active_input_rect = input;
             cursor_pos = get_cursor_pos_from_click(input_friend_id, mx, input.x); 
-            selection_start = cursor_pos; selection_len = 0; is_dragging = 1;
-            return; 
+            selection_start = cursor_pos; selection_len = 0; is_dragging = 1; return; 
         }
         SDL_Rect btn_ok = {pop.x+50, pop.y+130, 80, 30};
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_ok)) {
             int id = atoi(input_friend_id);
-            if (id > 0) {
-                Packet pkt; pkt.type = PACKET_FRIEND_REQUEST; pkt.target_id = id; send_packet(&pkt);
-                show_add_friend_popup = 0; active_field = -1;
-            } return;
+            if (id > 0) { Packet pkt; pkt.type = PACKET_FRIEND_REQUEST; pkt.target_id = id; send_packet(&pkt); show_add_friend_popup = 0; active_field = -1; } return;
         }
         SDL_Rect btn_cancel = {pop.x+170, pop.y+130, 80, 30};
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_cancel)) { show_add_friend_popup = 0; active_field = -1; return; }
@@ -1800,41 +1839,36 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
 
     // 2D. Friends List
     if (show_friend_list) {
-        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_friend_add_id_rect)) {
-            show_add_friend_popup = 1; input_friend_id[0] = 0; return;
-        }
-        int win_w = friend_win_rect.w; 
-        int y_off = 85; 
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_friend_add_id_rect)) { show_add_friend_popup = 1; input_friend_id[0] = 0; return; }
+        
+        int win_w = friend_win_rect.w; int y_off = 85; 
         for(int i=0; i<friend_count; i++) {
             SDL_Rect btn_del = {friend_win_rect.x + win_w - 50, friend_win_rect.y + y_off, 40, 20};
-            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_del)) {
-                Packet pkt; pkt.type = PACKET_FRIEND_REMOVE; pkt.target_id = my_friends[i].id; send_packet(&pkt);
-                return;
-            }
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_del)) { Packet pkt; pkt.type = PACKET_FRIEND_REMOVE; pkt.target_id = my_friends[i].id; send_packet(&pkt); return; }
             y_off += 30;
         }
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_friend_close_rect)) { show_friend_list = 0; return; }
         return; 
     }
 
-    // 2E. Contributors Window
+    // 2E. Windows (Contributors, Docs, Staff)
     if (show_contributors) {
-        // Match new dimensions: w=400
         SDL_Rect win = {w/2 - 200, h/2 - 225, 400, 450}; 
-        
-        // Match render position: win.x + 360
         SDL_Rect btn_close = {win.x + 360, win.y + 5, 30, 30}; 
-        
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_close)) show_contributors = 0;
         return; 
     }
-
-    // 2F. Documentation Window
     if (show_documentation) {
         SDL_Rect win = {w/2 - 250, h/2 - 250, 500, 500};
         SDL_Rect btn_close = {win.x + 460, win.y + 5, 30, 30};
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_close)) show_documentation = 0;
-        return; // Block clicks
+        return; 
+    }
+    if (show_role_list) {
+        SDL_Rect win = {w/2 - 200, h/2 - 225, 400, 450}; 
+        SDL_Rect btn_close = {win.x + 360, win.y + 5, 30, 30};
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_close)) show_role_list = 0;
+        return; 
     }
 
     // ============================================================
@@ -1842,119 +1876,104 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
     // ============================================================
 
     if (is_settings_open) {
-        // A. Nickname Popup (Highest priority in Settings)
+        // A. Nickname Popup (Highest Priority)
         if (show_nick_popup) {
             SDL_Rect pop = {w/2 - 150, h/2 - 150, 300, 300};
-            
-            // --- DEFINING py HERE FIXES THE ERROR ---
             int py = pop.y + 60; 
 
-            // 1. New Nickname Field
             SDL_Rect r_new = {pop.x+20, py+20, 260, 25};
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &r_new)) { 
-                active_field = 10; SDL_StartTextInput();
-                active_input_rect = r_new;
-                cursor_pos = get_cursor_pos_from_click(nick_new, mx, r_new.x);
-                selection_start = cursor_pos; selection_len = 0; is_dragging = 1;
-                return; 
+                active_field = 10; SDL_StartTextInput(); active_input_rect = r_new; cursor_pos = get_cursor_pos_from_click(nick_new, mx, r_new.x);
+                selection_start = cursor_pos; selection_len = 0; is_dragging = 1; return; 
             }
-            
             py += 60;
-            // 2. Confirm Field
             SDL_Rect r_con = {pop.x+20, py+20, 260, 25};
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &r_con)) { 
-                active_field = 11; SDL_StartTextInput();
-                active_input_rect = r_con;
-                cursor_pos = get_cursor_pos_from_click(nick_confirm, mx, r_con.x);
-                selection_start = cursor_pos; selection_len = 0; is_dragging = 1;
-                return; 
+                active_field = 11; SDL_StartTextInput(); active_input_rect = r_con; cursor_pos = get_cursor_pos_from_click(nick_confirm, mx, r_con.x);
+                selection_start = cursor_pos; selection_len = 0; is_dragging = 1; return; 
             }
-
             py += 60;
-            // 3. Password Field
             SDL_Rect r_pass = {pop.x+20, py+20, 200, 25}; 
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &r_pass)) { 
-                active_field = 12; SDL_StartTextInput();
-                active_input_rect = r_pass;
-                cursor_pos = get_cursor_pos_from_click(nick_pass, mx, r_pass.x);
-                selection_start = cursor_pos; selection_len = 0; is_dragging = 1;
-                return; 
+                active_field = 12; SDL_StartTextInput(); active_input_rect = r_pass; cursor_pos = get_cursor_pos_from_click(nick_pass, mx, r_pass.x);
+                selection_start = cursor_pos; selection_len = 0; is_dragging = 1; return; 
             }
-
-            // --- Checkbox Logic using 'py' ---
             SDL_Rect btn_check = {pop.x + 230, py + 25, 15, 15};
-            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_check)) {
-                show_nick_pass = !show_nick_pass;
-                return;
-            }
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_check)) { show_nick_pass = !show_nick_pass; return; }
 
-            // Submit
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){pop.x+20, pop.y+240, 120, 30})) {
                 Packet pkt; pkt.type = PACKET_CHANGE_NICK_REQUEST;
                 strncpy(pkt.username, nick_new, 31); strncpy(pkt.msg, nick_confirm, 63); strncpy(pkt.password, nick_pass, 31);
                 send_packet(&pkt); strcpy(auth_message, "Processing..."); return;
             }
-            // Cancel
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){pop.x+160, pop.y+240, 120, 30})) { show_nick_popup = 0; active_field = -1; return; }
             return;
         }
 
-        // B. Check Scrolled Content
+        // B. Main Settings Content
+        // Use Global Rects for items that Render already calculated
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &settings_view_port)) {
-            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_debug)) { show_debug_info = !show_debug_info; save_config(); }
-            else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_fps)) { show_fps = !show_fps; save_config(); }
-            else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_coords)) { show_coords = !show_coords; save_config(); }
-            else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_unread)) { show_unread_counter = !show_unread_counter; save_config(); }
-            else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_view_blocked)) show_blocked_list = 1; 
-            else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_cycle_status)) {
+            
+            // Toggles
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_debug)) { show_debug_info = !show_debug_info; save_config(); return; }
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_fps)) { show_fps = !show_fps; save_config(); return; }
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_coords)) { show_coords = !show_coords; save_config(); return; }
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_unread)) { show_unread_counter = !show_unread_counter; save_config(); return; }
+
+            // Blocked / Status
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_view_blocked)) { show_blocked_list = 1; return; } 
+            
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_cycle_status)) {
                 int my_status = 0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) my_status = local_players[i].status;
                 my_status++; if (my_status > 4) my_status = 0; 
-                Packet pkt; pkt.type = PACKET_STATUS_CHANGE; pkt.new_status = my_status; send_packet(&pkt);
+                Packet pkt; pkt.type = PACKET_STATUS_CHANGE; pkt.new_status = my_status; send_packet(&pkt); return;
             }
-            
-            SDL_Rect local_btn_nick = {settings_win.x + 20, settings_win.y + 310 - settings_scroll_y, 260, 30};
-            if (SDL_PointInRect(&(SDL_Point){mx, my}, &local_btn_nick)) {
+
+            // Nickname Button (Recalc logic since rect isn't global, or check approximate area)
+            // (Assuming standard position derived from view_port y + offset - scroll)
+            SDL_Rect btn_nick = {settings_win.x + 20, settings_win.y + 310 - settings_scroll_y, 300, 30}; 
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_nick)) {
                 show_nick_popup = 1; nick_new[0] = 0; nick_confirm[0] = 0; nick_pass[0] = 0;
                 strcpy(auth_message, "Enter details."); return;
             }
 
-            // Sliders Set 1
+            // Sliders (Use Globals)
             int changed = 0; int my_r = 0, my_g = 0, my_b = 0; 
             for(int i=0; i<MAX_CLIENTS; i++) { if(local_players[i].active && local_players[i].id == local_player_id) { my_r=local_players[i].r; my_g=local_players[i].g; my_b=local_players[i].b; } }
-            if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_r)) { my_r = (int)(((float)(mx - slider_r.x) / slider_r.w) * 255); changed = 1; } 
+            
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_r)) { my_r = (int)(((float)(mx - slider_r.x) / slider_r.w) * 255); changed = 1; }
             else if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_g)) { my_g = (int)(((float)(mx - slider_g.x) / slider_g.w) * 255); changed = 1; }
             else if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_b)) { my_b = (int)(((float)(mx - slider_b.x) / slider_b.w) * 255); changed = 1; }
+
             if (changed) { 
                 if(my_r < 0) my_r = 0; if(my_r > 255) my_r = 255; if(my_g < 0) my_g = 0; if(my_g > 255) my_g = 255; if(my_b < 0) my_b = 0; if(my_b > 255) my_b = 255;
                 Packet pkt; pkt.type = PACKET_COLOR_CHANGE; pkt.r = my_r; pkt.g = my_g; pkt.b = my_b; send_packet(&pkt); 
                 for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { local_players[i].r = my_r; local_players[i].g = my_g; local_players[i].b = my_b; }
-                save_config();
+                save_config(); return;
             }
 
-            // Sliders Set 2
+            // Sliders 2 (Use Globals)
             int changed2 = 0;
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_r2)) { my_r2 = (int)(((float)(mx - slider_r2.x) / slider_r2.w) * 255); changed2 = 1; } 
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_g2)) { my_g2 = (int)(((float)(mx - slider_g2.x) / slider_g2.w) * 255); changed2 = 1; }
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_b2)) { my_b2 = (int)(((float)(mx - slider_b2.x) / slider_b2.w) * 255); changed2 = 1; }
-            if (changed2) save_config();
+            if (changed2) { save_config(); return; }
 
-            // Volume
+            // Volume (Use Global)
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_volume)) {
                 float pct = (mx - slider_volume.x) / (float)slider_volume.w; 
                 if (pct < 0) pct = 0; if (pct > 1) pct = 1;
-                music_volume = (int)(pct * 128); Mix_VolumeMusic(music_volume);
-                save_config();
+                music_volume = (int)(pct * 128); Mix_VolumeMusic(music_volume); save_config(); return;
             }
 
-            // AFK
+            // AFK (Use Global)
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_afk)) {
                 float pct = (mx - slider_afk.x) / (float)slider_afk.w; 
                 if (pct < 0) pct = 0; if (pct > 1) pct = 1;
-                afk_timeout_minutes = 2 + (int)(pct * 8.0f + 0.5f);
-                save_config();
+                afk_timeout_minutes = 2 + (int)(pct * 8.0f + 0.5f); save_config(); return;
             }
 
-            // Disconnect
+            // --- FIX: USE GLOBALS FOR BOTTOM BUTTONS ---
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_disconnect_rect)) {
                 if(sock > 0) close(sock); sock = -1; is_connected = 0; Mix_HaltMusic();
                 client_state = STATE_AUTH; is_settings_open = 0; local_player_id = -1;
@@ -1962,13 +1981,12 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
                 friend_count = 0; chat_log_count = 0; for(int i=0; i<CHAT_HISTORY; i++) strcpy(chat_log[i], "");
                 strcpy(auth_message, "Logged out."); return;
             }
-            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_documentation_rect)) {
-                show_documentation = 1;
-                return;
-            }
-            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_contributors_rect)) {
-                show_contributors = 1;
-                return;
+
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_documentation_rect)) { show_documentation = 1; return; }
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_contributors_rect)) { show_contributors = 1; return; }
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_staff_list_rect)) { 
+                show_role_list = 1; staff_count = 0; 
+                Packet req; req.type = PACKET_ROLE_LIST_REQUEST; send_packet(&req); return; 
             }
         }
         return; 
@@ -2014,6 +2032,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         selected_player_id = -1;
     }
 }
+
 void handle_auth_click(int mx, int my) {
     // 1. Server List Logic
     if (show_server_list) {
@@ -2370,6 +2389,14 @@ int main(int argc, char const *argv[]) {
                     if (pkt.type == PACKET_CHANGE_NICK_RESPONSE) {
                         if (pkt.status == AUTH_SUCCESS) { show_nick_popup = 0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) strncpy(local_players[i].username, pkt.username, 31); } 
                         else strncpy(auth_message, pkt.msg, 127);
+                    }
+                    if (pkt.type == PACKET_ROLE_LIST_RESPONSE) {
+                        staff_count = pkt.role_count;
+                        for(int i=0; i<staff_count; i++) {
+                            staff_list[i].id = pkt.roles[i].id;
+                            strncpy(staff_list[i].name, pkt.roles[i].username, 31);
+                            staff_list[i].role = pkt.roles[i].role;
+                        }
                     }
                     if (pkt.type == PACKET_AVATAR_RESPONSE) {
                         if (pkt.image_size > 0 && pkt.image_size <= MAX_AVATAR_SIZE) {

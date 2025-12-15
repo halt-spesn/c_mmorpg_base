@@ -438,6 +438,27 @@ void handle_client_message(int index, Packet *pkt) {
     else if (pkt->type == PACKET_CHANGE_NICK_REQUEST) {
         process_nick_change(index, pkt);
     }
+    else if (pkt->type == PACKET_ROLE_LIST_REQUEST) {
+        Packet resp; 
+        resp.type = PACKET_ROLE_LIST_RESPONSE;
+        resp.role_count = 0;
+
+        sqlite3_stmt *stmt;
+        const char *sql = "SELECT ID, USERNAME, ROLE FROM users WHERE ROLE > 0 ORDER BY ROLE ASC;";
+        
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, 0) == SQLITE_OK) {
+            while (sqlite3_step(stmt) == SQLITE_ROW && resp.role_count < 50) {
+                int idx = resp.role_count;
+                resp.roles[idx].id = sqlite3_column_int(stmt, 0);
+                const unsigned char *name = sqlite3_column_text(stmt, 1);
+                strncpy(resp.roles[idx].username, (const char*)name, 31);
+                resp.roles[idx].role = sqlite3_column_int(stmt, 2);
+                resp.role_count++;
+            }
+        }
+        sqlite3_finalize(stmt);
+        send(client_sockets[index], &resp, sizeof(Packet), 0);
+    }
 }
 
 int recv_full(int sockfd, void *buf, size_t len) {

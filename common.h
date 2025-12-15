@@ -34,7 +34,9 @@ typedef enum {
     PACKET_AVATAR_UPLOAD, PACKET_AVATAR_REQUEST, PACKET_AVATAR_RESPONSE,
     // NEW: Nickname Change
     PACKET_CHANGE_NICK_REQUEST, 
-    PACKET_CHANGE_NICK_RESPONSE
+    PACKET_CHANGE_NICK_RESPONSE,
+    PACKET_ROLE_LIST_REQUEST,  // New
+    PACKET_ROLE_LIST_RESPONSE  // New
 } PacketType;
 
 typedef enum {
@@ -65,6 +67,12 @@ typedef struct {
     int player_id; int target_id;
     float dx; float dy;
     char msg[64];
+    int role_count;
+    struct {
+        int id;
+        char username[32];
+        int role;
+    } roles[50];
     Player players[MAX_CLIENTS];
     char username[64]; char password[64];
     AuthStatus status;
