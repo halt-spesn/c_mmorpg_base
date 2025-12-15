@@ -207,6 +207,9 @@ int selection_len = 0;   // Length of selection (can be negative for left-select
 int is_dragging = 0;     // For mouse drag selection
 SDL_Rect active_input_rect;
 
+int show_nick_pass = 0;      // Toggle for Nickname Menu
+SDL_Rect btn_show_nick_pass; // Button rect for Nickname Menu
+
 // --- Helpers ---
 void send_packet(Packet *pkt) { send(sock, pkt, sizeof(Packet), 0); }
 
@@ -1126,7 +1129,20 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
 
         py += 60;
         render_text(renderer, "Current Password:", pop.x+20, py, col_white, 0);
-        render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, py+20, 260, 25}, nick_pass, active_field==12, 1); 
+        // --- FIX: Use 'py' instead of 'y' here ---
+        render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, py+20, 200, 25}, nick_pass, active_field==12, !show_nick_pass); 
+
+        // Checkbox (Use 'py' here too)
+        btn_show_nick_pass = (SDL_Rect){pop.x + 230, py + 25, 15, 15};
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); 
+        SDL_RenderDrawRect(renderer, &btn_show_nick_pass);
+        
+        if (show_nick_pass) {
+            SDL_Rect inner = {btn_show_nick_pass.x+3, btn_show_nick_pass.y+3, 9, 9};
+            SDL_RenderFillRect(renderer, &inner);
+        }
+        render_text(renderer, "Show", btn_show_nick_pass.x + 20, btn_show_nick_pass.y - 2, col_white, 0);
+        // -----------------------------------------
 
         SDL_Rect btn_submit = {pop.x+20, pop.y+240, 120, 30};
         SDL_Rect btn_cancel = {pop.x+160, pop.y+240, 120, 30};
@@ -1320,6 +1336,7 @@ void render_auth_screen(SDL_Renderer *renderer) {
     btn_show_pass = (SDL_Rect){auth_box.x + 340, y_start + 50, 15, 15};
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderDrawRect(renderer, &btn_show_pass);
     if (show_password) { SDL_Rect inner = {btn_show_pass.x + 3, btn_show_pass.y + 3, btn_show_pass.w - 6, btn_show_pass.h - 6}; SDL_RenderFillRect(renderer, &inner); }
+    render_text(renderer, "Show", btn_show_pass.x + 20, btn_show_pass.y, col_white, 0);
 
     // Buttons & Server List (Keep existing)
     btn_login = (SDL_Rect){auth_box.x+20, auth_box.y+280, 160, 40};
@@ -1599,7 +1616,10 @@ void render_game(SDL_Renderer *renderer) {
 
 void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
 
-    // 1. HUD BUTTONS
+    // ============================================================
+    // LAYER 1: HUD BUTTONS (Always Top Priority)
+    // ============================================================
+    
     SDL_Rect btn_inbox_check = {w - 50, 10, 40, 40};
     if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_inbox_check)) {
         is_inbox_open = !is_inbox_open;
@@ -1607,35 +1627,27 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         return;
     }
 
-    // --- NEW: CHAT INPUT CLICK ---
+    // --- CHAT INPUT CLICK ---
     if (is_chat_open) {
-        SDL_Rect chat_win = {10, h-240, 300, 190};
-        // Input area is roughly the bottom 25 pixels
-        SDL_Rect input_area = {10, h-70, 300, 30}; // Approximate based on render_game logic
-        
+        SDL_Rect input_area = {10, h-70, 300, 30}; 
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &input_area)) {
-            // Need to account for the "To [Name]: " prefix width
-            int prefix_w = 0, ph;
-            char prefix[64];
+            int prefix_w = 0, ph; char prefix[64];
             if (chat_target_id != -1) {
                 char *name = "Unknown"; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == chat_target_id) name = local_players[i].username;
                 snprintf(prefix, 64, "To %s: ", name);
             } else { strcpy(prefix, "> "); }
             TTF_SizeText(font, prefix, &prefix_w, &ph);
-            // Set State
             active_input_rect = input_area;
-            // Adjust rect.x virtually for the helper to account for prefix
             active_input_rect.x += (5 + prefix_w); 
-
             cursor_pos = get_cursor_pos_from_click(input_buffer, mx, active_input_rect.x);
-            selection_start = cursor_pos;
-            selection_len = 0;
-            is_dragging = 1;
-            SDL_StartTextInput();
-            return;
+            selection_start = cursor_pos; selection_len = 0; is_dragging = 1;
+            SDL_StartTextInput(); return;
         }
     }
-    // -----------------------------
+
+    // ============================================================
+    // LAYER 2: MODAL WINDOWS
+    // ============================================================
 
     // 2A. Inbox Window
     if (is_inbox_open) {
@@ -1665,7 +1677,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &input)) { 
             active_field = 20; SDL_StartTextInput(); 
             active_input_rect = input;
-            cursor_pos = get_cursor_pos_from_click(input_friend_id, mx, input.x); // NEW
+            cursor_pos = get_cursor_pos_from_click(input_friend_id, mx, input.x); 
             selection_start = cursor_pos; selection_len = 0; is_dragging = 1;
             return; 
         }
@@ -1713,52 +1725,69 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         return; 
     }
 
-    // 3. SETTINGS
+    // ============================================================
+    // LAYER 3: SETTINGS MENU
+    // ============================================================
+
     if (is_settings_open) {
+        // A. Nickname Popup (Highest priority in Settings)
         if (show_nick_popup) {
-        SDL_Rect pop = {w/2 - 150, h/2 - 150, 300, 300};
-        int y = pop.y + 60;
+            SDL_Rect pop = {w/2 - 150, h/2 - 150, 300, 300};
+            
+            // --- DEFINING py HERE FIXES THE ERROR ---
+            int py = pop.y + 60; 
 
-        // 1. New Nickname Field
-        SDL_Rect r_new = {pop.x+20, y+20, 260, 25};
-        if (SDL_PointInRect(&(SDL_Point){mx, my}, &r_new)) { 
-            active_field = 10; SDL_StartTextInput();
-            active_input_rect = r_new; // <--- Set Active Rect
-            cursor_pos = get_cursor_pos_from_click(nick_new, mx, r_new.x);
-            selection_start = cursor_pos; selection_len = 0; is_dragging = 1; // <--- Init Drag
-            return; 
-        }
-        
-        y += 60;
-        // 2. Confirm Field
-        SDL_Rect r_con = {pop.x+20, y+20, 260, 25};
-        if (SDL_PointInRect(&(SDL_Point){mx, my}, &r_con)) { 
-            active_field = 11; SDL_StartTextInput();
-            active_input_rect = r_con;
-            cursor_pos = get_cursor_pos_from_click(nick_confirm, mx, r_con.x);
-            selection_start = cursor_pos; selection_len = 0; is_dragging = 1;
-            return; 
-        }
+            // 1. New Nickname Field
+            SDL_Rect r_new = {pop.x+20, py+20, 260, 25};
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &r_new)) { 
+                active_field = 10; SDL_StartTextInput();
+                active_input_rect = r_new;
+                cursor_pos = get_cursor_pos_from_click(nick_new, mx, r_new.x);
+                selection_start = cursor_pos; selection_len = 0; is_dragging = 1;
+                return; 
+            }
+            
+            py += 60;
+            // 2. Confirm Field
+            SDL_Rect r_con = {pop.x+20, py+20, 260, 25};
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &r_con)) { 
+                active_field = 11; SDL_StartTextInput();
+                active_input_rect = r_con;
+                cursor_pos = get_cursor_pos_from_click(nick_confirm, mx, r_con.x);
+                selection_start = cursor_pos; selection_len = 0; is_dragging = 1;
+                return; 
+            }
 
-        y += 60;
-        // 3. Password Field
-        SDL_Rect r_pass = {pop.x+20, y+20, 260, 25};
-        if (SDL_PointInRect(&(SDL_Point){mx, my}, &r_pass)) { 
-            active_field = 12; SDL_StartTextInput();
-            active_input_rect = r_pass;
-            cursor_pos = get_cursor_pos_from_click(nick_pass, mx, r_pass.x);
-            selection_start = cursor_pos; selection_len = 0; is_dragging = 1;
-            return; 
-        }
+            py += 60;
+            // 3. Password Field
+            SDL_Rect r_pass = {pop.x+20, py+20, 200, 25}; 
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &r_pass)) { 
+                active_field = 12; SDL_StartTextInput();
+                active_input_rect = r_pass;
+                cursor_pos = get_cursor_pos_from_click(nick_pass, mx, r_pass.x);
+                selection_start = cursor_pos; selection_len = 0; is_dragging = 1;
+                return; 
+            }
+
+            // --- Checkbox Logic using 'py' ---
+            SDL_Rect btn_check = {pop.x + 230, py + 25, 15, 15};
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_check)) {
+                show_nick_pass = !show_nick_pass;
+                return;
+            }
+
+            // Submit
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){pop.x+20, pop.y+240, 120, 30})) {
                 Packet pkt; pkt.type = PACKET_CHANGE_NICK_REQUEST;
                 strncpy(pkt.username, nick_new, 31); strncpy(pkt.msg, nick_confirm, 63); strncpy(pkt.password, nick_pass, 31);
                 send_packet(&pkt); strcpy(auth_message, "Processing..."); return;
             }
+            // Cancel
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){pop.x+160, pop.y+240, 120, 30})) { show_nick_popup = 0; active_field = -1; return; }
             return;
         }
 
+        // B. Check Scrolled Content
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &settings_view_port)) {
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_debug)) { show_debug_info = !show_debug_info; save_config(); }
             else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_fps)) { show_fps = !show_fps; save_config(); }
@@ -1825,7 +1854,10 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         return; 
     }
 
-    // 4. WORLD
+    // ============================================================
+    // LAYER 4: GAME WORLD & TOASTS
+    // ============================================================
+
     if (pending_friend_req_id != -1) {
         SDL_Rect btn_accept = {popup_win.x+20, popup_win.y+70, 120, 30};
         SDL_Rect btn_deny = {popup_win.x+160, popup_win.y+70, 120, 30};
@@ -1862,7 +1894,6 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         selected_player_id = -1;
     }
 }
-
 void handle_auth_click(int mx, int my) {
     // 1. Server List Logic
     if (show_server_list) {
