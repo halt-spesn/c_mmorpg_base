@@ -210,6 +210,11 @@ SDL_Rect active_input_rect;
 int show_nick_pass = 0;      // Toggle for Nickname Menu
 SDL_Rect btn_show_nick_pass; // Button rect for Nickname Menu
 
+int show_contributors = 0;
+int show_documentation = 0;
+SDL_Rect btn_contributors_rect;
+SDL_Rect btn_documentation_rect;
+
 // --- Helpers ---
 void send_packet(Packet *pkt) { send(sock, pkt, sizeof(Packet), 0); }
 
@@ -1100,6 +1105,18 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_disconnect_rect);
     render_text(renderer, "Disconnect / Logout", btn_disconnect_rect.x + 150, btn_disconnect_rect.y + 5, col_white, 1); y += 40;
 
+    // --- NEW: Documentation & Contributors Buttons ---
+    btn_documentation_rect = (SDL_Rect){start_x, y, 145, 30};
+    SDL_SetRenderDrawColor(renderer, 0, 100, 150, 255); SDL_RenderFillRect(renderer, &btn_documentation_rect);
+    render_text(renderer, "Docs/Help", btn_documentation_rect.x + 72, btn_documentation_rect.y + 5, col_white, 1);
+
+    btn_contributors_rect = (SDL_Rect){start_x + 155, y, 145, 30};
+    SDL_SetRenderDrawColor(renderer, 0, 150, 100, 255); SDL_RenderFillRect(renderer, &btn_contributors_rect);
+    render_text(renderer, "Credits", btn_contributors_rect.x + 72, btn_contributors_rect.y + 5, col_white, 1);
+    
+    y += 40;
+    // -------------------------------------------------
+
     render_text(renderer, "Drag & Drop Image here", settings_win.x + 175, y, col_yellow, 1); y += 20;
     render_text(renderer, "to upload Avatar (<16KB)", settings_win.x + 175, y, col_yellow, 1); y += 30;
 
@@ -1401,6 +1418,83 @@ void render_blocked_list(SDL_Renderer *renderer, int w, int h) {
     if (blocked_count == 0) render_text(renderer, "(No hidden players)", blocked_win_rect.x + 150, blocked_win_rect.y + 100, col_white, 1);
 }
 
+
+void render_contributors(SDL_Renderer *renderer, int w, int h) {
+    if (!show_contributors) return;
+
+    // Increased Size: 400x450
+    SDL_Rect win = {w/2 - 200, h/2 - 225, 400, 450};
+    
+    SDL_SetRenderDrawColor(renderer, 30, 30, 40, 255); SDL_RenderFillRect(renderer, &win);
+    SDL_SetRenderDrawColor(renderer, 200, 200, 255, 255); SDL_RenderDrawRect(renderer, &win);
+
+    render_text(renderer, "Project Contributors", win.x + 200, win.y + 15, col_cyan, 1);
+
+    // Close Button (Adjusted X for new width)
+    SDL_Rect btn_close = {win.x + 360, win.y + 5, 30, 30};
+    SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_close);
+    render_text(renderer, "X", btn_close.x + 10, btn_close.y + 5, col_white, 0);
+
+    // List
+    int y = win.y + 60;
+    int center_x = win.x + 200;
+
+    render_text(renderer, "You, for playing this game!", center_x, y, (SDL_Color){200,200,200,255}, 1); y += 40;
+
+    render_text(renderer, "#Main Developer#", center_x, y, col_white, 1); y += 25;
+    render_text(renderer, "HALt The Dragon", center_x, y, col_white, 1); y += 40;
+
+    render_text(renderer, "#AI Assistant#", center_x, y, col_white, 1); y += 25;
+    render_text(renderer, "Gemini", center_x, y, col_white, 1); y += 40;
+    
+    render_text(renderer, "#Multiplayer Tests#", center_x, y, col_white, 1); y += 25;
+    render_text(renderer, "PugzAreCute", center_x, y, col_white, 1); y += 40;
+
+    render_text(renderer, "#Libraries#", center_x, y, col_white, 1); y += 25;
+    render_text(renderer, "SDL2, SDL_ttf, SDL_image, SDL_mixer", center_x, y, col_white, 1); y += 25;
+    render_text(renderer, "sqlite3", center_x, y, col_white, 1);
+}
+
+void render_documentation(SDL_Renderer *renderer, int w, int h) {
+    if (!show_documentation) return;
+
+    SDL_Rect win = {w/2 - 250, h/2 - 250, 500, 500};
+    SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255); SDL_RenderFillRect(renderer, &win);
+    SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255); SDL_RenderDrawRect(renderer, &win);
+
+    render_text(renderer, "Game Documentation", win.x + 250, win.y + 15, col_green, 1);
+
+    SDL_Rect btn_close = {win.x + 460, win.y + 5, 30, 30};
+    SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_close);
+    render_text(renderer, "X", btn_close.x + 10, btn_close.y + 5, col_white, 0);
+
+    int start_x = win.x + 20;
+    int y = win.y + 60;
+
+    // 1. Text Formatting
+    render_text(renderer, "#Text Formatting#", start_x, y, col_yellow, 0); y += 30;
+    render_text(renderer, "Style: *Italic*, #Bold#, ~Strike~", start_x, y, col_white, 0); y += 25;
+    
+    // USE RAW TEXT HERE to show literal symbols
+    render_raw_text(renderer, "Usage: wrap text in symbols (*, #, ~)", start_x, y, (SDL_Color){150,150,150,255}, 0); y += 35;
+
+    // 2. Colors
+    render_text(renderer, "#Colors#", start_x, y, col_yellow, 0); y += 30;
+    render_text(renderer, "^1Red ^2Green ^3Blue ^4Yellow ^5Cyan ^6Magenta", start_x, y, col_white, 0); y += 25;
+    render_text(renderer, "^7White ^8Gray ^9Black", start_x, y, col_white, 0); y += 25;
+    
+    // USE RAW TEXT HERE to show literal caret
+    render_raw_text(renderer, "Usage: type ^ (caret) + number", start_x, y, (SDL_Color){150,150,150,255}, 0); y += 35;
+
+    // 3. Shortcuts
+    render_text(renderer, "#Shortcuts & Editing#", start_x, y, col_yellow, 0); y += 30;
+    render_text(renderer, "- Select: Shift + Arrows OR Mouse Drag", start_x, y, col_white, 0); y += 25;
+    render_text(renderer, "- Copy/Paste: Ctrl+C, Ctrl+V, Ctrl+X", start_x, y, col_white, 0); y += 25;
+    render_text(renderer, "- Select All: Ctrl+A", start_x, y, col_white, 0); y += 25;
+    render_text(renderer, "- Cursor: Click to move, Arrows to nav", start_x, y, col_white, 0); y += 35;
+
+}
+
 void render_game(SDL_Renderer *renderer) {
     int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
     float px=0, py=0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { px=local_players[i].x; py=local_players[i].y; }
@@ -1461,12 +1555,10 @@ void render_game(SDL_Renderer *renderer) {
     render_settings_menu(renderer, w, h);
     render_blocked_list(renderer, w, h); 
     render_friend_list(renderer, w, h);
-    
-    // --- MISSING FUNCTIONS ADDED HERE ---
     render_inbox(renderer, w, h);           
     render_add_friend_popup(renderer, w, h); 
-    // ------------------------------------
-
+    render_contributors(renderer, w, h);
+    render_documentation(renderer, w, h);
     render_debug_overlay(renderer, w);
     render_hud(renderer, h);
 
@@ -1725,6 +1817,26 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         return; 
     }
 
+    // 2E. Contributors Window
+    if (show_contributors) {
+        // Match new dimensions: w=400
+        SDL_Rect win = {w/2 - 200, h/2 - 225, 400, 450}; 
+        
+        // Match render position: win.x + 360
+        SDL_Rect btn_close = {win.x + 360, win.y + 5, 30, 30}; 
+        
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_close)) show_contributors = 0;
+        return; 
+    }
+
+    // 2F. Documentation Window
+    if (show_documentation) {
+        SDL_Rect win = {w/2 - 250, h/2 - 250, 500, 500};
+        SDL_Rect btn_close = {win.x + 460, win.y + 5, 30, 30};
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_close)) show_documentation = 0;
+        return; // Block clicks
+    }
+
     // ============================================================
     // LAYER 3: SETTINGS MENU
     // ============================================================
@@ -1849,6 +1961,14 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
                 for(int i=0; i<MAX_CLIENTS; i++) { local_players[i].active = 0; local_players[i].id = -1; }
                 friend_count = 0; chat_log_count = 0; for(int i=0; i<CHAT_HISTORY; i++) strcpy(chat_log[i], "");
                 strcpy(auth_message, "Logged out."); return;
+            }
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_documentation_rect)) {
+                show_documentation = 1;
+                return;
+            }
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_contributors_rect)) {
+                show_contributors = 1;
+                return;
             }
         }
         return; 
