@@ -170,6 +170,8 @@ SDL_Rect btn_friend_close_rect;
 SDL_Rect blocked_win_rect;
 SDL_Rect btn_blocked_close_rect;
 
+int cursor_pos = 0; // Tracks current text cursor index
+
 // --- Helpers ---
 void send_packet(Packet *pkt) { send(sock, pkt, sizeof(Packet), 0); }
 
@@ -182,6 +184,60 @@ void load_servers() {
         if (server_count >= 10) break;
     }
     fclose(fp);
+}
+
+void handle_text_edit(char *buffer, int max_len, SDL_Event *ev) {
+    int len = strlen(buffer);
+
+    if (ev->type == SDL_TEXTINPUT) {
+        int add_len = strlen(ev->text.text);
+        if (len + add_len <= max_len) {
+            // Shift content to the right to make space
+            memmove(buffer + cursor_pos + add_len, buffer + cursor_pos, len - cursor_pos + 1);
+            // Insert new text
+            memcpy(buffer + cursor_pos, ev->text.text, add_len);
+            cursor_pos += add_len;
+        }
+    } 
+    else if (ev->type == SDL_KEYDOWN) {
+        if (ev->key.keysym.sym == SDLK_LEFT) {
+            if (cursor_pos > 0) {
+                // Move back one character (handle multi-byte UTF-8)
+                do { cursor_pos--; } while (cursor_pos > 0 && (buffer[cursor_pos] & 0xC0) == 0x80);
+            }
+        }
+        else if (ev->key.keysym.sym == SDLK_RIGHT) {
+            if (cursor_pos < len) {
+                // Move forward one character
+                do { cursor_pos++; } while (cursor_pos < len && (buffer[cursor_pos] & 0xC0) == 0x80);
+            }
+        }
+        else if (ev->key.keysym.sym == SDLK_BACKSPACE) {
+            if (cursor_pos > 0) {
+                int end = cursor_pos;
+                int start = end;
+                // Find start of previous character
+                do { start--; } while (start > 0 && (buffer[start] & 0xC0) == 0x80);
+                
+                // Shift content left to overwrite
+                memmove(buffer + start, buffer + end, len - end + 1);
+                cursor_pos = start;
+            }
+        }
+        else if (ev->key.keysym.sym == SDLK_DELETE) {
+            if (cursor_pos < len) {
+                int start = cursor_pos;
+                int end = start;
+                // Find end of current character
+                do { end++; } while (end < len && (buffer[end] & 0xC0) == 0x80);
+                
+                // Shift content left
+                memmove(buffer + start, buffer + end, len - end + 1);
+            }
+        }
+        else if (ev->key.keysym.sym == SDLK_HOME) cursor_pos = 0;
+        else if (ev->key.keysym.sym == SDLK_END) cursor_pos = len;
+    }
 }
 
 void save_servers() {
@@ -326,6 +382,42 @@ void render_text(SDL_Renderer *renderer, const char *text, int x, int y, SDL_Col
     SDL_DestroyTexture(texture);
 }
 
+
+void render_input_with_cursor(SDL_Renderer *renderer, SDL_Rect rect, char *buffer, int is_active, int is_password) {
+    // 1. Draw Box
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_RenderFillRect(renderer, &rect);
+    SDL_SetRenderDrawColor(renderer, is_active ? 0 : 100, is_active ? 255 : 100, 0, 255); SDL_RenderDrawRect(renderer, &rect);
+
+    // 2. Prepare Display Text
+    char display[256];
+    if (is_password) {
+        memset(display, '*', strlen(buffer));
+        display[strlen(buffer)] = 0;
+    } else {
+        strcpy(display, buffer);
+    }
+
+    // 3. Render Text
+    render_text(renderer, display, rect.x + 5, rect.y + 2, col_white, 0);
+
+    // 4. Render Cursor (Only if active)
+    if (is_active) {
+        // Measure text width UP TO the cursor position
+        char temp[256];
+        strncpy(temp, display, cursor_pos);
+        temp[cursor_pos] = 0;
+        
+        int w = 0, h = 0;
+        if (strlen(temp) > 0) TTF_SizeText(font, temp, &w, &h);
+        
+        // Draw blinking line (Blink every 500ms)
+        if ((SDL_GetTicks() / 500) % 2 == 0) {
+            SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+            SDL_RenderDrawLine(renderer, rect.x + 5 + w, rect.y + 4, rect.x + 5 + w, rect.y + 20);
+        }
+    }
+}
+
 void add_chat_message(Packet *pkt) {
     // 1. Block Check
     if (pkt->player_id != -1 && pkt->player_id != local_player_id) {
@@ -465,10 +557,10 @@ void render_add_friend_popup(SDL_Renderer *renderer, int w, int h) {
     
     render_text(renderer, "Add Friend by ID", pop.x+80, pop.y+10, col_green, 0);
     
-    SDL_Rect input = {pop.x+50, pop.y+60, 200, 30};
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_RenderFillRect(renderer, &input);
-    SDL_SetRenderDrawColor(renderer, active_field==20?0:100, active_field==20?255:100, 0, 255); SDL_RenderDrawRect(renderer, &input);
-    render_text(renderer, input_friend_id, input.x+5, input.y+5, col_white, 0);
+    // --- UPDATED: Input Field with Cursor ---
+    SDL_Rect input_rect = {pop.x+50, pop.y+60, 200, 30};
+    render_input_with_cursor(renderer, input_rect, input_friend_id, active_field == 20, 0);
+    // ----------------------------------------
 
     SDL_Rect btn_ok = {pop.x+50, pop.y+130, 80, 30};
     SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_ok);
@@ -594,7 +686,6 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     render_text(renderer, "Drag & Drop Image here", settings_win.x + 150, settings_win.y + 560, col_yellow, 1);
     render_text(renderer, "to upload Avatar (<16KB)", settings_win.x + 150, settings_win.y + 580, col_yellow, 1);
 
-    // --- POPUP: Change Nickname ---
     if (show_nick_popup) {
         SDL_Rect pop = {screen_w/2 - 150, screen_h/2 - 150, 300, 300};
         SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255); SDL_RenderFillRect(renderer, &pop);
@@ -604,29 +695,20 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
         render_text(renderer, auth_message, pop.x+150, pop.y+35, col_red, 1);
 
         int y = pop.y + 60;
-        // New Nick
+        
+        // 1. New Nick
         render_text(renderer, "New Name:", pop.x+20, y, col_white, 0);
-        SDL_Rect r1 = {pop.x+20, y+20, 260, 25};
-        SDL_SetRenderDrawColor(renderer, 0,0,0,255); SDL_RenderFillRect(renderer, &r1);
-        SDL_SetRenderDrawColor(renderer, active_field==10?0:100, active_field==10?255:100, 0, 255); SDL_RenderDrawRect(renderer, &r1);
-        render_text(renderer, nick_new, r1.x+5, r1.y+2, col_white, 0);
+        render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, y+20, 260, 25}, nick_new, active_field==10, 0);
 
-        // Confirm
+        // 2. Confirm
         y += 60;
         render_text(renderer, "Type 'CONFIRM':", pop.x+20, y, col_white, 0);
-        SDL_Rect r2 = {pop.x+20, y+20, 260, 25};
-        SDL_SetRenderDrawColor(renderer, 0,0,0,255); SDL_RenderFillRect(renderer, &r2);
-        SDL_SetRenderDrawColor(renderer, active_field==11?0:100, active_field==11?255:100, 0, 255); SDL_RenderDrawRect(renderer, &r2);
-        render_text(renderer, nick_confirm, r2.x+5, r2.y+2, col_white, 0);
+        render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, y+20, 260, 25}, nick_confirm, active_field==11, 0);
 
-        // Password
+        // 3. Password
         y += 60;
         render_text(renderer, "Current Password:", pop.x+20, y, col_white, 0);
-        SDL_Rect r3 = {pop.x+20, y+20, 260, 25};
-        SDL_SetRenderDrawColor(renderer, 0,0,0,255); SDL_RenderFillRect(renderer, &r3);
-        SDL_SetRenderDrawColor(renderer, active_field==12?0:100, active_field==12?255:100, 0, 255); SDL_RenderDrawRect(renderer, &r3);
-        char masked[32]; memset(masked, '*', strlen(nick_pass)); masked[strlen(nick_pass)]=0;
-        render_text(renderer, masked, r3.x+5, r3.y+2, col_white, 0);
+        render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, y+20, 260, 25}, nick_pass, active_field==12, 1); // 1 = Masked
 
         // Buttons
         SDL_Rect btn_submit = {pop.x+20, pop.y+240, 120, 30};
@@ -806,8 +888,6 @@ void render_profile(SDL_Renderer *renderer) {
 
 void render_auth_screen(SDL_Renderer *renderer) {
     int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
-    
-    // Taller box to fit IP/Port
     auth_box = (SDL_Rect){w/2-200, h/2-200, 400, 400}; 
     
     SDL_SetRenderDrawColor(renderer, 50, 50, 50, 255); SDL_RenderClear(renderer);
@@ -821,75 +901,54 @@ void render_auth_screen(SDL_Renderer *renderer) {
 
     // 1. IP Field
     render_text(renderer, "Server IP:", auth_box.x + 20, y_start, col_white, 0);
-    SDL_Rect ip_rect = {auth_box.x + 130, y_start - 5, 200, 25};
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_RenderFillRect(renderer, &ip_rect);
-    SDL_SetRenderDrawColor(renderer, active_field == 2 ? 0 : 150, active_field == 2 ? 255 : 150, 0, 255); SDL_RenderDrawRect(renderer, &ip_rect);
-    render_text(renderer, input_ip, ip_rect.x + 5, ip_rect.y + 2, col_white, 0);
+    render_input_with_cursor(renderer, (SDL_Rect){auth_box.x + 130, y_start - 5, 200, 25}, input_ip, active_field == 2, 0);
 
     // 2. Port Field
     render_text(renderer, "Port:", auth_box.x + 20, y_start + 40, col_white, 0);
-    SDL_Rect port_rect = {auth_box.x + 130, y_start + 35, 80, 25};
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_RenderFillRect(renderer, &port_rect);
-    SDL_SetRenderDrawColor(renderer, active_field == 3 ? 0 : 150, active_field == 3 ? 255 : 150, 0, 255); SDL_RenderDrawRect(renderer, &port_rect);
-    render_text(renderer, input_port, port_rect.x + 5, port_rect.y + 2, col_white, 0);
+    render_input_with_cursor(renderer, (SDL_Rect){auth_box.x + 130, y_start + 35, 80, 25}, input_port, active_field == 3, 0);
 
     // 3. Username
     y_start += 90;
     render_text(renderer, "Username:", auth_box.x + 20, y_start, col_white, 0);
-    SDL_Rect user_rect = {auth_box.x + 130, y_start - 5, 200, 25};
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_RenderFillRect(renderer, &user_rect);
-    SDL_SetRenderDrawColor(renderer, active_field == 0 ? 0 : 150, active_field == 0 ? 255 : 150, 0, 255); SDL_RenderDrawRect(renderer, &user_rect);
-    render_text(renderer, auth_username, user_rect.x + 5, user_rect.y + 2, col_white, 0);
+    render_input_with_cursor(renderer, (SDL_Rect){auth_box.x + 130, y_start - 5, 200, 25}, auth_username, active_field == 0, 0);
 
     // 4. Password
     render_text(renderer, "Password:", auth_box.x + 20, y_start + 50, col_white, 0);
-    SDL_Rect pass_rect = {auth_box.x + 130, y_start + 45, 200, 25};
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_RenderFillRect(renderer, &pass_rect);
-    SDL_SetRenderDrawColor(renderer, active_field == 1 ? 0 : 150, active_field == 1 ? 255 : 150, 0, 255); SDL_RenderDrawRect(renderer, &pass_rect);
+    render_input_with_cursor(renderer, (SDL_Rect){auth_box.x + 130, y_start + 45, 200, 25}, auth_password, active_field == 1, !show_password);
     
     btn_show_pass = (SDL_Rect){auth_box.x + 340, y_start + 50, 15, 15};
-    if (show_password) { render_text(renderer, auth_password, pass_rect.x + 5, pass_rect.y + 2, col_white, 0); } 
-    else { char masked[MAX_INPUT_LEN+1]; memset(masked, '*', strlen(auth_password)); masked[strlen(auth_password)]=0; render_text(renderer, masked, pass_rect.x + 5, pass_rect.y + 2, col_white, 0); }
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderDrawRect(renderer, &btn_show_pass);
     if (show_password) { SDL_Rect inner = {btn_show_pass.x + 3, btn_show_pass.y + 3, btn_show_pass.w - 6, btn_show_pass.h - 6}; SDL_RenderFillRect(renderer, &inner); }
 
-    // Buttons
+    // Buttons & Server List (Keep existing)
     btn_login = (SDL_Rect){auth_box.x+20, auth_box.y+280, 160, 40};
     btn_register = (SDL_Rect){auth_box.x+220, auth_box.y+280, 160, 40};
-    btn_open_servers = (SDL_Rect){auth_box.x+100, auth_box.y+340, 200, 30}; // Server List Button
+    btn_open_servers = (SDL_Rect){auth_box.x+100, auth_box.y+340, 200, 30};
 
     SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_login);
     render_text(renderer, "Login", btn_login.x + 80, btn_login.y + 10, col_white, 1);
-    
     SDL_SetRenderDrawColor(renderer, 0, 0, 150, 255); SDL_RenderFillRect(renderer, &btn_register);
     render_text(renderer, "Register", btn_register.x + 80, btn_register.y + 10, col_white, 1);
-
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_open_servers);
     render_text(renderer, "Saved Servers", btn_open_servers.x + 100, btn_open_servers.y + 5, col_white, 1);
 
-    // --- SERVER LIST POPUP ---
     if (show_server_list) {
-        server_list_win = (SDL_Rect){w/2 + 220, h/2 - 200, 250, 400}; // To the right
+        server_list_win = (SDL_Rect){w/2 + 220, h/2 - 200, 250, 400}; 
         SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255); SDL_RenderFillRect(renderer, &server_list_win);
         SDL_SetRenderDrawColor(renderer, 200, 200, 0, 255); SDL_RenderDrawRect(renderer, &server_list_win);
-        
         render_text(renderer, "Select Server", server_list_win.x + 125, server_list_win.y + 10, col_yellow, 1);
-        
         int y_s = 50;
         for(int i=0; i<server_count; i++) {
             SDL_Rect row = {server_list_win.x + 10, server_list_win.y + y_s, 230, 30};
             SDL_SetRenderDrawColor(renderer, 60, 60, 60, 255); SDL_RenderFillRect(renderer, &row);
-            
             char label[64]; snprintf(label, 64, "%s (%s)", server_list[i].name, server_list[i].ip);
             render_text(renderer, label, row.x + 5, row.y + 5, col_white, 0);
             y_s += 35;
         }
-
         btn_add_server = (SDL_Rect){server_list_win.x + 20, server_list_win.y + 350, 210, 30};
         SDL_SetRenderDrawColor(renderer, 0, 100, 0, 255); SDL_RenderFillRect(renderer, &btn_add_server);
         render_text(renderer, "Save Current IP", btn_add_server.x + 105, btn_add_server.y + 5, col_white, 1);
     }
-
     SDL_RenderPresent(renderer);
 }
 
@@ -1007,35 +1066,81 @@ void render_game(SDL_Renderer *renderer) {
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_settings_toggle);
     render_text(renderer, "Settings", btn_settings_toggle.x+50, btn_settings_toggle.y+5, col_white, 1);
 
-    // 5. Draw Chat Overlay
+ // 5. Draw Chat Overlay
     if(is_chat_open) {
         SDL_Rect win = {10, h-240, 300, 190};
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
         SDL_SetRenderDrawColor(renderer, 0,0,0,200); SDL_RenderFillRect(renderer, &win);
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+        
         SDL_RenderSetClipRect(renderer, &win); 
+
+        // Draw History
         for(int i=0; i<CHAT_HISTORY; i++) {
             SDL_Color line_col = col_white;
             if (strncmp(chat_log[i], "To [", 4) == 0 || strncmp(chat_log[i], "From [", 6) == 0) line_col = col_magenta;
             render_text(renderer, chat_log[i], 15, win.y+10+(i*15), line_col, 0);
         }
+
         SDL_RenderSetClipRect(renderer, NULL);
 
-        char full_str[256]; SDL_Color input_col = col_cyan;
+        // --- CHAT INPUT & CURSOR LOGIC ---
+        char full_str[256];
+        char prefix[64];
+        SDL_Color input_col = col_cyan;
+        
+        // 1. Construct Prefix
         if (chat_target_id != -1) {
-            char *name = "Unknown"; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == chat_target_id) name = local_players[i].username;
-            snprintf(full_str, 256, "To %s: %s_", name, input_buffer); input_col = col_magenta;
-        } else snprintf(full_str, 256, "> %s_", input_buffer);
+            char *name = "Unknown";
+            for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == chat_target_id) name = local_players[i].username;
+            snprintf(prefix, 64, "To %s: ", name);
+            input_col = col_magenta;
+        } else {
+            strcpy(prefix, "> ");
+        }
 
-        int w, h; TTF_SizeText(font, full_str, &w, &h);
-        if (w <= 270) render_text(renderer, full_str, 15, win.y+win.h-20, input_col, 0);
-        else {
+        // 2. Combine for Display
+        snprintf(full_str, 256, "%s%s", prefix, input_buffer);
+
+        // 3. Render Text (Simple scrolling check)
+        int w, h;
+        TTF_SizeText(font, full_str, &w, &h);
+        int render_x = 15;
+        int render_y = win.y+win.h-20;
+
+        if (w <= 270) {
+            render_text(renderer, full_str, render_x, render_y, input_col, 0);
+        } else {
+            // If too long, just show the end (simplification for now)
             int len = strlen(full_str);
             for(int i=0; i<len; i++) {
-                const char* sub = &full_str[i]; int sub_w; TTF_SizeText(font, sub, &sub_w, &h);
-                if (sub_w <= 270) { render_text(renderer, sub, 15, win.y+win.h-20, input_col, 0); break; }
+                const char* sub = &full_str[i];
+                int sub_w;
+                TTF_SizeText(font, sub, &sub_w, &h);
+                if (sub_w <= 270) {
+                    render_text(renderer, sub, render_x, render_y, input_col, 0);
+                    break;
+                }
             }
         }
+
+        // 4. Render Blinking Cursor
+        // We calculate width of (Prefix + InputBuffer UP TO cursor_pos)
+        char cursor_sub[256];
+        snprintf(cursor_sub, 256, "%s", prefix);
+        strncat(cursor_sub, input_buffer, cursor_pos); // Append only up to cursor
+        
+        int cw, ch;
+        TTF_SizeText(font, cursor_sub, &cw, &ch);
+        
+        // Only draw if within bounds (simple check)
+        if (cw <= 270) {
+            if ((SDL_GetTicks() / 500) % 2 == 0) {
+                SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+                SDL_RenderDrawLine(renderer, render_x + cw, render_y + 2, render_x + cw, render_y + 14);
+            }
+        }
+        // ---------------------------------
     }
     SDL_RenderPresent(renderer);
 }
@@ -1297,6 +1402,7 @@ void handle_auth_click(int mx, int my) {
 }
 
 int main(int argc, char const *argv[]) {
+    // 1. Initialization
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) return 1;
     if (TTF_Init() == -1) return 1;
     if (!(IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG) & (IMG_INIT_PNG | IMG_INIT_JPG))) printf("IMG Init Error: %s\n", IMG_GetError());
@@ -1307,90 +1413,101 @@ int main(int argc, char const *argv[]) {
     SDL_Window *window = SDL_CreateWindow("C MMO Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 800, 600, SDL_WINDOW_SHOWN|SDL_WINDOW_RESIZABLE);
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
 
+    // Load Assets
     SDL_Surface *temp = IMG_Load(MAP_FILE); if (temp) { tex_map = SDL_CreateTextureFromSurface(renderer, temp); map_w=temp->w; map_h=temp->h; SDL_FreeSurface(temp); }
     temp = IMG_Load(PLAYER_FILE); if (temp) { tex_player = SDL_CreateTextureFromSurface(renderer, temp); SDL_FreeSurface(temp); }
 
     init_audio();
-    load_servers(); // Load saved list but don't connect
-    sock = -1;      // Start disconnected
+    load_servers(); // Load saved list
+    sock = -1;      // Start Disconnected
 
     for(int i=0; i<MAX_CLIENTS; i++) { avatar_cache[i] = NULL; avatar_status[i] = 0; }
 
     SDL_StartTextInput();
     int running = 1; SDL_Event event;
     int key_up=0, key_down=0, key_left=0, key_right=0;
+    
+    // Cursor State Tracking
+    int last_active_field = -1;
+    int was_chat_open = 0;
 
     while (running) {
         frame_count++;
         Uint32 now_fps = SDL_GetTicks();
         if (now_fps > last_fps_check + 1000) { current_fps = frame_count; frame_count = 0; last_fps_check = now_fps; }
         
-        // Auto-play audio only if logged in and connected
         if (client_state == STATE_GAME && music_count > 0 && !Mix_PlayingMusic()) play_next_track();
 
-        // --- SCALE CALCULATION ---
-        int screen_w, screen_h;
-        SDL_GetRendererOutputSize(renderer, &screen_w, &screen_h);
-        int win_w, win_h; 
-        SDL_GetWindowSize(window, &win_w, &win_h);
-        
+        // --- COORDINATE SCALING ---
+        int screen_w, screen_h; SDL_GetRendererOutputSize(renderer, &screen_w, &screen_h);
+        int win_w, win_h; SDL_GetWindowSize(window, &win_w, &win_h);
         float scale_x = (float)screen_w / win_w;
         float scale_y = (float)screen_h / win_h;
-        // -------------------------
+
+        // --- CURSOR RESET LOGIC ---
+        // If field changed, move cursor to end of new text
+        if (active_field != last_active_field) {
+            int len = 0;
+            if(active_field==0) len=strlen(auth_username);
+            else if(active_field==1) len=strlen(auth_password);
+            else if(active_field==2) len=strlen(input_ip);
+            else if(active_field==3) len=strlen(input_port);
+            else if(active_field==10) len=strlen(nick_new);
+            else if(active_field==11) len=strlen(nick_confirm);
+            else if(active_field==12) len=strlen(nick_pass);
+            else if(active_field==20) len=strlen(input_friend_id);
+            cursor_pos = len;
+            last_active_field = active_field;
+        }
+        if (is_chat_open != was_chat_open) {
+            if(is_chat_open) cursor_pos = strlen(input_buffer);
+            was_chat_open = is_chat_open;
+        }
 
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) running = 0;
-            
             else if (event.type == SDL_DROPFILE) {
                 if (is_settings_open && sock > 0) {
-                    char* dropped_file = event.drop.file;
-                    FILE *fp = fopen(dropped_file, "rb");
+                    char* dropped_file = event.drop.file; FILE *fp = fopen(dropped_file, "rb");
                     if (fp) {
                         fseek(fp, 0, SEEK_END); long fsize = ftell(fp); fseek(fp, 0, SEEK_SET);
                         if (fsize > 0 && fsize <= MAX_AVATAR_SIZE) {
                             Packet pkt; pkt.type = PACKET_AVATAR_UPLOAD; pkt.image_size = fsize;
                             send_packet(&pkt); fread(temp_avatar_buf, 1, fsize, fp);
-                            send(sock, temp_avatar_buf, fsize, 0); printf("Uploaded avatar: %ld bytes\n", fsize);
-                        } else { printf("File too large! Max 16KB.\n"); }
+                            send(sock, temp_avatar_buf, fsize, 0); printf("Uploaded.\n");
+                        } else { printf("Too large.\n"); }
                         fclose(fp);
-                    }
-                    SDL_free(dropped_file);
+                    } SDL_free(dropped_file);
                 }
             }
 
             if (client_state == STATE_AUTH) {
-                // Apply Scale to Auth Clicks too
+                // Click (Scaled)
                 if(event.type == SDL_MOUSEBUTTONDOWN) {
-                    int mx = event.button.x * scale_x;
-                    int my = event.button.y * scale_y;
+                    int mx = event.button.x * scale_x; int my = event.button.y * scale_y;
                     handle_auth_click(mx, my);
                 }
                 
-                if(event.type == SDL_TEXTINPUT) {
-                    if(active_field==0 && strlen(auth_username)<31) strcat(auth_username, event.text.text);
-                    if(active_field==1 && strlen(auth_password)<31) strcat(auth_password, event.text.text);
-                    if(active_field==2 && strlen(input_ip)<63) strcat(input_ip, event.text.text);
-                    if(active_field==3 && strlen(input_port)<5) strcat(input_port, event.text.text);
-                }
+                // Text Input (Cursor Aware)
+                char *target = NULL; int max = 31;
+                if(active_field == 0) target = auth_username;
+                else if(active_field == 1) target = auth_password;
+                else if(active_field == 2) { target = input_ip; max = 63; }
+                else if(active_field == 3) { target = input_port; max = 5; }
+                
+                if (target) handle_text_edit(target, max, &event);
+
+                // Keys
                 if(event.type == SDL_KEYDOWN) {
-                    if(event.key.keysym.sym == SDLK_RETURN) handle_auth_click(btn_login.x+1, btn_login.y+1); // Simulate click
+                    if(event.key.keysym.sym == SDLK_RETURN) handle_auth_click(btn_login.x+1, btn_login.y+1);
                     if(event.key.keysym.sym == SDLK_TAB) { active_field++; if(active_field > 3) active_field = 0; }
-                    
-                    if(event.key.keysym.sym == SDLK_BACKSPACE) {
-                        if(active_field==0) remove_last_utf8_char(auth_username);
-                        if(active_field==1) remove_last_utf8_char(auth_password);
-                        if(active_field==2 && strlen(input_ip)>0) input_ip[strlen(input_ip)-1] = 0;
-                        if(active_field==3 && strlen(input_port)>0) input_port[strlen(input_port)-1] = 0;
-                    }
                 }
             } else {
+                // STATE_GAME
                 if (event.type == SDL_MOUSEBUTTONDOWN) {
-                     // --- Apply Coordinate Scaling ---
-                     int mx = event.button.x * scale_x;
-                     int my = event.button.y * scale_y;
-                     // -------------------------------
-
-                     // Top-level UI checks using Scaled Coords
+                     int mx = event.button.x * scale_x; int my = event.button.y * scale_y;
+                     
+                     // HUD Logic
                      if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_chat_toggle)) {
                         is_chat_open = !is_chat_open; 
                         if(is_chat_open) SDL_StartTextInput(); else SDL_StopTextInput();
@@ -1403,57 +1520,47 @@ int main(int argc, char const *argv[]) {
                         show_friend_list = !show_friend_list;
                      }
                      else {
+                        // Calc Camera & Pass to Handler
                         float px=0, py=0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { px=local_players[i].x; py=local_players[i].y; }
                         int cam_x = (int)px - (screen_w/2) + 16; int cam_y = (int)py - (screen_h/2) + 16;
                         if (screen_w > map_w) cam_x = -(screen_w - map_w)/2; if (screen_h > map_h) cam_y = -(screen_h - map_h)/2;
-                        
-                        // Pass Scaled Coords to Handler
                         handle_game_click(mx, my, cam_x, cam_y, screen_w, screen_h);
                      }
                 }
                 
-                // Game Inputs (Chat, Nickname Popup, Add Friend Popup)
+                // --- GAME TEXT INPUTS (Cursor Aware) ---
                 if (is_chat_open) {
+                    handle_text_edit(input_buffer, 60, &event);
                     if(event.type == SDL_KEYDOWN) {
                         if(event.key.keysym.sym == SDLK_RETURN) {
                             if(strlen(input_buffer)>0) { 
                                 if (chat_target_id != -1) {
                                     Packet pkt; pkt.type = PACKET_PRIVATE_MESSAGE; pkt.target_id = chat_target_id; strcpy(pkt.msg, input_buffer); send_packet(&pkt);
                                     chat_target_id = -1;
-                                } else {
-                                    Packet pkt; pkt.type = PACKET_CHAT; strcpy(pkt.msg, input_buffer); send_packet(&pkt); 
-                                }
-                                input_buffer[0]=0; 
+                                } else { Packet pkt; pkt.type = PACKET_CHAT; strcpy(pkt.msg, input_buffer); send_packet(&pkt); }
+                                input_buffer[0]=0; cursor_pos = 0;
                             }
                             is_chat_open=0; SDL_StopTextInput();
                         }
-                        else if(event.key.keysym.sym == SDLK_BACKSPACE) remove_last_utf8_char(input_buffer);
                         else if(event.key.keysym.sym == SDLK_ESCAPE) { is_chat_open=0; chat_target_id = -1; SDL_StopTextInput(); }
                     }
-                    else if(event.type == SDL_TEXTINPUT && strlen(input_buffer)<60) strcat(input_buffer, event.text.text);
-                } 
-                else if (is_settings_open && show_nick_popup) {
-                    if(event.type == SDL_TEXTINPUT) {
-                        if(active_field == 10 && strlen(nick_new)<31) strcat(nick_new, event.text.text);
-                        if(active_field == 11 && strlen(nick_confirm)<31) strcat(nick_confirm, event.text.text);
-                        if(active_field == 12 && strlen(nick_pass)<31) strcat(nick_pass, event.text.text);
-                    }
-                    else if(event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_BACKSPACE) {
-                        if(active_field == 10) remove_last_utf8_char(nick_new);
-                        if(active_field == 11) remove_last_utf8_char(nick_confirm);
-                        if(active_field == 12) remove_last_utf8_char(nick_pass);
-                    }
                 }
-                else if (show_add_friend_popup) { // NEW: Handle Add Friend Inputs
-                    if(event.type == SDL_TEXTINPUT && active_field == 20 && strlen(input_friend_id)<8) strcat(input_friend_id, event.text.text);
-                    else if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_BACKSPACE && active_field == 20) remove_last_utf8_char(input_friend_id);
+                else if (is_settings_open && show_nick_popup) {
+                    char *target = NULL;
+                    if(active_field == 10) target = nick_new;
+                    else if(active_field == 11) target = nick_confirm;
+                    else if(active_field == 12) target = nick_pass;
+                    if (target) handle_text_edit(target, 31, &event);
+                }
+                else if (show_add_friend_popup) {
+                    if (active_field == 20) handle_text_edit(input_friend_id, 8, &event);
                 }
                 else {
                     // Movement (WASD)
                     if (event.type == SDL_KEYDOWN) {
                         if (event.key.keysym.sym == SDLK_w) key_up=1; if (event.key.keysym.sym == SDLK_s) key_down=1;
                         if (event.key.keysym.sym == SDLK_a) key_left=1; if (event.key.keysym.sym == SDLK_d) key_right=1;
-                        if (event.key.keysym.sym == SDLK_RETURN || event.key.keysym.sym == SDLK_t) { is_chat_open=1; input_buffer[0]=0; key_up=0; key_down=0; key_left=0; key_right=0; SDL_StartTextInput(); }
+                        if (event.key.keysym.sym == SDLK_RETURN || event.key.keysym.sym == SDLK_t) { is_chat_open=1; input_buffer[0]=0; cursor_pos=0; key_up=0; key_down=0; key_left=0; key_right=0; SDL_StartTextInput(); }
                     }
                     if (event.type == SDL_KEYUP) {
                         if (event.key.keysym.sym == SDLK_w) key_up=0; if (event.key.keysym.sym == SDLK_s) key_down=0;
@@ -1466,7 +1573,6 @@ int main(int argc, char const *argv[]) {
         Uint32 now = SDL_GetTicks();
         if (sock > 0 && client_state == STATE_GAME) {
             if (now - last_ping_sent > 1000) { Packet pkt; pkt.type = PACKET_PING; pkt.timestamp = now; send_packet(&pkt); last_ping_sent = now; }
-
             if (!is_chat_open && !show_nick_popup && !show_add_friend_popup && pending_friend_req_id == -1) {
                 float dx = 0, dy = 0;
                 if (key_up) dy = -1; if (key_down) dy = 1; if (key_left) dx = -1; if (key_right) dx = 1;
@@ -1474,70 +1580,39 @@ int main(int argc, char const *argv[]) {
             }
         }
 
-        // NETWORK PROCESSING
         if (sock > 0) {
             int bytes; 
             if (ioctl(sock, FIONREAD, &bytes) != -1 && bytes > 0) {
                 Packet pkt; 
-                // Read Packet Header
                 if (recv(sock, &pkt, sizeof(Packet), MSG_WAITALL) > 0) {
                     if (pkt.type == PACKET_AUTH_RESPONSE) {
-                        if (pkt.status == AUTH_SUCCESS) { 
-                            client_state = STATE_GAME; 
-                            local_player_id = pkt.player_id; 
-                            SDL_StopTextInput(); 
-                            if (music_count > 0) play_next_track();
-                        }
+                        if (pkt.status == AUTH_SUCCESS) { client_state = STATE_GAME; local_player_id = pkt.player_id; SDL_StopTextInput(); if (music_count > 0) play_next_track(); }
                         else if (pkt.status == AUTH_REGISTER_SUCCESS) strcpy(auth_message, "Success! Login now.");
                         else strcpy(auth_message, "Error.");
                     }
                     if (pkt.type == PACKET_UPDATE) memcpy(local_players, pkt.players, sizeof(local_players));
                     if (pkt.type == PACKET_CHAT || pkt.type == PACKET_PRIVATE_MESSAGE) add_chat_message(&pkt);
-                    if (pkt.type == PACKET_FRIEND_LIST) { 
-                        friend_count = pkt.friend_count; 
-                        memcpy(my_friends, pkt.friends, sizeof(pkt.friends)); 
-                    }                
+                    if (pkt.type == PACKET_FRIEND_LIST) { friend_count = pkt.friend_count; memcpy(my_friends, pkt.friends, sizeof(pkt.friends)); }                
                     if (pkt.type == PACKET_FRIEND_INCOMING) { 
                         if (inbox_count < 10) {
                             int has = 0; for(int i=0; i<inbox_count; i++) if(inbox[i].id == pkt.player_id) has=1;
-                            if(!has) {
-                                inbox[inbox_count].id = pkt.player_id;
-                                strncpy(inbox[inbox_count].name, pkt.username, 31);
-                                inbox_count++;
-                            }
+                            if(!has) { inbox[inbox_count].id = pkt.player_id; strncpy(inbox[inbox_count].name, pkt.username, 31); inbox_count++; }
                         }
                     }
                     if (pkt.type == PACKET_PING) current_ping = SDL_GetTicks() - pkt.timestamp;
-                    
                     if (pkt.type == PACKET_CHANGE_NICK_RESPONSE) {
-                        if (pkt.status == AUTH_SUCCESS) {
-                            show_nick_popup = 0; 
-                            for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) strncpy(local_players[i].username, pkt.username, 31);
-                        } else {
-                            strncpy(auth_message, pkt.msg, 127);
-                        }
+                        if (pkt.status == AUTH_SUCCESS) { show_nick_popup = 0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) strncpy(local_players[i].username, pkt.username, 31); } 
+                        else strncpy(auth_message, pkt.msg, 127);
                     }
-
                     if (pkt.type == PACKET_AVATAR_RESPONSE) {
                         if (pkt.image_size > 0 && pkt.image_size <= MAX_AVATAR_SIZE) {
                             int total = 0;
-                            while(total < pkt.image_size) {
-                                int n = recv(sock, temp_avatar_buf + total, pkt.image_size - total, 0);
-                                if(n > 0) total += n;
-                            }
+                            while(total < pkt.image_size) { int n = recv(sock, temp_avatar_buf + total, pkt.image_size - total, 0); if(n > 0) total += n; }
                             int target_idx = -1;
-                            for(int i=0; i<MAX_CLIENTS; i++) 
-                                if(local_players[i].active && local_players[i].id == pkt.player_id) target_idx = i;
-                            
+                            for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == pkt.player_id) target_idx = i;
                             if (target_idx != -1) {
-                                SDL_RWops *rw = SDL_RWFromMem(temp_avatar_buf, pkt.image_size);
-                                SDL_Surface *surf = IMG_Load_RW(rw, 1); 
-                                if (surf) {
-                                    if (avatar_cache[target_idx]) SDL_DestroyTexture(avatar_cache[target_idx]);
-                                    avatar_cache[target_idx] = SDL_CreateTextureFromSurface(renderer, surf);
-                                    avatar_status[target_idx] = 2; 
-                                    SDL_FreeSurface(surf);
-                                }
+                                SDL_RWops *rw = SDL_RWFromMem(temp_avatar_buf, pkt.image_size); SDL_Surface *surf = IMG_Load_RW(rw, 1); 
+                                if (surf) { if (avatar_cache[target_idx]) SDL_DestroyTexture(avatar_cache[target_idx]); avatar_cache[target_idx] = SDL_CreateTextureFromSurface(renderer, surf); avatar_status[target_idx] = 2; SDL_FreeSurface(surf); }
                             }
                         }
                     }
