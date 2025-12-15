@@ -1,5 +1,5 @@
 CC = clang
-CFLAGS = -Wall -O3
+CFLAGS = -Wall -O2 -march=x86-64-v2
 
 # --- SERVER CONFIG ---
 SERVER_SRC = server.c
