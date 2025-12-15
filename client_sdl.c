@@ -191,6 +191,17 @@ int afk_timeout_minutes = 2; // Default 2 minutes
 int is_auto_afk = 0;         // Flag to know if we triggered it automatically
 SDL_Rect slider_afk;
 
+// --- Scrolling State ---
+int settings_scroll_y = 0;
+int settings_content_h = 0; // Total height of content
+SDL_Rect settings_view_port; // Visible area
+
+// --- Secondary Color Sliders ---
+SDL_Rect slider_r2, slider_g2, slider_b2;
+int my_r2 = 255, my_g2 = 255, my_b2 = 255; // Local state for now
+
+int saved_r = 255, saved_g = 255, saved_b = 255;
+
 // --- Helpers ---
 void send_packet(Packet *pkt) { send(sock, pkt, sizeof(Packet), 0); }
 
@@ -205,6 +216,53 @@ void load_servers() {
     fclose(fp);
 }
 
+void save_config() {
+    FILE *fp = fopen("config.txt", "w");
+    if (fp) {
+        int r=255, g=255, b=255;
+        for(int i=0; i<MAX_CLIENTS; i++) {
+            if(local_players[i].active && local_players[i].id == local_player_id) {
+                r = local_players[i].r; g = local_players[i].g; b = local_players[i].b;
+            }
+        }
+        // Format: R G B R2 G2 B2 AFK_MIN DEBUG FPS COORDS VOL
+        fprintf(fp, "%d %d %d %d %d %d %d %d %d %d %d\n", 
+            r, g, b, 
+            my_r2, my_g2, my_b2, 
+            afk_timeout_minutes,
+            show_debug_info, show_fps, show_coords, music_volume // <--- New Values
+        );
+        fclose(fp);
+    }
+}
+
+void load_config() {
+    FILE *fp = fopen("config.txt", "r");
+    if (fp) {
+        // We use temporary variables for the new flags to avoid overwriting defaults if file is short/corrupt
+        int dbg=0, fps=0, crd=0, vol=64;
+        
+        int count = fscanf(fp, "%d %d %d %d %d %d %d %d %d %d %d", 
+            &saved_r, &saved_g, &saved_b, 
+            &my_r2, &my_g2, &my_b2, 
+            &afk_timeout_minutes,
+            &dbg, &fps, &crd, &vol
+        );
+        
+        // Only apply if we successfully read the new values (backward compatibility)
+        if (count >= 11) {
+            show_debug_info = dbg;
+            show_fps = fps;
+            show_coords = crd;
+            music_volume = vol;
+            
+            // Apply volume immediately
+            Mix_VolumeMusic(music_volume);
+        }
+        
+        fclose(fp);
+    }
+}
 void handle_text_edit(char *buffer, int max_len, SDL_Event *ev) {
     int len = strlen(buffer);
 
@@ -418,6 +476,57 @@ void remove_last_utf8_char(char *str) {
         if ((str[len] & 0xC0) != 0x80) break; 
     }
     str[len] = '\0';
+}
+
+void render_text_gradient(SDL_Renderer *renderer, const char *text, int x, int y, SDL_Color c1, SDL_Color c2, int center) {
+    if (!text || !*text) return;
+
+    // 1. Render base white text
+    SDL_Surface *surface = TTF_RenderUTF8_Blended(font, text, (SDL_Color){255, 255, 255, 255});
+    if (!surface) return;
+
+    SDL_LockSurface(surface);
+    
+    int w = surface->w;
+    int h = surface->h;
+    int pitch = surface->pitch; // Actual bytes per row in memory
+    Uint8 *pixels = (Uint8 *)surface->pixels;
+    SDL_PixelFormat *fmt = surface->format;
+
+    // 2. Iterate pixels safely
+    for (int py = 0; py < h; py++) {
+        for (int px = 0; px < w; px++) {
+            // Calculate exact memory address for this pixel
+            // Row offset (py * pitch) + Column offset (px * 4 bytes)
+            Uint32 *pixel_addr = (Uint32 *)(pixels + py * pitch + px * 4);
+            
+            Uint32 pixel_val = *pixel_addr;
+            Uint8 r_old, g_old, b_old, a;
+            SDL_GetRGBA(pixel_val, fmt, &r_old, &g_old, &b_old, &a);
+
+            // Apply gradient only to visible pixels
+            if (a > 0) {
+                float t = (float)px / (float)w; // 0.0 to 1.0 based on width
+
+                Uint8 r = c1.r + (int)((c2.r - c1.r) * t);
+                Uint8 g = c1.g + (int)((c2.g - c1.g) * t);
+                Uint8 b = c1.b + (int)((c2.b - c1.b) * t);
+
+                *pixel_addr = SDL_MapRGBA(fmt, r, g, b, a);
+            }
+        }
+    }
+    
+    SDL_UnlockSurface(surface);
+
+    // 3. Create Texture & Render
+    SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surface);
+    int rx = center ? x - (w / 2) : x;
+    SDL_Rect dst = {rx, y, w, h};
+    SDL_RenderCopy(renderer, texture, NULL, &dst);
+
+    SDL_FreeSurface(surface);
+    SDL_DestroyTexture(texture);
 }
 
 void render_text(SDL_Renderer *renderer, const char *text, int x, int y, SDL_Color default_color, int center) {
@@ -718,109 +827,143 @@ void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
 void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     if (!is_settings_open) return;
     
-    // Window Setup
-    settings_win = (SDL_Rect){screen_w/2 - 150, screen_h/2 - 360, 300, 720}; 
+    // 1. Setup Main Window (Fixed Size)
+    int win_h = 600;
+    settings_win = (SDL_Rect){screen_w/2 - 175, screen_h/2 - 300, 350, win_h}; 
+    
     SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255); SDL_RenderFillRect(renderer, &settings_win);
     SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255); SDL_RenderDrawRect(renderer, &settings_win);
-    render_text(renderer, "Settings", settings_win.x + 150, settings_win.y + 10, col_white, 1);
+    render_text(renderer, "Settings", settings_win.x + 175, settings_win.y + 10, col_white, 1);
 
-    // 1. Toggles
-    btn_toggle_debug = (SDL_Rect){settings_win.x + 20, settings_win.y + 50, 20, 20};
+    // 2. Setup Clipping Region (Content Area)
+    settings_view_port = (SDL_Rect){settings_win.x + 10, settings_win.y + 40, settings_win.w - 20, settings_win.h - 50};
+    SDL_RenderSetClipRect(renderer, &settings_view_port);
+
+    // 3. Render Content (Offset by settings_scroll_y)
+    int start_x = settings_win.x + 20;
+    int y = settings_win.y + 50 - settings_scroll_y; // Apply Scroll
+    
+    // -- Toggles --
+    btn_toggle_debug = (SDL_Rect){start_x, y, 20, 20};
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_debug);
     if (show_debug_info) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c={btn_toggle_debug.x+4,btn_toggle_debug.y+4,12,12}; SDL_RenderFillRect(renderer,&c); }
-    render_text(renderer, "Show Debug Info", settings_win.x + 50, settings_win.y + 50, col_white, 0);
+    render_text(renderer, "Show Debug Info", start_x + 30, y, col_white, 0); y += 40;
 
-    btn_toggle_fps = (SDL_Rect){settings_win.x + 20, settings_win.y + 90, 20, 20};
+    btn_toggle_fps = (SDL_Rect){start_x, y, 20, 20};
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_fps);
     if (show_fps) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c={btn_toggle_fps.x+4,btn_toggle_fps.y+4,12,12}; SDL_RenderFillRect(renderer,&c); }
-    render_text(renderer, "Show FPS", settings_win.x + 50, settings_win.y + 90, col_white, 0);
+    render_text(renderer, "Show FPS", start_x + 30, y, col_white, 0); y += 40;
 
-    btn_toggle_coords = (SDL_Rect){settings_win.x + 20, settings_win.y + 130, 20, 20};
+    btn_toggle_coords = (SDL_Rect){start_x, y, 20, 20};
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_coords);
     if (show_coords) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c={btn_toggle_coords.x+4,btn_toggle_coords.y+4,12,12}; SDL_RenderFillRect(renderer,&c); }
-    render_text(renderer, "Show Coordinates", settings_win.x + 50, settings_win.y + 130, col_white, 0);
+    render_text(renderer, "Show Coordinates", start_x + 30, y, col_white, 0); y += 40;
 
-    btn_toggle_unread = (SDL_Rect){settings_win.x + 20, settings_win.y + 170, 20, 20};
+    btn_toggle_unread = (SDL_Rect){start_x, y, 20, 20};
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_unread);
     if (show_unread_counter) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c={btn_toggle_unread.x+4,btn_toggle_unread.y+4,12,12}; SDL_RenderFillRect(renderer,&c); }
-    render_text(renderer, "Show Unread Counter", settings_win.x + 50, settings_win.y + 170, col_white, 0);
+    render_text(renderer, "Show Unread Counter", start_x + 30, y, col_white, 0); y += 40;
 
-    // 2. Blocked & ID
-    btn_view_blocked = (SDL_Rect){settings_win.x + 20, settings_win.y + 210, 260, 30};
+    // -- Buttons --
+    btn_view_blocked = (SDL_Rect){start_x, y, 300, 30};
     SDL_SetRenderDrawColor(renderer, 200, 50, 50, 255); SDL_RenderFillRect(renderer, &btn_view_blocked);
-    render_text(renderer, "Manage Blocked Players", btn_view_blocked.x + 130, btn_view_blocked.y + 5, col_white, 1);
+    render_text(renderer, "Manage Blocked Players", btn_view_blocked.x + 150, btn_view_blocked.y + 5, col_white, 1);
+    y += 40;
 
     char id_str[32]; snprintf(id_str, 32, "My ID: %d", local_player_id);
-    render_text(renderer, id_str, settings_win.x + 150, settings_win.y + 250, (SDL_Color){150, 150, 255, 255}, 1);
+    render_text(renderer, id_str, settings_win.x + 175, y, (SDL_Color){150, 150, 255, 255}, 1);
+    y += 25;
 
-    // 3. Status Button (Update Global)
     int my_status = 0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) my_status = local_players[i].status;
-    
-    btn_cycle_status = (SDL_Rect){settings_win.x + 20, settings_win.y + 270, 260, 30};
-    
+    btn_cycle_status = (SDL_Rect){start_x, y, 300, 30};
     SDL_SetRenderDrawColor(renderer, 50, 50, 100, 255); SDL_RenderFillRect(renderer, &btn_cycle_status);
     char status_str[64]; snprintf(status_str, 64, "Status: %s", status_names[my_status]);
-    render_text(renderer, status_str, btn_cycle_status.x + 130, btn_cycle_status.y + 5, get_status_color(my_status), 1);
+    render_text(renderer, status_str, btn_cycle_status.x + 150, btn_cycle_status.y + 5, get_status_color(my_status), 1);
+    y += 40;
 
-    SDL_Rect btn_nick = {settings_win.x + 20, settings_win.y + 310, 260, 30};
+    SDL_Rect btn_nick = {start_x, y, 300, 30};
     SDL_SetRenderDrawColor(renderer, 100, 50, 150, 255); SDL_RenderFillRect(renderer, &btn_nick);
-    render_text(renderer, "Change Nickname", btn_nick.x + 130, btn_nick.y + 5, col_white, 1);
+    render_text(renderer, "Change Nickname", btn_nick.x + 150, btn_nick.y + 5, col_white, 1);
+    y += 40;
 
-    // 4. Sliders (Update Globals)
-    int start_y = settings_win.y + 360;
+    // -- Color Sliders 1 (Start) --
     int my_r=255, my_g=255, my_b=255;
     for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) { my_r=local_players[i].r; my_g=local_players[i].g; my_b=local_players[i].b; }
     
-    render_text(renderer, "Name Color", settings_win.x + 150, start_y, (SDL_Color){my_r, my_g, my_b, 255}, 1);
+    render_text(renderer, "Name Color (Start)", settings_win.x + 175, y, (SDL_Color){my_r, my_g, my_b, 255}, 1); y += 25;
     
-    slider_r = (SDL_Rect){settings_win.x + 50, start_y + 30, 200, 20};
-    slider_g = (SDL_Rect){settings_win.x + 50, start_y + 60, 200, 20};
-    slider_b = (SDL_Rect){settings_win.x + 50, start_y + 90, 200, 20};
-    
+    slider_r = (SDL_Rect){start_x + 30, y, 240, 20};
     SDL_SetRenderDrawColor(renderer, 50, 0, 0, 255); SDL_RenderFillRect(renderer, &slider_r);
-    SDL_Rect fill_r = {slider_r.x, slider_r.y, (int)((my_r/255.0)*200), 20};
-    SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); SDL_RenderFillRect(renderer, &fill_r);
+    SDL_Rect fill_r = {slider_r.x, slider_r.y, (int)((my_r/255.0)*240), 20};
+    SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); SDL_RenderFillRect(renderer, &fill_r); y += 30;
 
+    slider_g = (SDL_Rect){start_x + 30, y, 240, 20};
     SDL_SetRenderDrawColor(renderer, 0, 50, 0, 255); SDL_RenderFillRect(renderer, &slider_g);
-    SDL_Rect fill_g = {slider_g.x, slider_g.y, (int)((my_g/255.0)*200), 20};
-    SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255); SDL_RenderFillRect(renderer, &fill_g);
+    SDL_Rect fill_g = {slider_g.x, slider_g.y, (int)((my_g/255.0)*240), 20};
+    SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255); SDL_RenderFillRect(renderer, &fill_g); y += 30;
 
+    slider_b = (SDL_Rect){start_x + 30, y, 240, 20};
     SDL_SetRenderDrawColor(renderer, 0, 0, 50, 255); SDL_RenderFillRect(renderer, &slider_b);
-    SDL_Rect fill_b = {slider_b.x, slider_b.y, (int)((my_b/255.0)*200), 20};
-    SDL_SetRenderDrawColor(renderer, 0, 0, 255, 255); SDL_RenderFillRect(renderer, &fill_b);
+    SDL_Rect fill_b = {slider_b.x, slider_b.y, (int)((my_b/255.0)*240), 20};
+    SDL_SetRenderDrawColor(renderer, 0, 0, 255, 255); SDL_RenderFillRect(renderer, &fill_b); y += 40;
 
-    // Volume
-    render_text(renderer, "Music Volume", settings_win.x + 150, start_y + 120, col_white, 1);
-    slider_volume = (SDL_Rect){settings_win.x + 50, start_y + 150, 200, 20};
+    // -- Color Sliders 2 (End) --
+    render_text(renderer, "Name Color (End)", settings_win.x + 175, y, (SDL_Color){my_r2, my_g2, my_b2, 255}, 1); y += 25;
+
+    slider_r2 = (SDL_Rect){start_x + 30, y, 240, 20};
+    SDL_SetRenderDrawColor(renderer, 50, 0, 0, 255); SDL_RenderFillRect(renderer, &slider_r2);
+    SDL_Rect fill_r2 = {slider_r2.x, slider_r2.y, (int)((my_r2/255.0)*240), 20};
+    SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); SDL_RenderFillRect(renderer, &fill_r2); y += 30;
+
+    slider_g2 = (SDL_Rect){start_x + 30, y, 240, 20};
+    SDL_SetRenderDrawColor(renderer, 0, 50, 0, 255); SDL_RenderFillRect(renderer, &slider_g2);
+    SDL_Rect fill_g2 = {slider_g2.x, slider_g2.y, (int)((my_g2/255.0)*240), 20};
+    SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255); SDL_RenderFillRect(renderer, &fill_g2); y += 30;
+
+    slider_b2 = (SDL_Rect){start_x + 30, y, 240, 20};
+    SDL_SetRenderDrawColor(renderer, 0, 0, 50, 255); SDL_RenderFillRect(renderer, &slider_b2);
+    SDL_Rect fill_b2 = {slider_b2.x, slider_b2.y, (int)((my_b2/255.0)*240), 20};
+    SDL_SetRenderDrawColor(renderer, 0, 0, 255, 255); SDL_RenderFillRect(renderer, &fill_b2); y += 40;
+
+    // -- Volume & AFK --
+    render_text(renderer, "Music Volume", settings_win.x + 175, y, col_white, 1); y += 25;
+    slider_volume = (SDL_Rect){start_x + 30, y, 240, 20};
     SDL_SetRenderDrawColor(renderer, 50, 50, 50, 255); SDL_RenderFillRect(renderer, &slider_volume);
-    SDL_Rect fill_vol = {slider_volume.x, slider_volume.y, (int)((music_volume/128.0)*200), 20};
+    SDL_Rect fill_vol = {slider_volume.x, slider_volume.y, (int)((music_volume/128.0)*240), 20};
     SDL_SetRenderDrawColor(renderer, 0, 200, 255, 255); SDL_RenderFillRect(renderer, &fill_vol);
-    SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255); SDL_RenderDrawRect(renderer, &slider_volume);
+    SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255); SDL_RenderDrawRect(renderer, &slider_volume); y += 40;
 
-    // Auto-AFK
     char afk_str[64]; snprintf(afk_str, 64, "Auto-AFK: %d min", afk_timeout_minutes);
-    render_text(renderer, afk_str, settings_win.x + 150, start_y + 180, col_white, 1);
+    render_text(renderer, afk_str, settings_win.x + 175, y, col_white, 1); y += 25;
     
-    slider_afk = (SDL_Rect){settings_win.x + 50, start_y + 210, 200, 20};
+    slider_afk = (SDL_Rect){start_x + 30, y, 240, 20};
     SDL_SetRenderDrawColor(renderer, 50, 50, 50, 255); SDL_RenderFillRect(renderer, &slider_afk);
     SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255); SDL_RenderDrawRect(renderer, &slider_afk);
     
     float afk_pct = (afk_timeout_minutes - 2) / 8.0f; 
-    SDL_Rect fill_afk = {slider_afk.x, slider_afk.y, (int)(afk_pct * 200), 20};
+    SDL_Rect fill_afk = {slider_afk.x, slider_afk.y, (int)(afk_pct * 240), 20};
     SDL_SetRenderDrawColor(renderer, 255, 165, 0, 255); SDL_RenderFillRect(renderer, &fill_afk);
-    render_text(renderer, "2m", slider_afk.x - 15, slider_afk.y + 2, col_white, 0);  
-    render_text(renderer, "6m", slider_afk.x + 90, slider_afk.y + 2, col_white, 0); 
-    render_text(renderer, "10m", slider_afk.x + 205, slider_afk.y + 2, col_white, 0); 
+    render_text(renderer, "2m", slider_afk.x - 20, slider_afk.y + 2, col_white, 0);  
+    render_text(renderer, "6m", slider_afk.x + 110, slider_afk.y + 2, col_white, 0); 
+    render_text(renderer, "10m", slider_afk.x + 245, slider_afk.y + 2, col_white, 0); 
+    y += 50;
 
-    // Disconnect (Update Global)
-    btn_disconnect_rect = (SDL_Rect){settings_win.x + 20, start_y + 250, 260, 30};
+    // -- Disconnect --
+    btn_disconnect_rect = (SDL_Rect){start_x, y, 300, 30};
     SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_disconnect_rect);
-    render_text(renderer, "Disconnect / Logout", btn_disconnect_rect.x + 130, btn_disconnect_rect.y + 5, col_white, 1);
+    render_text(renderer, "Disconnect / Logout", btn_disconnect_rect.x + 150, btn_disconnect_rect.y + 5, col_white, 1); y += 40;
 
-    render_text(renderer, "Drag & Drop Image here", settings_win.x + 150, start_y + 290, col_yellow, 1);
-    render_text(renderer, "to upload Avatar (<16KB)", settings_win.x + 150, start_y + 310, col_yellow, 1);
+    render_text(renderer, "Drag & Drop Image here", settings_win.x + 175, y, col_yellow, 1); y += 20;
+    render_text(renderer, "to upload Avatar (<16KB)", settings_win.x + 175, y, col_yellow, 1); y += 30;
 
-    // --- Nickname Popup ---
+    // CALCULATE CONTENT HEIGHT
+    settings_content_h = y - settings_win.y + settings_scroll_y;
+
+    // Reset Clip
+    SDL_RenderSetClipRect(renderer, NULL);
+
+    // --- POPUPS (Draw OUTSIDE Clip so they float above) ---
+    // (Nick popup code logic remains the same, drawn here)
     if (show_nick_popup) {
         SDL_Rect pop = {screen_w/2 - 150, screen_h/2 - 150, 300, 300};
         SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255); SDL_RenderFillRect(renderer, &pop);
@@ -829,17 +972,17 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
         render_text(renderer, "Change Nickname", pop.x+150, pop.y+10, col_yellow, 1);
         render_text(renderer, auth_message, pop.x+150, pop.y+35, col_red, 1);
 
-        int y = pop.y + 60;
-        render_text(renderer, "New Name:", pop.x+20, y, col_white, 0);
-        render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, y+20, 260, 25}, nick_new, active_field==10, 0);
+        int py = pop.y + 60;
+        render_text(renderer, "New Name:", pop.x+20, py, col_white, 0);
+        render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, py+20, 260, 25}, nick_new, active_field==10, 0);
 
-        y += 60;
-        render_text(renderer, "Type 'CONFIRM':", pop.x+20, y, col_white, 0);
-        render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, y+20, 260, 25}, nick_confirm, active_field==11, 0);
+        py += 60;
+        render_text(renderer, "Type 'CONFIRM':", pop.x+20, py, col_white, 0);
+        render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, py+20, 260, 25}, nick_confirm, active_field==11, 0);
 
-        y += 60;
-        render_text(renderer, "Current Password:", pop.x+20, y, col_white, 0);
-        render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, y+20, 260, 25}, nick_pass, active_field==12, 1); 
+        py += 60;
+        render_text(renderer, "Current Password:", pop.x+20, py, col_white, 0);
+        render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, py+20, 260, 25}, nick_pass, active_field==12, 1); 
 
         SDL_Rect btn_submit = {pop.x+20, pop.y+240, 120, 30};
         SDL_Rect btn_cancel = {pop.x+160, pop.y+240, 120, 30};
@@ -1119,6 +1262,13 @@ void render_game(SDL_Renderer *renderer) {
         if (local_players[i].active) {
             if (is_blocked(local_players[i].id)) continue;
             SDL_Rect dst = { (int)local_players[i].x - cam_x, (int)local_players[i].y - cam_y, PLAYER_WIDTH, PLAYER_HEIGHT };
+            SDL_Color c1 = {local_players[i].r, local_players[i].g, local_players[i].b, 255};
+            SDL_Color c2;
+            if (local_players[i].id == local_player_id) {
+                c2 = (SDL_Color){my_r2, my_g2, my_b2, 255};
+            } else {
+                c2 = c1; // No gradient for others yet
+            }
             
             if (tex_player) SDL_RenderCopy(renderer, tex_player, NULL, &dst);
             else {
@@ -1127,8 +1277,10 @@ void render_game(SDL_Renderer *renderer) {
                 SDL_RenderFillRect(renderer, &dst);
             }
             SDL_Color name_col = {local_players[i].r, local_players[i].g, local_players[i].b, 255};
-            if (local_players[i].id == selected_player_id) { SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderDrawRect(renderer, &dst); }
-            render_text(renderer, local_players[i].username, dst.x+16, dst.y - 18, name_col, 1);
+            if (local_players[i].id == selected_player_id) { 
+                SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderDrawRect(renderer, &dst); 
+            }
+            render_text_gradient(renderer, local_players[i].username, dst.x+16, dst.y - 18, c1, c2, 1);
             
             if (now - floating_texts[i].timestamp < 4000) {
                 int fw, fh; TTF_SizeText(font, floating_texts[i].msg, &fw, &fh);
@@ -1263,7 +1415,10 @@ void render_game(SDL_Renderer *renderer) {
 
 void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
 
-    // 1. TOP PRIORITY: HUD BUTTONS
+    // ============================================================
+    // LAYER 1: HUD BUTTONS (Always Top Priority)
+    // ============================================================
+    
     SDL_Rect btn_inbox_check = {w - 50, 10, 40, 40};
     if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_inbox_check)) {
         is_inbox_open = !is_inbox_open;
@@ -1271,7 +1426,11 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         return;
     }
 
-    // 2. MODAL WINDOWS
+    // ============================================================
+    // LAYER 2: MODAL WINDOWS (Popups & Overlays)
+    // ============================================================
+
+    // 2A. Inbox Window
     if (is_inbox_open) {
         SDL_Rect win = {w - 320, 60, 300, 300};
         int y = win.y + 40;
@@ -1292,6 +1451,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         return; 
     }
 
+    // 2B. Add Friend Popup
     if (show_add_friend_popup) {
         SDL_Rect pop = {w/2 - 150, h/2 - 100, 300, 200};
         SDL_Rect input = {pop.x+50, pop.y+60, 200, 30};
@@ -1299,15 +1459,17 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         SDL_Rect btn_ok = {pop.x+50, pop.y+130, 80, 30};
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_ok)) {
             int id = atoi(input_friend_id);
-            if (id > 0) { Packet pkt; pkt.type = PACKET_FRIEND_REQUEST; pkt.target_id = id; send_packet(&pkt); show_add_friend_popup = 0; active_field = -1; }
-            return;
+            if (id > 0) {
+                Packet pkt; pkt.type = PACKET_FRIEND_REQUEST; pkt.target_id = id; send_packet(&pkt);
+                show_add_friend_popup = 0; active_field = -1;
+            } return;
         }
         SDL_Rect btn_cancel = {pop.x+170, pop.y+130, 80, 30};
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_cancel)) { show_add_friend_popup = 0; active_field = -1; return; }
         return; 
     }
 
-    // 2C. Blocked List (Uses Globals)
+    // 2C. Blocked List
     if (show_blocked_list) {
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_blocked_close_rect)) { show_blocked_list = 0; return; }
         int y_off = 50;
@@ -1319,26 +1481,35 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         return;
     }
 
-    // 2D. Friends List (Uses Globals)
+    // 2D. Friends List
     if (show_friend_list) {
-        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_friend_add_id_rect)) { show_add_friend_popup = 1; input_friend_id[0] = 0; return; }
-        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_friend_close_rect)) { show_friend_list = 0; return; }
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_friend_add_id_rect)) {
+            show_add_friend_popup = 1; input_friend_id[0] = 0; return;
+        }
         
-        // Manual loop for delete buttons (relative to friend_list_win which is global now)
-        int win_w = friend_list_win.w; // Get width from global
+        int win_w = friend_win_rect.w; 
         int y_off = 85; 
         for(int i=0; i<friend_count; i++) {
-            SDL_Rect btn_del = {friend_list_win.x + win_w - 50, friend_list_win.y + y_off, 40, 20};
+            SDL_Rect btn_del = {friend_win_rect.x + win_w - 50, friend_win_rect.y + y_off, 40, 20};
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_del)) {
-                Packet pkt; pkt.type = PACKET_FRIEND_REMOVE; pkt.target_id = my_friends[i].id; send_packet(&pkt); return;
+                Packet pkt; pkt.type = PACKET_FRIEND_REMOVE; pkt.target_id = my_friends[i].id; send_packet(&pkt);
+                return;
             }
             y_off += 30;
+        }
+
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_friend_close_rect)) {
+            show_friend_list = 0; return;
         }
         return; 
     }
 
-    // 3. SETTINGS
+    // ============================================================
+    // LAYER 3: SETTINGS MENU
+    // ============================================================
+
     if (is_settings_open) {
+        // A. Nickname Popup (Highest priority in Settings)
         if (show_nick_popup) {
             SDL_Rect pop = {w/2 - 150, h/2 - 150, 300, 300};
             int y = pop.y + 60;
@@ -1354,56 +1525,97 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             return;
         }
 
-        // Global Button Checks
-        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_debug)) show_debug_info = !show_debug_info;
-        else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_fps)) show_fps = !show_fps;
-        else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_coords)) show_coords = !show_coords;
-        else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_unread)) show_unread_counter = !show_unread_counter;
-        else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_view_blocked)) show_blocked_list = 1; 
-        else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_cycle_status)) {
-            int my_status = 0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) my_status = local_players[i].status;
-            my_status++; if (my_status > 4) my_status = 0; 
-            Packet pkt; pkt.type = PACKET_STATUS_CHANGE; pkt.new_status = my_status; send_packet(&pkt);
-        }
-        
-        SDL_Rect btn_nick = {settings_win.x + 20, settings_win.y + 310, 260, 30};
-        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_nick)) {
-            show_nick_popup = 1; nick_new[0] = 0; nick_confirm[0] = 0; nick_pass[0] = 0;
-            strcpy(auth_message, "Enter details."); return;
-        }
+        // B. Check Scrolled Content
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &settings_view_port)) {
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_debug)) {
+                show_debug_info = !show_debug_info;
+                save_config(); // <--- SAVE
+            }
+            else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_fps)) {
+                show_fps = !show_fps;
+                save_config(); // <--- SAVE
+            }
+            else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_coords)) {
+                show_coords = !show_coords;
+                save_config(); // <--- SAVE
+            }
+            else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_unread)) show_unread_counter = !show_unread_counter;
+            else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_view_blocked)) show_blocked_list = 1; 
+            else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_cycle_status)) {
+                int my_status = 0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) my_status = local_players[i].status;
+                my_status++; if (my_status > 4) my_status = 0; 
+                Packet pkt; pkt.type = PACKET_STATUS_CHANGE; pkt.new_status = my_status; send_packet(&pkt);
+            }
+            
+            SDL_Rect local_btn_nick = {settings_win.x + 20, settings_win.y + 310 - settings_scroll_y, 260, 30};
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &local_btn_nick)) {
+                show_nick_popup = 1; nick_new[0] = 0; nick_confirm[0] = 0; nick_pass[0] = 0;
+                strcpy(auth_message, "Enter details."); return;
+            }
 
-        // Sliders
-        int changed = 0; int my_r = 0, my_g = 0, my_b = 0; 
-        for(int i=0; i<MAX_CLIENTS; i++) { if(local_players[i].active && local_players[i].id == local_player_id) { my_r=local_players[i].r; my_g=local_players[i].g; my_b=local_players[i].b; } }
-        if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_r)) { my_r = (int)(((float)(mx - slider_r.x) / slider_r.w) * 255); changed = 1; } 
-        else if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_g)) { my_g = (int)(((float)(mx - slider_g.x) / slider_g.w) * 255); changed = 1; }
-        else if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_b)) { my_b = (int)(((float)(mx - slider_b.x) / slider_b.w) * 255); changed = 1; }
-        if (changed) { 
-            if(my_r < 0) my_r = 0; if(my_r > 255) my_r = 255; if(my_g < 0) my_g = 0; if(my_g > 255) my_g = 255; if(my_b < 0) my_b = 0; if(my_b > 255) my_b = 255;
-            Packet pkt; pkt.type = PACKET_COLOR_CHANGE; pkt.r = my_r; pkt.g = my_g; pkt.b = my_b; send_packet(&pkt); 
-        }
+            // --- FIXED SLIDERS SET 1 (Primary Color) ---
+            int changed = 0; int my_r = 0, my_g = 0, my_b = 0; 
+            for(int i=0; i<MAX_CLIENTS; i++) { if(local_players[i].active && local_players[i].id == local_player_id) { my_r=local_players[i].r; my_g=local_players[i].g; my_b=local_players[i].b; } }
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_r)) { my_r = (int)(((float)(mx - slider_r.x) / slider_r.w) * 255); changed = 1; } 
+            else if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_g)) { my_g = (int)(((float)(mx - slider_g.x) / slider_g.w) * 255); changed = 1; }
+            else if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_b)) { my_b = (int)(((float)(mx - slider_b.x) / slider_b.w) * 255); changed = 1; }
+            if (changed) { 
+                if(my_r < 0) my_r = 0; if(my_r > 255) my_r = 255; if(my_g < 0) my_g = 0; if(my_g > 255) my_g = 255; if(my_b < 0) my_b = 0; if(my_b > 255) my_b = 255;
+                
+                // 1. Send Packet
+                Packet pkt; pkt.type = PACKET_COLOR_CHANGE; pkt.r = my_r; pkt.g = my_g; pkt.b = my_b; send_packet(&pkt); 
+                
+                // 2. FORCE UPDATE LOCAL PLAYER (Crucial for Save)
+                for(int i=0; i<MAX_CLIENTS; i++) {
+                    if(local_players[i].active && local_players[i].id == local_player_id) {
+                        local_players[i].r = my_r; local_players[i].g = my_g; local_players[i].b = my_b;
+                    }
+                }
+                
+                // 3. Save Config
+                save_config();
+            }
+            // -------------------------------------------
 
-        if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_volume)) {
-            float pct = (mx - slider_volume.x) / 200.0f; if (pct < 0) pct = 0; if (pct > 1) pct = 1;
-            music_volume = (int)(pct * 128); Mix_VolumeMusic(music_volume);
-        }
-        
-        if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_afk)) {
-            float pct = (mx - slider_afk.x) / 200.0f; if (pct < 0) pct = 0; if (pct > 1) pct = 1;
-            afk_timeout_minutes = 2 + (int)(pct * 8.0f + 0.5f);
-        }
+            // Sliders Set 2 (Secondary Color - Local)
+            int changed2 = 0;
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_r2)) { my_r2 = (int)(((float)(mx - slider_r2.x) / slider_r2.w) * 255); changed2 = 1; } 
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_g2)) { my_g2 = (int)(((float)(mx - slider_g2.x) / slider_g2.w) * 255); changed2 = 1; }
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_b2)) { my_b2 = (int)(((float)(mx - slider_b2.x) / slider_b2.w) * 255); changed2 = 1; }
+            if (changed2) save_config();
 
-        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_disconnect_rect)) {
-            if(sock > 0) close(sock); sock = -1; is_connected = 0; Mix_HaltMusic();
-            client_state = STATE_AUTH; is_settings_open = 0; local_player_id = -1;
-            for(int i=0; i<MAX_CLIENTS; i++) { local_players[i].active = 0; local_players[i].id = -1; }
-            friend_count = 0; chat_log_count = 0; for(int i=0; i<CHAT_HISTORY; i++) strcpy(chat_log[i], "");
-            strcpy(auth_message, "Logged out."); return;
+            // Volume
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_volume)) {
+                float pct = (mx - slider_volume.x) / (float)slider_volume.w; 
+                if (pct < 0) pct = 0; if (pct > 1) pct = 1;
+                music_volume = (int)(pct * 128); Mix_VolumeMusic(music_volume);
+                save_config();
+            }
+
+            // AFK
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_afk)) {
+                float pct = (mx - slider_afk.x) / (float)slider_afk.w; 
+                if (pct < 0) pct = 0; if (pct > 1) pct = 1;
+                afk_timeout_minutes = 2 + (int)(pct * 8.0f + 0.5f);
+                save_config();
+            }
+
+            // Disconnect
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_disconnect_rect)) {
+                if(sock > 0) close(sock); sock = -1; is_connected = 0; Mix_HaltMusic();
+                client_state = STATE_AUTH; is_settings_open = 0; local_player_id = -1;
+                for(int i=0; i<MAX_CLIENTS; i++) { local_players[i].active = 0; local_players[i].id = -1; }
+                friend_count = 0; chat_log_count = 0; for(int i=0; i<CHAT_HISTORY; i++) strcpy(chat_log[i], "");
+                strcpy(auth_message, "Logged out."); return;
+            }
         }
-        return; 
+        return; // Settings blocks lower layers
     }
 
-    // 4. TOASTS & WORLD
+    // ============================================================
+    // LAYER 4: GAME WORLD & TOASTS
+    // ============================================================
+
     if (pending_friend_req_id != -1) {
         SDL_Rect btn_accept = {popup_win.x+20, popup_win.y+70, 120, 30};
         SDL_Rect btn_deny = {popup_win.x+160, popup_win.y+70, 120, 30};
@@ -1502,7 +1714,7 @@ void handle_auth_click(int mx, int my) {
 }
 
 int main(int argc, char const *argv[]) {
-    // 1. Initialization
+    // 1. Init SDL & Libraries
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) return 1;
     if (TTF_Init() == -1) return 1;
     if (!(IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG) & (IMG_INIT_PNG | IMG_INIT_JPG))) printf("IMG Init Error: %s\n", IMG_GetError());
@@ -1513,13 +1725,14 @@ int main(int argc, char const *argv[]) {
     SDL_Window *window = SDL_CreateWindow("C MMO Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 800, 600, SDL_WINDOW_SHOWN|SDL_WINDOW_RESIZABLE);
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
 
-    // Load Assets
+    // 2. Load Assets
     SDL_Surface *temp = IMG_Load(MAP_FILE); if (temp) { tex_map = SDL_CreateTextureFromSurface(renderer, temp); map_w=temp->w; map_h=temp->h; SDL_FreeSurface(temp); }
     temp = IMG_Load(PLAYER_FILE); if (temp) { tex_player = SDL_CreateTextureFromSurface(renderer, temp); SDL_FreeSurface(temp); }
 
     init_audio();
-    load_servers(); // Load saved list
-    sock = -1;      // Start Disconnected
+    load_servers();
+    load_config(); // Initial load
+    sock = -1;
 
     for(int i=0; i<MAX_CLIENTS; i++) { avatar_cache[i] = NULL; avatar_status[i] = 0; }
 
@@ -1527,9 +1740,10 @@ int main(int argc, char const *argv[]) {
     int running = 1; SDL_Event event;
     int key_up=0, key_down=0, key_left=0, key_right=0;
     
-    // Cursor State Tracking
+    // State Tracking
     int last_active_field = -1;
     int was_chat_open = 0;
+    last_input_tick = SDL_GetTicks(); 
 
     while (running) {
         frame_count++;
@@ -1538,14 +1752,12 @@ int main(int argc, char const *argv[]) {
         
         if (client_state == STATE_GAME && music_count > 0 && !Mix_PlayingMusic()) play_next_track();
 
-        // --- COORDINATE SCALING ---
         int screen_w, screen_h; SDL_GetRendererOutputSize(renderer, &screen_w, &screen_h);
         int win_w, win_h; SDL_GetWindowSize(window, &win_w, &win_h);
         float scale_x = (float)screen_w / win_w;
         float scale_y = (float)screen_h / win_h;
 
-        // --- CURSOR RESET LOGIC ---
-        // If field changed, move cursor to end of new text
+        // Reset Cursor on Field Change
         if (active_field != last_active_field) {
             int len = 0;
             if(active_field==0) len=strlen(auth_username);
@@ -1565,21 +1777,29 @@ int main(int argc, char const *argv[]) {
         }
 
         while (SDL_PollEvent(&event)) {
-            // --- NEW: Auto-AFK Reset Logic ---
+            // Auto-AFK Reset
             if (event.type == SDL_KEYDOWN || event.type == SDL_MOUSEBUTTONDOWN || event.type == SDL_MOUSEMOTION) {
                 last_input_tick = SDL_GetTicks();
-                
-                // If we were auto-afk, wake up!
                 if (is_auto_afk && sock > 0) {
-                    Packet pkt; pkt.type = PACKET_STATUS_CHANGE; 
-                    pkt.new_status = STATUS_ONLINE; // 0 = Online
-                    send_packet(&pkt);
+                    Packet pkt; pkt.type = PACKET_STATUS_CHANGE; pkt.new_status = STATUS_ONLINE; send_packet(&pkt);
                     is_auto_afk = 0;
-                    printf("Welcome back! Status set to Online.\n");
                 }
             }
-            // ---------------------------------
+
             if (event.type == SDL_QUIT) running = 0;
+            
+            // --- Scroll Handling ---
+            else if (event.type == SDL_MOUSEWHEEL) {
+                if (is_settings_open) {
+                    settings_scroll_y -= event.wheel.y * 30; 
+                    if (settings_scroll_y < 0) settings_scroll_y = 0;
+                    
+                    int max_scroll = settings_content_h - 600; 
+                    if (max_scroll < 0) max_scroll = 0;
+                    if (settings_scroll_y > max_scroll) settings_scroll_y = max_scroll;
+                }
+            }
+
             else if (event.type == SDL_DROPFILE) {
                 if (is_settings_open && sock > 0) {
                     char* dropped_file = event.drop.file; FILE *fp = fopen(dropped_file, "rb");
@@ -1596,13 +1816,11 @@ int main(int argc, char const *argv[]) {
             }
 
             if (client_state == STATE_AUTH) {
-                // Click (Scaled)
                 if(event.type == SDL_MOUSEBUTTONDOWN) {
                     int mx = event.button.x * scale_x; int my = event.button.y * scale_y;
                     handle_auth_click(mx, my);
                 }
                 
-                // Text Input (Cursor Aware)
                 char *target = NULL; int max = 31;
                 if(active_field == 0) target = auth_username;
                 else if(active_field == 1) target = auth_password;
@@ -1611,27 +1829,20 @@ int main(int argc, char const *argv[]) {
                 
                 if (target) handle_text_edit(target, max, &event);
 
-                // Keys
                 if(event.type == SDL_KEYDOWN) {
                     if(event.key.keysym.sym == SDLK_RETURN) handle_auth_click(btn_login.x+1, btn_login.y+1);
                     if(event.key.keysym.sym == SDLK_TAB) { active_field++; if(active_field > 3) active_field = 0; }
                 }
             } else {
-                // STATE_GAME
+                // GAME INPUTS
                 if (event.type == SDL_MOUSEBUTTONDOWN) {
                      int mx = event.button.x * scale_x; int my = event.button.y * scale_y;
                      
-                        // HUD Logic
-                        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_chat_toggle)) {
+                     if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_chat_toggle)) {
                         is_chat_open = !is_chat_open; 
-                        
-                        if(is_chat_open) {
-                            unread_chat_count = 0; // Reset counter
-                            SDL_StartTextInput();
-                        } else {
-                            SDL_StopTextInput();
-                        }
-                     }
+                        if(is_chat_open) { unread_chat_count = 0; SDL_StartTextInput(); } 
+                        else SDL_StopTextInput();
+                     } 
                      else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_settings_toggle)) {
                         is_settings_open = !is_settings_open;
                         if (!is_settings_open) { show_nick_popup = 0; show_blocked_list = 0; active_field = -1; }
@@ -1640,7 +1851,6 @@ int main(int argc, char const *argv[]) {
                         show_friend_list = !show_friend_list;
                      }
                      else {
-                        // Calc Camera & Pass to Handler
                         float px=0, py=0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { px=local_players[i].x; py=local_players[i].y; }
                         int cam_x = (int)px - (screen_w/2) + 16; int cam_y = (int)py - (screen_h/2) + 16;
                         if (screen_w > map_w) cam_x = -(screen_w - map_w)/2; if (screen_h > map_h) cam_y = -(screen_h - map_h)/2;
@@ -1648,7 +1858,6 @@ int main(int argc, char const *argv[]) {
                      }
                 }
                 
-                // --- GAME TEXT INPUTS (Cursor Aware) ---
                 if (is_chat_open) {
                     handle_text_edit(input_buffer, 60, &event);
                     if(event.type == SDL_KEYDOWN) {
@@ -1676,11 +1885,13 @@ int main(int argc, char const *argv[]) {
                     if (active_field == 20) handle_text_edit(input_friend_id, 8, &event);
                 }
                 else {
-                    // Movement (WASD)
                     if (event.type == SDL_KEYDOWN) {
                         if (event.key.keysym.sym == SDLK_w) key_up=1; if (event.key.keysym.sym == SDLK_s) key_down=1;
                         if (event.key.keysym.sym == SDLK_a) key_left=1; if (event.key.keysym.sym == SDLK_d) key_right=1;
-                        if (event.key.keysym.sym == SDLK_RETURN || event.key.keysym.sym == SDLK_t) { is_chat_open=1; input_buffer[0]=0; cursor_pos=0; key_up=0; key_down=0; key_left=0; key_right=0; SDL_StartTextInput(); }
+                        if (event.key.keysym.sym == SDLK_RETURN || event.key.keysym.sym == SDLK_t) { 
+                            is_chat_open=1; input_buffer[0]=0; cursor_pos=0; unread_chat_count=0; 
+                            key_up=0; key_down=0; key_left=0; key_right=0; SDL_StartTextInput(); 
+                        }
                     }
                     if (event.type == SDL_KEYUP) {
                         if (event.key.keysym.sym == SDLK_w) key_up=0; if (event.key.keysym.sym == SDLK_s) key_down=0;
@@ -1691,24 +1902,16 @@ int main(int argc, char const *argv[]) {
         }
 
         Uint32 now = SDL_GetTicks();
-        // --- NEW: Check Auto-AFK Timer ---
         if (sock > 0 && client_state == STATE_GAME && !is_auto_afk) {
-            // Find my current status
-            int my_status = 0;
-            for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) my_status = local_players[i].status;
-
-            // Only trigger if currently Online (don't override DND or manual AFK)
+            int my_status = 0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) my_status = local_players[i].status;
             if (my_status == STATUS_ONLINE) { 
                 if (now > last_input_tick + (afk_timeout_minutes * 60 * 1000)) {
-                    Packet pkt; pkt.type = PACKET_STATUS_CHANGE; 
-                    pkt.new_status = STATUS_AFK; // 1 = AFK
-                    send_packet(&pkt);
-                    is_auto_afk = 1;
-                    printf("Auto-AFK Triggered.\n");
+                    Packet pkt; pkt.type = PACKET_STATUS_CHANGE; pkt.new_status = STATUS_AFK; send_packet(&pkt);
+                    is_auto_afk = 1; printf("Auto-AFK Triggered.\n");
                 }
             }
         }
-        // ---------------------------------
+
         if (sock > 0 && client_state == STATE_GAME) {
             if (now - last_ping_sent > 1000) { Packet pkt; pkt.type = PACKET_PING; pkt.timestamp = now; send_packet(&pkt); last_ping_sent = now; }
             if (!is_chat_open && !show_nick_popup && !show_add_friend_popup && pending_friend_req_id == -1) {
@@ -1724,21 +1927,28 @@ int main(int argc, char const *argv[]) {
                 Packet pkt; 
                 if (recv(sock, &pkt, sizeof(Packet), MSG_WAITALL) > 0) {
                     if (pkt.type == PACKET_AUTH_RESPONSE) {
-                        if (pkt.status == AUTH_SUCCESS) { client_state = STATE_GAME; local_player_id = pkt.player_id; SDL_StopTextInput(); if (music_count > 0) play_next_track(); }
+                        if (pkt.status == AUTH_SUCCESS) { 
+                            client_state = STATE_GAME; 
+                            local_player_id = pkt.player_id; 
+                            SDL_StopTextInput(); 
+                            if (music_count > 0) play_next_track();
+                            
+                            // --- FIX: Reload config from disk to ensure fresh settings on re-login ---
+                            load_config(); 
+                            
+                            // Send Saved Colors (saved_r/g/b updated by load_config above)
+                            Packet cpkt; cpkt.type = PACKET_COLOR_CHANGE; 
+                            cpkt.r = saved_r; cpkt.g = saved_g; cpkt.b = saved_b; 
+                            send_packet(&cpkt);
+                        }
                         else if (pkt.status == AUTH_REGISTER_SUCCESS) strcpy(auth_message, "Success! Login now.");
                         else strcpy(auth_message, "Error.");
                     }
                     if (pkt.type == PACKET_UPDATE) memcpy(local_players, pkt.players, sizeof(local_players));
                     if (pkt.type == PACKET_CHAT || pkt.type == PACKET_PRIVATE_MESSAGE) {
                         add_chat_message(&pkt);
-                        
-                        // Increment ONLY if it is a chat packet and chat is closed
                         if (!is_chat_open) unread_chat_count++;
-
-                        // Also capture system messages for the popup here
-                        if (pkt.player_id == -1 && show_add_friend_popup) {
-                            strncpy(friend_popup_msg, pkt.msg, 127);
-                        }
+                        if (pkt.player_id == -1 && show_add_friend_popup) strncpy(friend_popup_msg, pkt.msg, 127);
                     }
                     if (pkt.type == PACKET_FRIEND_LIST) { friend_count = pkt.friend_count; memcpy(my_friends, pkt.friends, sizeof(pkt.friends)); }                
                     if (pkt.type == PACKET_FRIEND_INCOMING) { 

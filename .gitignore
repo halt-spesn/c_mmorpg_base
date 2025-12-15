@@ -6,3 +6,4 @@ music/
 mmorpg.db-shm
 mmorpg.db-wal
 servers.txt
+config.txt
