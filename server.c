@@ -35,7 +35,18 @@ void init_db() {
     int rc = sqlite3_open("mmorpg.db", &db);
     if (rc) exit(1);
     sqlite3_exec(db, "PRAGMA journal_mode=WAL;", 0, 0, 0);
-    char *sql_users = "CREATE TABLE IF NOT EXISTS users(ID INTEGER PRIMARY KEY AUTOINCREMENT, USERNAME TEXT UNIQUE, PASSWORD TEXT, X REAL, Y REAL, R INT DEFAULT 255, G INT DEFAULT 255, B INT DEFAULT 0, ROLE INT DEFAULT 0, LAST_LOGIN TEXT DEFAULT 'Never');"; 
+ char *sql_users = "CREATE TABLE IF NOT EXISTS users("
+                "ID INTEGER PRIMARY KEY AUTOINCREMENT,"
+                "USERNAME TEXT NOT NULL UNIQUE,"
+                "PASSWORD TEXT NOT NULL,"
+                "X REAL NOT NULL,"
+                "Y REAL NOT NULL,"
+                "R INTEGER DEFAULT 255,"
+                "G INTEGER DEFAULT 255,"
+                "B INTEGER DEFAULT 0,"
+                "ROLE INTEGER DEFAULT 0,"
+                "LAST_LOGIN TEXT DEFAULT 'Never',"
+                "LAST_NICK_CHANGE INTEGER DEFAULT 0);"; // NEW COLUMN (Unix Timestamp)
     sqlite3_exec(db, sql_users, 0, 0, 0);
     char *sql_friends = "CREATE TABLE IF NOT EXISTS friends(USER_ID INT, FRIEND_ID INT, STATUS INT, PRIMARY KEY (USER_ID, FRIEND_ID));";
     sqlite3_exec(db, sql_friends, 0, 0, 0);
@@ -156,6 +167,93 @@ void process_admin_command(int sender_idx, char *msg) {
     }
 }
 
+void process_nick_change(int index, Packet *pkt) {
+    char *new_nick = pkt->username; // We reuse the username field for the NEW nick
+    char *password = pkt->password; // We reuse password field
+    char *confirm  = pkt->msg;      // We reuse msg field for "CONFIRM"
+
+    // 1. Validation
+    if (strcmp(confirm, "CONFIRM") != 0) {
+        Packet resp; resp.type = PACKET_CHANGE_NICK_RESPONSE; resp.status = AUTH_FAILURE;
+        strcpy(resp.msg, "Type CONFIRM to proceed.");
+        send(client_sockets[index], &resp, sizeof(Packet), 0);
+        return;
+    }
+
+    if (strlen(new_nick) < 3 || strlen(new_nick) > 31) {
+        Packet resp; resp.type = PACKET_CHANGE_NICK_RESPONSE; resp.status = AUTH_FAILURE;
+        strcpy(resp.msg, "Name too short/long.");
+        send(client_sockets[index], &resp, sizeof(Packet), 0);
+        return;
+    }
+
+    // 2. Check DB
+    sqlite3_stmt *stmt;
+    char sql[256];
+    
+    // Verify Password & Time Limit
+    snprintf(sql, 256, "SELECT PASSWORD, LAST_NICK_CHANGE FROM users WHERE ID=%d;", players[index].id);
+    sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
+    
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char *db_pass = (const char*)sqlite3_column_text(stmt, 0);
+        int last_change = sqlite3_column_int(stmt, 1);
+        
+        if (strcmp(password, db_pass) != 0) {
+            Packet resp; resp.type = PACKET_CHANGE_NICK_RESPONSE; resp.status = AUTH_FAILURE;
+            strcpy(resp.msg, "Wrong Password.");
+            send(client_sockets[index], &resp, sizeof(Packet), 0);
+            sqlite3_finalize(stmt);
+            return;
+        }
+
+        // Time Check (30 Days = 2592000 seconds)
+        time_t now = time(NULL);
+        if (now - last_change < 2592000 && last_change != 0) {
+            Packet resp; resp.type = PACKET_CHANGE_NICK_RESPONSE; resp.status = AUTH_FAILURE;
+            int days_left = (2592000 - (now - last_change)) / 86400;
+            snprintf(resp.msg, 64, "Wait %d more days.", days_left);
+            send(client_sockets[index], &resp, sizeof(Packet), 0);
+            sqlite3_finalize(stmt);
+            return;
+        }
+    }
+    sqlite3_finalize(stmt);
+
+    // 3. Check Uniqueness
+    snprintf(sql, 256, "SELECT ID FROM users WHERE USERNAME=?;");
+    sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
+    sqlite3_bind_text(stmt, 1, new_nick, -1, SQLITE_STATIC);
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        Packet resp; resp.type = PACKET_CHANGE_NICK_RESPONSE; resp.status = AUTH_FAILURE;
+        strcpy(resp.msg, "Name taken.");
+        send(client_sockets[index], &resp, sizeof(Packet), 0);
+        sqlite3_finalize(stmt);
+        return;
+    }
+    sqlite3_finalize(stmt);
+
+    // 4. Update DB
+    snprintf(sql, 256, "UPDATE users SET USERNAME='%s', LAST_NICK_CHANGE=%ld WHERE ID=%d;", new_nick, time(NULL), players[index].id);
+    if (sqlite3_exec(db, sql, 0, 0, 0) == SQLITE_OK) {
+        // Update Memory
+        strncpy(players[index].username, new_nick, 31);
+        
+        Packet resp; resp.type = PACKET_CHANGE_NICK_RESPONSE; resp.status = AUTH_SUCCESS;
+        strcpy(resp.msg, "Nickname Changed!");
+        strncpy(resp.username, new_nick, 31); // Send back new name
+        send(client_sockets[index], &resp, sizeof(Packet), 0);
+        
+        // Broadcast updates
+        broadcast_state();
+        broadcast_friend_update(); // Updates friend lists with new name
+    } else {
+        Packet resp; resp.type = PACKET_CHANGE_NICK_RESPONSE; resp.status = AUTH_FAILURE;
+        strcpy(resp.msg, "Database Error.");
+        send(client_sockets[index], &resp, sizeof(Packet), 0);
+    }
+}
+
 void handle_client_message(int index, Packet *pkt) {
     if (players[index].id == -1) {
         Packet response; response.type = PACKET_AUTH_RESPONSE;
@@ -246,6 +344,9 @@ void handle_client_message(int index, Packet *pkt) {
             }
             fclose(fp);
         }
+    }
+    else if (pkt->type == PACKET_CHANGE_NICK_REQUEST) {
+        process_nick_change(index, pkt);
     }
 }
 
