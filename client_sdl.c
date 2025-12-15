@@ -655,9 +655,28 @@ void render_game(SDL_Renderer *renderer) {
             SDL_Color name_col = {local_players[i].r, local_players[i].g, local_players[i].b, 255};
             if (local_players[i].id == selected_player_id) { SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderDrawRect(renderer, &dst); }
             render_text(renderer, local_players[i].username, dst.x+16, dst.y - 18, name_col, 1);
-            if (now - floating_texts[i].timestamp < 4000) render_text(renderer, floating_texts[i].msg, dst.x+16, dst.y - 38, col_white, 1);
-        }
-    }
+            
+            // --- Floating Text Logic ---
+            if (now - floating_texts[i].timestamp < 4000) {
+                int fw, fh;
+                TTF_SizeText(font, floating_texts[i].msg, &fw, &fh);
+                
+                SDL_Rect bg_rect = {
+                    (dst.x + 16) - (fw / 2) - 4, 
+                    (dst.y - 38) - 2,            
+                    fw + 8,                      
+                    fh + 4                       
+                };
+
+                SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+                SDL_SetRenderDrawColor(renderer, 0, 0, 0, 160); 
+                SDL_RenderFillRect(renderer, &bg_rect);
+                SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+
+                render_text(renderer, floating_texts[i].msg, dst.x+16, dst.y - 38, col_white, 1);
+            }
+        } // End 'if active'
+    } // End 'for loop' (FIXED: Removed extra brace here)
 
     render_profile(renderer);
     render_popup(renderer, w, h);
@@ -679,29 +698,25 @@ void render_game(SDL_Renderer *renderer) {
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_settings_toggle);
     render_text(renderer, "Settings", btn_settings_toggle.x+50, btn_settings_toggle.y+5, col_white, 1);
 
-if(is_chat_open) {
+    if(is_chat_open) {
         SDL_Rect win = {10, h-240, 300, 190};
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
         SDL_SetRenderDrawColor(renderer, 0,0,0,200); SDL_RenderFillRect(renderer, &win);
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
         
-        // 1. CLIP LOG (Prevents history bleeding)
         SDL_RenderSetClipRect(renderer, &win); 
 
         for(int i=0; i<CHAT_HISTORY; i++) {
             SDL_Color line_col = col_white;
             if (strncmp(chat_log[i], "To [", 4) == 0 || strncmp(chat_log[i], "From [", 6) == 0) line_col = col_magenta;
-            // Draw logs with offset so they don't touch edges
             render_text(renderer, chat_log[i], 15, win.y+10+(i*15), line_col, 0);
         }
 
-        SDL_RenderSetClipRect(renderer, NULL); // Disable Clip
+        SDL_RenderSetClipRect(renderer, NULL);
 
-        // 2. INPUT SCROLLING LOGIC
         char full_str[256];
         SDL_Color input_col = col_cyan;
         
-        // Construct the full prompt string
         if (chat_target_id != -1) {
             char *name = "Unknown";
             for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == chat_target_id) name = local_players[i].username;
@@ -711,16 +726,12 @@ if(is_chat_open) {
             snprintf(full_str, 256, "> %s_", input_buffer);
         }
 
-        // Measure width
         int w, h;
         TTF_SizeText(font, full_str, &w, &h);
         
-        // Safe width is ~270px (300px window - padding)
         if (w <= 270) {
-            // Fits? Render normally
             render_text(renderer, full_str, 15, win.y+win.h-20, input_col, 0);
         } else {
-            // Too long? Find the suffix that fits
             int len = strlen(full_str);
             for(int i=0; i<len; i++) {
                 const char* sub = &full_str[i];
