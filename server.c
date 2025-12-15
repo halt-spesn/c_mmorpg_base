@@ -254,6 +254,31 @@ void process_nick_change(int index, Packet *pkt) {
     }
 }
 
+void send_pending_requests(int client_index) {
+    int my_id = players[client_index].id;
+    
+    // Find rows where FRIEND_ID is ME, and STATUS is 0 (Pending)
+    char sql[512];
+    snprintf(sql, 512, 
+        "SELECT f.USER_ID, u.USERNAME "
+        "FROM friends f "
+        "JOIN users u ON f.USER_ID = u.ID "
+        "WHERE f.FRIEND_ID=%d AND f.STATUS=0;", my_id);
+
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, 0) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            Packet req; 
+            req.type = PACKET_FRIEND_INCOMING;
+            req.player_id = sqlite3_column_int(stmt, 0); // The requester's ID
+            strncpy(req.username, (const char*)sqlite3_column_text(stmt, 1), 31);
+            
+            send(client_sockets[client_index], &req, sizeof(Packet), 0);
+        }
+        sqlite3_finalize(stmt);
+    }
+}
+
 void handle_client_message(int index, Packet *pkt) {
     if (players[index].id == -1) {
         Packet response; response.type = PACKET_AUTH_RESPONSE;
@@ -271,7 +296,7 @@ void handle_client_message(int index, Packet *pkt) {
                     strncpy(players[index].username, pkt->username, 31);
                     response.player_id = players[index].id;
                     send(client_sockets[index], &response, sizeof(Packet), 0);
-                    broadcast_friend_update(); broadcast_state(); return;
+                    broadcast_friend_update(); send_pending_requests(index); broadcast_state(); return;
                  }
             } else response.status = AUTH_FAILURE;
         }
@@ -296,24 +321,55 @@ void handle_client_message(int index, Packet *pkt) {
             for (int i = 0; i < MAX_CLIENTS; i++) if (client_sockets[i] > 0 && players[i].id != -1) send(client_sockets[i], &chatPkt, sizeof(Packet), 0);
         }
     }
-    else if (pkt->type == PACKET_FRIEND_REQUEST) {
-        int target_idx = -1; for(int i=0; i<MAX_CLIENTS; i++) if (players[i].active && players[i].id == pkt->target_id) target_idx = i;
-        if (target_idx != -1) { Packet req; req.type = PACKET_FRIEND_INCOMING; req.player_id = players[index].id; strcpy(req.username, players[index].username); send(client_sockets[target_idx], &req, sizeof(Packet), 0); }
+     else if (pkt->type == PACKET_FRIEND_REQUEST) {
+        int target_id = pkt->target_id;
+        int my_id = players[index].id;
+        
+        // 1. Store in DB as Pending (Status 0)
+        char sql[256];
+        snprintf(sql, 256, "INSERT OR IGNORE INTO friends (USER_ID, FRIEND_ID, STATUS) VALUES (%d, %d, 0);", my_id, target_id);
+        sqlite3_exec(db, sql, 0, 0, 0);
+
+        // 2. If Online, notify immediately
+        int target_idx = -1;
+        for(int i=0; i<MAX_CLIENTS; i++) if (players[i].active && players[i].id == target_id) target_idx = i;
+        
+        if (target_idx != -1) {
+            Packet req; req.type = PACKET_FRIEND_INCOMING;
+            req.player_id = players[index].id; 
+            strcpy(req.username, players[index].username);
+            send(client_sockets[target_idx], &req, sizeof(Packet), 0);
+        }
     }
     else if (pkt->type == PACKET_FRIEND_RESPONSE) {
+        int requester_id = pkt->target_id;
+        int my_id = players[index].id;
+        char sql[256];
+
         if (pkt->response_accepted) {
-            int requester_id = pkt->target_id; int my_id = players[index].id;
-            char sql[256]; char *err_msg = 0;
-            snprintf(sql, 256, "INSERT OR REPLACE INTO friends (USER_ID, FRIEND_ID, STATUS) VALUES (%d, %d, 1);", my_id, requester_id); sqlite3_exec(db, sql, 0, 0, &err_msg);
-            snprintf(sql, 256, "INSERT OR REPLACE INTO friends (USER_ID, FRIEND_ID, STATUS) VALUES (%d, %d, 1);", requester_id, my_id); sqlite3_exec(db, sql, 0, 0, &err_msg);
+            // A. Update the original request to Status 1
+            snprintf(sql, 256, "UPDATE friends SET STATUS=1 WHERE USER_ID=%d AND FRIEND_ID=%d;", requester_id, my_id);
+            sqlite3_exec(db, sql, 0, 0, 0);
+            
+            // B. Insert the reverse relationship as Status 1
+            snprintf(sql, 256, "INSERT OR REPLACE INTO friends (USER_ID, FRIEND_ID, STATUS) VALUES (%d, %d, 1);", my_id, requester_id);
+            sqlite3_exec(db, sql, 0, 0, 0);
+            
+            // Refresh
             send_friend_list(index);
             for(int i=0; i<MAX_CLIENTS; i++) if(players[i].id == requester_id) send_friend_list(i);
+        } else {
+            // Deny: Delete the pending request
+            snprintf(sql, 256, "DELETE FROM friends WHERE USER_ID=%d AND FRIEND_ID=%d;", requester_id, my_id);
+            sqlite3_exec(db, sql, 0, 0, 0);
         }
     }
     else if (pkt->type == PACKET_FRIEND_REMOVE) {
         int my_id = players[index].id; int target_id = pkt->target_id;
+        // Delete both directions
         char sql[256]; snprintf(sql, 256, "DELETE FROM friends WHERE (USER_ID=%d AND FRIEND_ID=%d) OR (USER_ID=%d AND FRIEND_ID=%d);", my_id, target_id, target_id, my_id);
-        sqlite3_exec(db, sql, 0, 0, 0); send_friend_list(index);
+        sqlite3_exec(db, sql, 0, 0, 0);
+        send_friend_list(index);
         for(int i=0; i<MAX_CLIENTS; i++) if(players[i].active && players[i].id == target_id) send_friend_list(i);
     }
     else if (pkt->type == PACKET_PRIVATE_MESSAGE) {
