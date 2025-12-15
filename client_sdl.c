@@ -498,16 +498,45 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
 void render_friend_list(SDL_Renderer *renderer, int w, int h) {
     if (!show_friend_list) return;
 
-    friend_list_win = (SDL_Rect){w/2 - 200, h/2 - 200, 400, 400}; // Wider window
+    // 1. Calculate Required Width
+    int max_text_w = 200; // Minimum width base
+    
+    for(int i=0; i<friend_count; i++) {
+        char temp_str[128];
+        if (my_friends[i].is_online) {
+            snprintf(temp_str, 128, "%s (Online)", my_friends[i].username);
+        } else {
+            snprintf(temp_str, 128, "%s (Last: %s)", my_friends[i].username, my_friends[i].last_login);
+        }
+        
+        int fw, fh;
+        TTF_SizeText(font, temp_str, &fw, &fh);
+        if (fw > max_text_w) max_text_w = fw;
+    }
+
+    // Add padding (20px left + 20px right + extra for scroll bar area if we added one later)
+    int win_w = max_text_w + 60; 
+    // Ensure it doesn't look too thin
+    if (win_w < 300) win_w = 300; 
+
+    // 2. Setup Window
+    friend_list_win = (SDL_Rect){w/2 - (win_w/2), h/2 - 200, win_w, 400};
+
+    // Draw Background
     SDL_SetRenderDrawColor(renderer, 20, 20, 20, 255); SDL_RenderFillRect(renderer, &friend_list_win);
     SDL_SetRenderDrawColor(renderer, 0, 200, 0, 255); SDL_RenderDrawRect(renderer, &friend_list_win);
     
-    render_text(renderer, "Friends List", friend_list_win.x + 150, friend_list_win.y + 10, col_green, 1);
+    // Draw Title (Centered)
+    int title_w, title_h;
+    TTF_SizeText(font, "Friends List", &title_w, &title_h);
+    render_text(renderer, "Friends List", friend_list_win.x + (win_w/2) - (title_w/2), friend_list_win.y + 10, col_green, 0);
 
-    SDL_Rect btn_close = {friend_list_win.x + 360, friend_list_win.y + 5, 30, 30};
+    // 3. Close Button (Dynamic Position)
+    SDL_Rect btn_close = {friend_list_win.x + win_w - 40, friend_list_win.y + 5, 30, 30};
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_close);
     render_text(renderer, "X", btn_close.x + 10, btn_close.y + 5, col_white, 1);
 
+    // 4. Render List
     int y_off = 50;
     for(int i=0; i<friend_count; i++) {
         char display[128];
@@ -517,9 +546,8 @@ void render_friend_list(SDL_Renderer *renderer, int w, int h) {
             snprintf(display, 128, "%s (Online)", my_friends[i].username);
             text_col = col_green;
         } else {
-            // Show Last Login for offline users
-            snprintf(display, 128, "%s (Last seen at: %s)", my_friends[i].username, my_friends[i].last_login);
-            text_col = (SDL_Color){150, 150, 150, 255}; // Grey
+            snprintf(display, 128, "%s (Last: %s)", my_friends[i].username, my_friends[i].last_login);
+            text_col = (SDL_Color){150, 150, 150, 255}; 
         }
 
         render_text(renderer, display, friend_list_win.x + 20, friend_list_win.y + y_off, text_col, 0);
@@ -883,6 +911,17 @@ void render_game(SDL_Renderer *renderer) {
 
 void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
     if (show_friend_list) {
+        int max_text_w = 200;
+        for(int i=0; i<friend_count; i++) {
+            char temp_str[128];
+            if (my_friends[i].is_online) snprintf(temp_str, 128, "%s (Online)", my_friends[i].username);
+            else snprintf(temp_str, 128, "%s (Last: %s)", my_friends[i].username, my_friends[i].last_login);
+            int fw, fh;
+            TTF_SizeText(font, temp_str, &fw, &fh);
+            if (fw > max_text_w) max_text_w = fw;
+        }
+        int win_w = max_text_w + 60; 
+        if (win_w < 300) win_w = 300;
     // Recalculate exact same window position as render function
         SDL_Rect f_win = {w/2 - 200, h/2 - 200, 400, 400};
         SDL_Rect btn_close = {f_win.x + 360, f_win.y + 5, 30, 30};
