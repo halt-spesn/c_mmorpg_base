@@ -321,16 +321,45 @@ void handle_client_message(int index, Packet *pkt) {
             for (int i = 0; i < MAX_CLIENTS; i++) if (client_sockets[i] > 0 && players[i].id != -1) send(client_sockets[i], &chatPkt, sizeof(Packet), 0);
         }
     }
-     else if (pkt->type == PACKET_FRIEND_REQUEST) {
+    else if (pkt->type == PACKET_FRIEND_REQUEST) {
         int target_id = pkt->target_id;
         int my_id = players[index].id;
-        
-        // 1. Store in DB as Pending (Status 0)
+
+        // 1. Prevent adding self
+        if (target_id == my_id) {
+            Packet err; err.type = PACKET_CHAT; err.player_id = -1;
+            strcpy(err.msg, "Error: You cannot add yourself.");
+            send(client_sockets[index], &err, sizeof(Packet), 0);
+            return;
+        }
+
+        // 2. Check if Target ID exists in Database
+        sqlite3_stmt *stmt;
         char sql[256];
+        snprintf(sql, 256, "SELECT ID FROM users WHERE ID=%d;", target_id);
+        sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
+        
+        int exists = 0;
+        if (sqlite3_step(stmt) == SQLITE_ROW) exists = 1;
+        sqlite3_finalize(stmt);
+
+        if (!exists) {
+            Packet err; err.type = PACKET_CHAT; err.player_id = -1;
+            snprintf(err.msg, 64, "Error: User ID %d does not exist.", target_id);
+            send(client_sockets[index], &err, sizeof(Packet), 0);
+            return;
+        }
+        
+        // 3. Check if already friends (Optional, prevents spamming DB)
+        // Note: INSERT OR IGNORE below handles unique constraint, but logic here is safer
+        
+        // 4. Valid User -> Proceed with Request
+        // Store in DB as Pending (Status 0)
+        // INSERT OR IGNORE prevents duplicates if request already sent
         snprintf(sql, 256, "INSERT OR IGNORE INTO friends (USER_ID, FRIEND_ID, STATUS) VALUES (%d, %d, 0);", my_id, target_id);
         sqlite3_exec(db, sql, 0, 0, 0);
 
-        // 2. If Online, notify immediately
+        // 5. If Online, notify target immediately
         int target_idx = -1;
         for(int i=0; i<MAX_CLIENTS; i++) if (players[i].active && players[i].id == target_id) target_idx = i;
         
@@ -340,6 +369,11 @@ void handle_client_message(int index, Packet *pkt) {
             strcpy(req.username, players[index].username);
             send(client_sockets[target_idx], &req, sizeof(Packet), 0);
         }
+
+        // 6. Confirm to Sender
+        Packet succ; succ.type = PACKET_CHAT; succ.player_id = -1;
+        snprintf(succ.msg, 64, "Friend request sent to ID %d.", target_id);
+        send(client_sockets[index], &succ, sizeof(Packet), 0);
     }
     else if (pkt->type == PACKET_FRIEND_RESPONSE) {
         int requester_id = pkt->target_id;
