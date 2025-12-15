@@ -177,6 +177,11 @@ int unread_chat_count = 0;
 int show_unread_counter = 1; // Default ON
 SDL_Rect btn_toggle_unread;
 
+Uint32 last_input_tick = 0;
+int afk_timeout_minutes = 2; // Default 2 minutes
+int is_auto_afk = 0;         // Flag to know if we triggered it automatically
+SDL_Rect slider_afk;
+
 // --- Helpers ---
 void send_packet(Packet *pkt) { send(sock, pkt, sizeof(Packet), 0); }
 
@@ -613,13 +618,13 @@ void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
 void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     if (!is_settings_open) return;
     
-    // Window Setup
-    settings_win = (SDL_Rect){screen_w/2 - 150, screen_h/2 - 300, 300, 600}; 
+    // Increased Height to 650 to prevent overlap
+    settings_win = (SDL_Rect){screen_w/2 - 150, screen_h/2 - 325, 300, 720}; 
     SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255); SDL_RenderFillRect(renderer, &settings_win);
     SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255); SDL_RenderDrawRect(renderer, &settings_win);
     render_text(renderer, "Settings", settings_win.x + 150, settings_win.y + 10, col_white, 1);
 
-    // 1. Toggles (Debug, FPS, Coords)
+    // 1. Toggles
     btn_toggle_debug = (SDL_Rect){settings_win.x + 20, settings_win.y + 50, 20, 20};
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_debug);
     if (show_debug_info) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c={btn_toggle_debug.x+4,btn_toggle_debug.y+4,12,12}; SDL_RenderFillRect(renderer,&c); }
@@ -635,35 +640,32 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     if (show_coords) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c={btn_toggle_coords.x+4,btn_toggle_coords.y+4,12,12}; SDL_RenderFillRect(renderer,&c); }
     render_text(renderer, "Show Coordinates", settings_win.x + 50, settings_win.y + 130, col_white, 0);
 
-    // --- NEW: Unread Counter Toggle (y = 170) ---
     btn_toggle_unread = (SDL_Rect){settings_win.x + 20, settings_win.y + 170, 20, 20};
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_unread);
     if (show_unread_counter) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c={btn_toggle_unread.x+4,btn_toggle_unread.y+4,12,12}; SDL_RenderFillRect(renderer,&c); }
     render_text(renderer, "Show Unread Counter", settings_win.x + 50, settings_win.y + 170, col_white, 0);
 
-    // 2. Blocked Players (Shifted Down to 210)
+    // 2. Blocked Players
     btn_view_blocked = (SDL_Rect){settings_win.x + 20, settings_win.y + 210, 260, 30};
     SDL_SetRenderDrawColor(renderer, 200, 50, 50, 255); SDL_RenderFillRect(renderer, &btn_view_blocked);
     render_text(renderer, "Manage Blocked Players", btn_view_blocked.x + 130, btn_view_blocked.y + 5, col_white, 1);
 
-    // 3. ID Display (Shifted Down to 250)
+    // 3. ID & Status
     char id_str[32]; snprintf(id_str, 32, "My ID: %d", local_player_id);
     render_text(renderer, id_str, settings_win.x + 150, settings_win.y + 250, (SDL_Color){150, 150, 255, 255}, 1);
 
-    // Status (Shifted to 270)
     int my_status = 0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) my_status = local_players[i].status;
     btn_cycle_status = (SDL_Rect){settings_win.x + 20, settings_win.y + 270, 260, 30};
     SDL_SetRenderDrawColor(renderer, 50, 50, 100, 255); SDL_RenderFillRect(renderer, &btn_cycle_status);
     char status_str[64]; snprintf(status_str, 64, "Status: %s", status_names[my_status]);
     render_text(renderer, status_str, btn_cycle_status.x + 130, btn_cycle_status.y + 5, get_status_color(my_status), 1);
 
-    // Change Nickname Button (Shifted to 310)
     SDL_Rect btn_nick = {settings_win.x + 20, settings_win.y + 310, 260, 30};
     SDL_SetRenderDrawColor(renderer, 100, 50, 150, 255); 
     SDL_RenderFillRect(renderer, &btn_nick);
     render_text(renderer, "Change Nickname", btn_nick.x + 130, btn_nick.y + 5, col_white, 1);
 
-    // 4. Color Sliders (Shifted down to Y=360)
+    // 4. Sliders
     int start_y = settings_win.y + 360;
     int my_r=255, my_g=255, my_b=255;
     for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) { my_r=local_players[i].r; my_g=local_players[i].g; my_b=local_players[i].b; }
@@ -685,7 +687,7 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     SDL_Rect fill_b = {slider_b.x, slider_b.y, (int)((my_b/255.0)*200), 20};
     SDL_SetRenderDrawColor(renderer, 0, 0, 255, 255); SDL_RenderFillRect(renderer, &fill_b);
 
-    // 5. Volume
+    // Volume
     render_text(renderer, "Music Volume", settings_win.x + 150, start_y + 120, col_white, 1);
     slider_volume = (SDL_Rect){settings_win.x + 50, start_y + 150, 200, 20};
     SDL_SetRenderDrawColor(renderer, 50, 50, 50, 255); SDL_RenderFillRect(renderer, &slider_volume);
@@ -693,15 +695,33 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     SDL_SetRenderDrawColor(renderer, 0, 200, 255, 255); SDL_RenderFillRect(renderer, &fill_vol);
     SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255); SDL_RenderDrawRect(renderer, &slider_volume);
 
-    // 6. Disconnect & Upload Text
-    SDL_Rect btn_disconnect = {settings_win.x + 20, settings_win.y + 520, 260, 30};
+    // Auto-AFK Slider (with Labels)
+    char afk_str[64]; snprintf(afk_str, 64, "Auto-AFK: %d min", afk_timeout_minutes);
+    render_text(renderer, afk_str, settings_win.x + 150, start_y + 180, col_white, 1);
+    
+    slider_afk = (SDL_Rect){settings_win.x + 50, start_y + 210, 200, 20};
+    SDL_SetRenderDrawColor(renderer, 50, 50, 50, 255); SDL_RenderFillRect(renderer, &slider_afk);
+    SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255); SDL_RenderDrawRect(renderer, &slider_afk);
+    
+    float afk_pct = (afk_timeout_minutes - 2) / 8.0f; 
+    SDL_Rect fill_afk = {slider_afk.x, slider_afk.y, (int)(afk_pct * 200), 20};
+    SDL_SetRenderDrawColor(renderer, 255, 165, 0, 255); SDL_RenderFillRect(renderer, &fill_afk);
+
+    // --- Labels for Slider ---
+    render_text(renderer, "2m", slider_afk.x - 15, slider_afk.y + 2, col_white, 0);  // Min
+    render_text(renderer, "6m", slider_afk.x + 100 - 10, slider_afk.y + 2, col_white, 0); // Mid
+    render_text(renderer, "10m", slider_afk.x + 205, slider_afk.y + 2, col_white, 0); // Max
+    // -------------------------
+
+    // 5. Disconnect (Shifted to +250 relative to start_y)
+    SDL_Rect btn_disconnect = {settings_win.x + 20, start_y + 250, 260, 30};
     SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_disconnect);
     render_text(renderer, "Disconnect / Logout", btn_disconnect.x + 130, btn_disconnect.y + 5, col_white, 1);
 
-    render_text(renderer, "Drag & Drop Image here", settings_win.x + 150, settings_win.y + 560, col_yellow, 1);
-    render_text(renderer, "to upload Avatar (<16KB)", settings_win.x + 150, settings_win.y + 580, col_yellow, 1);
+    render_text(renderer, "Drag & Drop Image here", settings_win.x + 150, start_y + 290, col_yellow, 1);
+    render_text(renderer, "to upload Avatar (<16KB)", settings_win.x + 150, start_y + 310, col_yellow, 1);
 
-    // --- POPUP: Change Nickname ---
+    // --- Nickname Popup ---
     if (show_nick_popup) {
         SDL_Rect pop = {screen_w/2 - 150, screen_h/2 - 150, 300, 300};
         SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255); SDL_RenderFillRect(renderer, &pop);
@@ -1280,7 +1300,17 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             music_volume = (int)(pct * 128); Mix_VolumeMusic(music_volume);
         }
 
-        SDL_Rect btn_disconnect = {settings_win.x + 20, settings_win.y + 520, 260, 30};
+        // --- NEW: Handle AFK Slider ---
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_afk)) {
+            float pct = (mx - slider_afk.x) / 200.0f; 
+            if (pct < 0) pct = 0; if (pct > 1) pct = 1;
+            
+            // Map 0.0-1.0 to 2-10 integer range
+            afk_timeout_minutes = 2 + (int)(pct * 8.0f + 0.5f); // +0.5 for rounding
+        }
+        // ------------------------------
+
+        SDL_Rect btn_disconnect = {settings_win.x + 20, settings_win.y + 610, 260, 30};
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_disconnect)) {
             if(sock > 0) close(sock); sock = -1; is_connected = 0; Mix_HaltMusic();
             client_state = STATE_AUTH; is_settings_open = 0; local_player_id = -1;
@@ -1489,6 +1519,20 @@ int main(int argc, char const *argv[]) {
         }
 
         while (SDL_PollEvent(&event)) {
+            // --- NEW: Auto-AFK Reset Logic ---
+            if (event.type == SDL_KEYDOWN || event.type == SDL_MOUSEBUTTONDOWN || event.type == SDL_MOUSEMOTION) {
+                last_input_tick = SDL_GetTicks();
+                
+                // If we were auto-afk, wake up!
+                if (is_auto_afk && sock > 0) {
+                    Packet pkt; pkt.type = PACKET_STATUS_CHANGE; 
+                    pkt.new_status = STATUS_ONLINE; // 0 = Online
+                    send_packet(&pkt);
+                    is_auto_afk = 0;
+                    printf("Welcome back! Status set to Online.\n");
+                }
+            }
+            // ---------------------------------
             if (event.type == SDL_QUIT) running = 0;
             else if (event.type == SDL_DROPFILE) {
                 if (is_settings_open && sock > 0) {
@@ -1601,6 +1645,24 @@ int main(int argc, char const *argv[]) {
         }
 
         Uint32 now = SDL_GetTicks();
+        // --- NEW: Check Auto-AFK Timer ---
+        if (sock > 0 && client_state == STATE_GAME && !is_auto_afk) {
+            // Find my current status
+            int my_status = 0;
+            for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) my_status = local_players[i].status;
+
+            // Only trigger if currently Online (don't override DND or manual AFK)
+            if (my_status == STATUS_ONLINE) { 
+                if (now > last_input_tick + (afk_timeout_minutes * 60 * 1000)) {
+                    Packet pkt; pkt.type = PACKET_STATUS_CHANGE; 
+                    pkt.new_status = STATUS_AFK; // 1 = AFK
+                    send_packet(&pkt);
+                    is_auto_afk = 1;
+                    printf("Auto-AFK Triggered.\n");
+                }
+            }
+        }
+        // ---------------------------------
         if (sock > 0 && client_state == STATE_GAME) {
             if (now - last_ping_sent > 1000) { Packet pkt; pkt.type = PACKET_PING; pkt.timestamp = now; send_packet(&pkt); last_ping_sent = now; }
             if (!is_chat_open && !show_nick_popup && !show_add_friend_popup && pending_friend_req_id == -1) {
