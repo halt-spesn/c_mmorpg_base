@@ -16,10 +16,11 @@
 // --- Config ---
 #define PLAYER_WIDTH 32
 #define PLAYER_HEIGHT 32
-#define MAP_FILE "map.jpg"
+char current_map_file[32] = "map.jpg";
 #define PLAYER_FILE "player.png"
 #define FONT_PATH "/usr/share/fonts/TTF/DejaVuSans.ttf"
 #define FONT_SIZE 14
+
 
 // --- Globals ---
 int sock;
@@ -27,6 +28,7 @@ char server_ip[16] = "127.0.0.1";
 TTF_Font *font = NULL;
 SDL_Texture *tex_map = NULL;
 SDL_Texture *tex_player = NULL;
+SDL_Renderer *global_renderer = NULL;
 int map_w = MAP_WIDTH, map_h = MAP_HEIGHT;
 
 int local_player_id = -1;
@@ -242,7 +244,17 @@ SDL_Rect slider_r, slider_g, slider_b;
 SDL_Rect slider_r2, slider_g2, slider_b2;
 // Add these:
 int my_r = 255, my_g = 255, my_b = 255; 
-//int my_r2 = 255, my_g2 = 255, my_b2 = 255;
+
+typedef struct {
+    char src_map[32];
+    SDL_Rect rect;
+    char target_map[32];
+    int spawn_x, spawn_y;
+} MapTrigger;
+
+MapTrigger triggers[20];
+int trigger_count = 0;
+Uint32 last_map_switch_time = 0;
 
 // --- Helpers ---
 void send_packet(Packet *pkt) { send(sock, pkt, sizeof(Packet), 0); }
@@ -308,6 +320,69 @@ void load_config() {
         
         fclose(fp);
     }
+}
+
+void load_triggers() {
+    FILE *fp = fopen("triggers.txt", "r");
+    if (!fp) { 
+        printf("ERROR: Could not open triggers.txt (Make sure it is in the game folder)\n"); 
+        return; 
+    }
+    
+    trigger_count = 0;
+    while (trigger_count < 20 && fscanf(fp, "%s %d %d %d %d %s %d %d", 
+           triggers[trigger_count].src_map, 
+           &triggers[trigger_count].rect.x, &triggers[trigger_count].rect.y, 
+           &triggers[trigger_count].rect.w, &triggers[trigger_count].rect.h,
+           triggers[trigger_count].target_map,
+           &triggers[trigger_count].spawn_x, &triggers[trigger_count].spawn_y) == 8) {
+        printf("Loaded Trigger %d: %s [%d,%d %dx%d] -> %s\n", 
+            trigger_count,
+            triggers[trigger_count].src_map,
+            triggers[trigger_count].rect.x, triggers[trigger_count].rect.y,
+            triggers[trigger_count].rect.w, triggers[trigger_count].rect.h,
+            triggers[trigger_count].target_map);
+        trigger_count++;
+    }
+    printf("Total Triggers Loaded: %d\n", trigger_count);
+    fclose(fp);
+}
+
+void switch_map(const char* new_map, int x, int y) {
+    // 1. Update State
+    if (SDL_GetTicks() - last_map_switch_time < 2000) return;
+    last_map_switch_time = SDL_GetTicks();
+    strncpy(current_map_file, new_map, 31);
+    
+    // 2. Load New Texture
+    if (tex_map) SDL_DestroyTexture(tex_map);
+    SDL_Surface *temp = IMG_Load(current_map_file);
+    if (temp) {
+        tex_map = SDL_CreateTextureFromSurface(global_renderer, temp); // Need global renderer or pass it
+        map_w = temp->w; map_h = temp->h;
+        SDL_FreeSurface(temp);
+    } else {
+        printf("Failed to load map: %s\n", current_map_file);
+    }
+
+    // 3. Teleport Local Player
+    for(int i=0; i<MAX_CLIENTS; i++) {
+        if(local_players[i].active && local_players[i].id == local_player_id) {
+            local_players[i].x = x;
+            local_players[i].y = y;
+            strncpy(local_players[i].map_name, new_map, 31); // Update local struct immediately
+        }
+    }
+
+    // 4. Notify Server
+    Packet pkt; 
+    pkt.type = PACKET_MAP_CHANGE;
+    strncpy(pkt.target_map, new_map, 31);
+    pkt.dx = x; 
+    pkt.dy = y;
+    send_packet(&pkt);
+    
+    printf("Switched to %s at %d,%d\n", new_map, x, y);
 }
 
 int get_cursor_pos_from_click(const char *text, int mouse_x, int rect_x) {
@@ -1751,6 +1826,7 @@ void render_game(SDL_Renderer *renderer) {
 
     // 1. Draw Map
     SDL_RenderClear(renderer);
+
     if (tex_map) { SDL_Rect dst = {-cam_x, -cam_y, map_w, map_h}; SDL_RenderCopy(renderer, tex_map, NULL, &dst); }
     else {
         SDL_SetRenderDrawColor(renderer, 20, 20, 20, 255); SDL_RenderClear(renderer);
@@ -1759,10 +1835,28 @@ void render_game(SDL_Renderer *renderer) {
         for(int y=0; y<map_h; y+=50) SDL_RenderDrawLine(renderer, 0-cam_x, y-cam_y, map_w-cam_x, y-cam_y);
     }
 
+    if (show_debug_info) {
+        for(int t=0; t<trigger_count; t++) {
+            // Only draw triggers for the current map
+            if (strcmp(triggers[t].src_map, current_map_file) == 0) {
+                SDL_Rect r = triggers[t].rect;
+                r.x -= cam_x; // Adjust for camera position
+                r.y -= cam_y;
+                
+                SDL_SetRenderDrawColor(renderer, 0, 255, 0, 100); // Semi-transparent Green
+                SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+                SDL_RenderFillRect(renderer, &r);
+                SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+                SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255); // Solid Outline
+                SDL_RenderDrawRect(renderer, &r);
+            }
+        }
+    }
     // 2. Draw Players & Floating Text
     Uint32 now = SDL_GetTicks();
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (local_players[i].active) {
+            if (strcmp(local_players[i].map_name, current_map_file) != 0) continue;
             if (is_blocked(local_players[i].id)) continue;
             SDL_Rect dst = { (int)local_players[i].x - cam_x, (int)local_players[i].y - cam_y, PLAYER_WIDTH, PLAYER_HEIGHT };
             SDL_Color c1 = {local_players[i].r, local_players[i].g, local_players[i].b, 255};
@@ -2369,13 +2463,25 @@ int main(int argc, char const *argv[]) {
 
     SDL_Window *window = SDL_CreateWindow("C MMO Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 800, 600, SDL_WINDOW_SHOWN|SDL_WINDOW_RESIZABLE);
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    global_renderer = renderer;
 
     // 2. Load Assets
-    SDL_Surface *temp = IMG_Load(MAP_FILE); if (temp) { tex_map = SDL_CreateTextureFromSurface(renderer, temp); map_w=temp->w; map_h=temp->h; SDL_FreeSurface(temp); }
-    temp = IMG_Load(PLAYER_FILE); if (temp) { tex_player = SDL_CreateTextureFromSurface(renderer, temp); SDL_FreeSurface(temp); }
+    // FIX: Use current_map_file instead of MAP_FILE macro
+    SDL_Surface *temp = IMG_Load(current_map_file); 
+    if (temp) { 
+        tex_map = SDL_CreateTextureFromSurface(renderer, temp); 
+        map_w=temp->w; map_h=temp->h; 
+        SDL_FreeSurface(temp); 
+    }
+    temp = IMG_Load(PLAYER_FILE); 
+    if (temp) { 
+        tex_player = SDL_CreateTextureFromSurface(renderer, temp); 
+        SDL_FreeSurface(temp); 
+    }
 
     init_audio();
     load_servers();
+    load_triggers();
     load_config(); // Initial load
     sock = -1;
 
@@ -2413,48 +2519,12 @@ int main(int argc, char const *argv[]) {
             else if(active_field==11) len=strlen(nick_confirm);
             else if(active_field==12) len=strlen(nick_pass);
             else if(active_field==20) len=strlen(input_friend_id);
+            else if(active_field==30) len=strlen(input_sanction_reason);
+            else if(active_field==31) len=strlen(input_ban_time);
+            
             cursor_pos = len;
             selection_len = 0;
             last_active_field = active_field;
-        }
-        else if (event.type == SDL_MOUSEBUTTONUP) {
-                is_dragging = 0;
-                active_slider = SLIDER_NONE;
-            }
-            else if (event.type == SDL_MOUSEMOTION) {
-                int mx = event.motion.x * scale_x;
-                if (is_dragging) {
-                    // Identify which buffer we are editing
-                    char *target = NULL;
-                    if (is_chat_open) target = input_buffer;
-                    else if (active_field == 0) target = auth_username;
-                    else if (active_field == 1) target = auth_password;
-                    else if (active_field == 2) target = input_ip;
-                    else if (active_field == 3) target = input_port;
-                    else if (active_field == 10) target = nick_new;
-                    else if (active_field == 11) target = nick_confirm;
-                    else if (active_field == 12) target = nick_pass;
-                    else if (active_field == 20) target = input_friend_id;
-                    else if (active_field == 30) target = input_sanction_reason;
-                    else if (active_field == 31) target = input_ban_time;
-
-                    if (target) {
-                        int mx = event.motion.x * scale_x; // Scale mouse pos
-                        
-                        // Update cursor based on mouse pos
-                        cursor_pos = get_cursor_pos_from_click(target, mx, active_input_rect.x);
-                        
-                        // Calculate selection length (Cursor - Start)
-                        selection_len = cursor_pos - selection_start;
-                    }
-                }
-                if (active_slider != SLIDER_NONE) {
-                    process_slider_drag(mx);
-                }
-            }
-        if (is_chat_open != was_chat_open) {
-            if(is_chat_open) cursor_pos = strlen(input_buffer);
-            was_chat_open = is_chat_open;
         }
 
         while (SDL_PollEvent(&event)) {
@@ -2478,6 +2548,37 @@ int main(int argc, char const *argv[]) {
                     int max_scroll = settings_content_h - 600; 
                     if (max_scroll < 0) max_scroll = 0;
                     if (settings_scroll_y > max_scroll) settings_scroll_y = max_scroll;
+                }
+            }
+            
+            // --- Mouse Drag Handling ---
+            else if (event.type == SDL_MOUSEBUTTONUP) {
+                is_dragging = 0;
+                active_slider = SLIDER_NONE;
+            }
+            else if (event.type == SDL_MOUSEMOTION) {
+                int mx = event.motion.x * scale_x;
+                if (is_dragging) {
+                    char *target = NULL;
+                    if (is_chat_open) target = input_buffer;
+                    else if (active_field == 0) target = auth_username;
+                    else if (active_field == 1) target = auth_password;
+                    else if (active_field == 2) target = input_ip;
+                    else if (active_field == 3) target = input_port;
+                    else if (active_field == 10) target = nick_new;
+                    else if (active_field == 11) target = nick_confirm;
+                    else if (active_field == 12) target = nick_pass;
+                    else if (active_field == 20) target = input_friend_id;
+                    else if (active_field == 30) target = input_sanction_reason;
+                    else if (active_field == 31) target = input_ban_time;
+
+                    if (target) {
+                        cursor_pos = get_cursor_pos_from_click(target, mx, active_input_rect.x);
+                        selection_len = cursor_pos - selection_start;
+                    }
+                }
+                if (active_slider != SLIDER_NONE) {
+                    process_slider_drag(mx);
                 }
             }
 
@@ -2528,7 +2629,7 @@ int main(int argc, char const *argv[]) {
                         is_settings_open = !is_settings_open;
                         if (!is_settings_open) { show_nick_popup = 0; show_blocked_list = 0; active_field = -1; }
                         else {
-                            // --- FIX: Sync Globals from Player Struct on Open ---
+                            // Sync Globals
                             for(int i=0; i<MAX_CLIENTS; i++) {
                                 if(local_players[i].active && local_players[i].id == local_player_id) {
                                     my_r = local_players[i].r; 
@@ -2599,6 +2700,11 @@ int main(int argc, char const *argv[]) {
                     }
                 }
             }
+        } // End PollEvent
+
+        if (is_chat_open != was_chat_open) {
+            if(is_chat_open) cursor_pos = strlen(input_buffer);
+            was_chat_open = is_chat_open;
         }
 
         Uint32 now = SDL_GetTicks();
@@ -2615,7 +2721,25 @@ int main(int argc, char const *argv[]) {
         if (sock > 0 && client_state == STATE_GAME) {
             if (now - last_ping_sent > 1000) { Packet pkt; pkt.type = PACKET_PING; pkt.timestamp = now; send_packet(&pkt); last_ping_sent = now; }
             if (!is_chat_open && !show_nick_popup && !show_add_friend_popup && pending_friend_req_id == -1) {
+                // FIX: Declare dx, dy here
                 float dx = 0, dy = 0;
+                
+                // Map Trigger Logic (Area vs Area)
+                float my_x=0, my_y=0; 
+                for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) { my_x=local_players[i].x; my_y=local_players[i].y; }
+               
+                SDL_Rect player_box = {(int)my_x, (int)my_y, PLAYER_WIDTH, PLAYER_HEIGHT};
+               
+                for(int t=0; t<trigger_count; t++) {
+                   if (strcmp(triggers[t].src_map, current_map_file) == 0) {
+                       // FIX: Use SDL_HasIntersection for Box-vs-Box collision (Area)
+                       if (SDL_HasIntersection(&player_box, &triggers[t].rect)) {
+                           switch_map(triggers[t].target_map, triggers[t].spawn_x, triggers[t].spawn_y);
+                           break; 
+                       }
+                   }
+                }
+
                 if (key_up) dy = -1; if (key_down) dy = 1; if (key_left) dx = -1; if (key_right) dx = 1;
                 if (dx != 0 || dy != 0) { Packet pkt; pkt.type = PACKET_MOVE; pkt.dx = dx; pkt.dy = dy; send_packet(&pkt); }
             }
@@ -2633,10 +2757,8 @@ int main(int argc, char const *argv[]) {
                             SDL_StopTextInput(); 
                             if (music_count > 0) play_next_track();
                             
-                            // --- FIX: Reload config from disk to ensure fresh settings on re-login ---
                             load_config(); 
                             
-                            // Send Saved Colors (saved_r/g/b updated by load_config above)
                             Packet cpkt; cpkt.type = PACKET_COLOR_CHANGE; 
                             cpkt.r = saved_r; cpkt.g = saved_g; cpkt.b = saved_b; 
                             cpkt.r2 = my_r2; cpkt.g2 = my_g2; cpkt.b2 = my_b2;
@@ -2645,7 +2767,16 @@ int main(int argc, char const *argv[]) {
                         else if (pkt.status == AUTH_REGISTER_SUCCESS) strcpy(auth_message, "Success! Login now.");
                         else strcpy(auth_message, "Error.");
                     }
-                    if (pkt.type == PACKET_UPDATE) memcpy(local_players, pkt.players, sizeof(local_players));
+                    if (pkt.type == PACKET_UPDATE) {
+                        memcpy(local_players, pkt.players, sizeof(local_players));
+                        for(int i=0; i<MAX_CLIENTS; i++) {
+                            if (local_players[i].id == local_player_id) {
+                                if (strcmp(local_players[i].map_name, current_map_file) != 0) {
+                                    switch_map(local_players[i].map_name, local_players[i].x, local_players[i].y);
+                                }
+                            }
+                        }
+                     }
                     if (pkt.type == PACKET_CHAT || pkt.type == PACKET_PRIVATE_MESSAGE) {
                         add_chat_message(&pkt);
                         if (!is_chat_open) unread_chat_count++;

@@ -41,7 +41,8 @@ typedef enum {
     PACKET_SANCTION_REQUEST,   // Admin -> Server (Warn/Ban)
     PACKET_WARNINGS_REQUEST,   // User -> Server (Get history)
     PACKET_WARNINGS_RESPONSE,  // Server -> User (History data)
-    PACKET_KICK                // Server -> Client (Force disconnect)
+    PACKET_KICK,                // Server -> Client (Force disconnect)
+    PACKET_MAP_CHANGE
 } PacketType;
 
 typedef enum {
@@ -66,6 +67,7 @@ typedef struct {
     int role; // NEW: Role ID
     uint8_t r, g, b;
     uint8_t r2, g2, b2;
+    char map_name[32];
 } Player;
 
 typedef struct {
@@ -91,7 +93,8 @@ typedef struct {
     uint8_t r, g, b;
     uint8_t r2, g2, b2;
     int image_size;
-    uint8_t image_data; 
+    uint8_t image_data;
+    char target_map[32]; 
     int sanction_type; // 0 = Warn, 1 = Ban
     char sanction_reason[64];
     char ban_duration[16]; // "1h", "1d", etc.
