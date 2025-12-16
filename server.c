@@ -54,6 +54,9 @@ void init_db() {
     sqlite3_exec(db, alter1, 0, 0, 0);
     char *alter2 = "ALTER TABLE users ADD COLUMN BAN_EXPIRE INTEGER DEFAULT 0;";
     sqlite3_exec(db, alter2, 0, 0, 0);
+    sqlite3_exec(db, "ALTER TABLE users ADD COLUMN R2 INTEGER DEFAULT 255;", 0, 0, 0);
+    sqlite3_exec(db, "ALTER TABLE users ADD COLUMN G2 INTEGER DEFAULT 255;", 0, 0, 0);
+    sqlite3_exec(db, "ALTER TABLE users ADD COLUMN B2 INTEGER DEFAULT 255;", 0, 0, 0);
 
     // 2. Create Warnings Table
     char *sql_warn = 
@@ -132,10 +135,10 @@ AuthStatus register_user(const char *user, const char *pass) {
 }
 
 // Update signature to accept 'long *ban_expire'
-int login_user(const char *username, const char *password, float *x, float *y, uint8_t *r, uint8_t *g, uint8_t *b, int *role, long *ban_expire) {
+int login_user(const char *username, const char *password, float *x, float *y, uint8_t *r, uint8_t *g, uint8_t *b, uint8_t *r2, uint8_t *g2, uint8_t *b2, int *role, long *ban_expire) {
     sqlite3_stmt *stmt;
     // Added BAN_EXPIRE to the SELECT query (Column index 6)
-    const char *sql = "SELECT X, Y, R, G, B, ROLE, BAN_EXPIRE FROM users WHERE USERNAME=? AND PASSWORD=?;";
+    const char *sql = "SELECT X, Y, R, G, B, ROLE, BAN_EXPIRE, R2, G2, B2 FROM users WHERE USERNAME=? AND PASSWORD=?;";
     
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, 0) != SQLITE_OK) return 0;
     
@@ -151,6 +154,9 @@ int login_user(const char *username, const char *password, float *x, float *y, u
         *b = (uint8_t)sqlite3_column_int(stmt, 4);
         *role = sqlite3_column_int(stmt, 5);
         *ban_expire = (long)sqlite3_column_int64(stmt, 6); // Fetch Ban Time
+        *r2 = (uint8_t)sqlite3_column_int(stmt, 7); // Index 7
+        *g2 = (uint8_t)sqlite3_column_int(stmt, 8); // Index 8
+        *b2 = (uint8_t)sqlite3_column_int(stmt, 9); // Index 9
         success = 1;
     }
     sqlite3_finalize(stmt);
@@ -328,12 +334,13 @@ void handle_client_message(int index, Packet *pkt) {
         } 
         else if (pkt->type == PACKET_LOGIN_REQUEST) {
             float x, y; 
-            uint8_t r, g, b; 
+            uint8_t r, g, b;
+            uint8_t r2, g2, b2; 
             int role;
             long ban_expire = 0;
 
             // Pass &ban_expire to the function
-            if (login_user(pkt->username, pkt->password, &x, &y, &r, &g, &b, &role, &ban_expire)) {
+            if (login_user(pkt->username, pkt->password, &x, &y, &r, &g, &b, &r2, &g2, &b2, &role, &ban_expire)) {
                 
                 // 1. Check Ban Logic
                 if (time(NULL) < ban_expire) {
@@ -371,6 +378,9 @@ void handle_client_message(int index, Packet *pkt) {
                     players[index].r = r; 
                     players[index].g = g; 
                     players[index].b = b; 
+                    players[index].r2 = r2; 
+                    players[index].g2 = g2; 
+                    players[index].b2 = b2;
                     players[index].role = role; 
                     strncpy(players[index].username, pkt->username, 31);
                     
@@ -580,7 +590,10 @@ void handle_client_message(int index, Packet *pkt) {
     else if (pkt->type == PACKET_STATUS_CHANGE) { players[index].status = pkt->new_status; broadcast_state(); }
     else if (pkt->type == PACKET_COLOR_CHANGE) {
         players[index].r = pkt->r; players[index].g = pkt->g; players[index].b = pkt->b;
+        players[index].r2 = pkt->r2; players[index].g2 = pkt->g2; players[index].b2 = pkt->b2;
         char sql[256]; snprintf(sql, 256, "UPDATE users SET R=%d, G=%d, B=%d WHERE ID=%d;", pkt->r, pkt->g, pkt->b, players[index].id);
+        snprintf(sql, 256, "UPDATE users SET R=%d, G=%d, B=%d, R2=%d, G2=%d, B2=%d WHERE ID=%d;", 
+            pkt->r, pkt->g, pkt->b, pkt->r2, pkt->g2, pkt->b2, players[index].id);
         sqlite3_exec(db, sql, 0, 0, 0); broadcast_state();
     }
     else if (pkt->type == PACKET_AVATAR_REQUEST) {

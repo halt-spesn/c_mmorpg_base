@@ -65,6 +65,7 @@ typedef struct {
     int status;
     int role; // NEW: Role ID
     uint8_t r, g, b;
+    uint8_t r2, g2, b2;
 } Player;
 
 typedef struct {
@@ -88,6 +89,7 @@ typedef struct {
     uint32_t timestamp;
     int new_status;
     uint8_t r, g, b;
+    uint8_t r2, g2, b2;
     int image_size;
     uint8_t image_data; 
     int sanction_type; // 0 = Warn, 1 = Ban

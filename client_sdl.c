@@ -1246,23 +1246,21 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     render_text(renderer, "10m", slider_afk.x + 245, slider_afk.y + 2, col_white, 0); 
     y += 50;
 
-    // -- Disconnect --
+   // -- Disconnect --
     btn_disconnect_rect = (SDL_Rect){start_x, y, 300, 30};
     SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_disconnect_rect);
-    render_text(renderer, "Disconnect / Logout", btn_disconnect_rect.x + 150, btn_disconnect_rect.y + 5, col_white, 1); y += 40;
+    render_text(renderer, "Disconnect / Logout", btn_disconnect_rect.x + 150, btn_disconnect_rect.y + 5, col_white, 1); 
+    y += 40;
 
-    int btn_w = 95; // 300 total width / 3 approx   
+    // --- Docs / Staff / Credits Row ---
+    int btn_w = 95; 
     
-    btn_my_warnings = (SDL_Rect){start_x, y + 40, 300, 30};
-    SDL_SetRenderDrawColor(renderer, 200, 100, 0, 255); SDL_RenderFillRect(renderer, &btn_my_warnings);
-    render_text(renderer, "View My Warnings", btn_my_warnings.x + 150, btn_my_warnings.y + 5, col_white, 1);
-
     // 1. Docs
     btn_documentation_rect = (SDL_Rect){start_x, y, btn_w, 30};
     SDL_SetRenderDrawColor(renderer, 0, 100, 150, 255); SDL_RenderFillRect(renderer, &btn_documentation_rect);
     render_text(renderer, "Docs", btn_documentation_rect.x + 47, btn_documentation_rect.y + 5, col_white, 1);
 
-    // 2. Staff (NEW)
+    // 2. Staff
     btn_staff_list_rect = (SDL_Rect){start_x + 100, y, btn_w, 30};
     SDL_SetRenderDrawColor(renderer, 150, 100, 0, 255); SDL_RenderFillRect(renderer, &btn_staff_list_rect);
     render_text(renderer, "Staff", btn_staff_list_rect.x + 47, btn_staff_list_rect.y + 5, col_white, 1);
@@ -1272,15 +1270,21 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     SDL_SetRenderDrawColor(renderer, 0, 150, 100, 255); SDL_RenderFillRect(renderer, &btn_contributors_rect);
     render_text(renderer, "Credits", btn_contributors_rect.x + 47, btn_contributors_rect.y + 5, col_white, 1);
     
-    y += 40;
-    // -------------------------------------------------
+    y += 40; // Move down for next row
 
+    // --- My Warnings Button ---
+    btn_my_warnings = (SDL_Rect){start_x, y, 300, 30};
+    SDL_SetRenderDrawColor(renderer, 200, 100, 0, 255); SDL_RenderFillRect(renderer, &btn_my_warnings);
+    render_text(renderer, "View My Warnings", btn_my_warnings.x + 150, btn_my_warnings.y + 5, col_white, 1);
+
+    y += 45; // <--- FIX: Added gap so text doesn't overlap button
+
+    // --- Footer Text ---
     render_text(renderer, "Drag & Drop Image here", settings_win.x + 175, y, col_yellow, 1); y += 20;
     render_text(renderer, "to upload Avatar (<16KB)", settings_win.x + 175, y, col_yellow, 1); y += 30;
 
     // CALCULATE CONTENT HEIGHT
     settings_content_h = y - settings_win.y + settings_scroll_y;
-
     // Reset Clip
     SDL_RenderSetClipRect(renderer, NULL);
 
@@ -1665,12 +1669,7 @@ void render_game(SDL_Renderer *renderer) {
             if (is_blocked(local_players[i].id)) continue;
             SDL_Rect dst = { (int)local_players[i].x - cam_x, (int)local_players[i].y - cam_y, PLAYER_WIDTH, PLAYER_HEIGHT };
             SDL_Color c1 = {local_players[i].r, local_players[i].g, local_players[i].b, 255};
-            SDL_Color c2;
-            if (local_players[i].id == local_player_id) {
-                c2 = (SDL_Color){my_r2, my_g2, my_b2, 255};
-            } else {
-                c2 = c1; // No gradient for others yet
-            }
+            SDL_Color c2 = {local_players[i].r2, local_players[i].g2, local_players[i].b2, 255};
             
             if (tex_player) SDL_RenderCopy(renderer, tex_player, NULL, &dst);
             else {
@@ -2085,25 +2084,68 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
                 show_nick_popup = 1; nick_new[0] = 0; nick_confirm[0] = 0; nick_pass[0] = 0; strcpy(auth_message, "Enter details."); return;
             }
 
-            // Sliders Set 1
-            int changed = 0; int my_r = 0, my_g = 0, my_b = 0; 
-            for(int i=0; i<MAX_CLIENTS; i++) { if(local_players[i].active && local_players[i].id == local_player_id) { my_r=local_players[i].r; my_g=local_players[i].g; my_b=local_players[i].b; } }
-            if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_r)) { my_r = (int)(((float)(mx - slider_r.x) / slider_r.w) * 255); changed = 1; }
-            else if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_g)) { my_g = (int)(((float)(mx - slider_g.x) / slider_g.w) * 255); changed = 1; }
-            else if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_b)) { my_b = (int)(((float)(mx - slider_b.x) / slider_b.w) * 255); changed = 1; }
-            if (changed) { 
-                if(my_r < 0) my_r = 0; if(my_r > 255) my_r = 255; if(my_g < 0) my_g = 0; if(my_g > 255) my_g = 255; if(my_b < 0) my_b = 0; if(my_b > 255) my_b = 255;
-                Packet pkt; pkt.type = PACKET_COLOR_CHANGE; pkt.r = my_r; pkt.g = my_g; pkt.b = my_b; send_packet(&pkt); 
-                for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { local_players[i].r = my_r; local_players[i].g = my_g; local_players[i].b = my_b; }
-                save_config(); return;
+        // --- Sliders (Primary & Secondary) ---
+            int changed = 0; 
+            int my_r = 0, my_g = 0, my_b = 0; 
+            
+            // 1. Get current values from local player
+            for(int i=0; i<MAX_CLIENTS; i++) { 
+                if(local_players[i].active && local_players[i].id == local_player_id) { 
+                    my_r = local_players[i].r; 
+                    my_g = local_players[i].g; 
+                    my_b = local_players[i].b; 
+                    // Note: my_r2, my_g2, my_b2 are globals, so we use their current values
+                } 
             }
 
-            // Sliders Set 2
-            int changed2 = 0;
-            if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_r2)) { my_r2 = (int)(((float)(mx - slider_r2.x) / slider_r2.w) * 255); changed2 = 1; } 
-            if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_g2)) { my_g2 = (int)(((float)(mx - slider_g2.x) / slider_g2.w) * 255); changed2 = 1; }
-            if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_b2)) { my_b2 = (int)(((float)(mx - slider_b2.x) / slider_b2.w) * 255); changed2 = 1; }
-            if (changed2) { save_config(); return; }
+            // 2. Check Primary Sliders
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_r)) { 
+                my_r = (int)(((float)(mx - slider_r.x) / slider_r.w) * 255); changed = 1; 
+            }
+            else if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_g)) { 
+                my_g = (int)(((float)(mx - slider_g.x) / slider_g.w) * 255); changed = 1; 
+            }
+            else if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_b)) { 
+                my_b = (int)(((float)(mx - slider_b.x) / slider_b.w) * 255); changed = 1; 
+            }
+
+            // 3. Check Secondary Sliders (Update Globals)
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_r2)) { 
+                my_r2 = (int)(((float)(mx - slider_r2.x) / slider_r2.w) * 255); changed = 1; 
+            }
+            else if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_g2)) { 
+                my_g2 = (int)(((float)(mx - slider_g2.x) / slider_g2.w) * 255); changed = 1; 
+            }
+            else if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_b2)) { 
+                my_b2 = (int)(((float)(mx - slider_b2.x) / slider_b2.w) * 255); changed = 1; 
+            }
+
+            // 4. If ANY slider changed, update everything
+            if (changed) { 
+                // Clamp values
+                if(my_r < 0) my_r = 0; if(my_r > 255) my_r = 255;
+                if(my_g < 0) my_g = 0; if(my_g > 255) my_g = 255;
+                if(my_b < 0) my_b = 0; if(my_b > 255) my_b = 255;
+                if(my_r2 < 0) my_r2 = 0; if(my_r2 > 255) my_r2 = 255;
+                if(my_g2 < 0) my_g2 = 0; if(my_g2 > 255) my_g2 = 255;
+                if(my_b2 < 0) my_b2 = 0; if(my_b2 > 255) my_b2 = 255;
+
+                // Send Packet (Include ALL colors)
+                Packet pkt; pkt.type = PACKET_COLOR_CHANGE; 
+                pkt.r = my_r; pkt.g = my_g; pkt.b = my_b; 
+                pkt.r2 = my_r2; pkt.g2 = my_g2; pkt.b2 = my_b2;
+                send_packet(&pkt); 
+                
+                // Update Local Player Struct (Immediate visual feedback)
+                for(int i=0; i<MAX_CLIENTS; i++) {
+                    if(local_players[i].active && local_players[i].id == local_player_id) { 
+                        local_players[i].r = my_r; local_players[i].g = my_g; local_players[i].b = my_b;
+                        local_players[i].r2 = my_r2; local_players[i].g2 = my_g2; local_players[i].b2 = my_b2;
+                    } 
+                }
+                save_config(); 
+                return;
+            }
 
             // Volume & AFK
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_volume)) {
@@ -2530,6 +2572,7 @@ int main(int argc, char const *argv[]) {
                             // Send Saved Colors (saved_r/g/b updated by load_config above)
                             Packet cpkt; cpkt.type = PACKET_COLOR_CHANGE; 
                             cpkt.r = saved_r; cpkt.g = saved_g; cpkt.b = saved_b; 
+                            cpkt.r2 = my_r2; cpkt.g2 = my_g2; cpkt.b2 = my_b2;
                             send_packet(&cpkt);
                         }
                         else if (pkt.status == AUTH_REGISTER_SUCCESS) strcpy(auth_message, "Success! Login now.");
