@@ -1223,12 +1223,16 @@ void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
     const char *renderer_str = info.name;
     const char *video_drv = SDL_GetCurrentVideoDriver();
     snprintf(lines[line_count++], 128, "VideoDrv: %s", video_drv ? video_drv : "Unknown");
+    if (renderer_str) snprintf(lines[line_count++], 128, "GPU: %s", renderer_str); else snprintf(lines[line_count++], 128, "GPU: Unknown");
     void *glctx = SDL_GL_GetCurrentContext();
     if (glctx) {
         const char *gl_renderer = (const char*)glGetString(GL_RENDERER);
+        const char *gl_vendor   = (const char*)glGetString(GL_VENDOR);
         if (gl_renderer && strlen(gl_renderer) > 0) snprintf(lines[line_count++], 128, "GL Renderer: %s", gl_renderer);
+        if (gl_vendor   && strlen(gl_vendor)   > 0) snprintf(lines[line_count++], 128, "GL Vendor: %s", gl_vendor);
+    } else {
+        snprintf(lines[line_count++], 128, "GL Renderer: N/A (non-GL backend)");
     }
-    if (renderer_str) snprintf(lines[line_count++], 128, "GPU: %s", renderer_str); else snprintf(lines[line_count++], 128, "GPU: Unknown");
     SDL_version compiled; SDL_VERSION(&compiled); snprintf(lines[line_count++], 128, "SDL: %d.%d.%d", compiled.major, compiled.minor, compiled.patch);
     #ifndef _WIN32
     struct utsname buffer; 
