@@ -1228,6 +1228,8 @@ void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
     if (glctx) {
         const char *gl_renderer = (const char*)glGetString(GL_RENDERER);
         if (gl_renderer && strlen(gl_renderer) > 0) snprintf(lines[line_count++], 128, "GL Renderer: %s", gl_renderer);
+    } else {
+        snprintf(lines[line_count++], 128, "GL Renderer: N/A (non-GL backend)");
     }
     SDL_version compiled; SDL_VERSION(&compiled); snprintf(lines[line_count++], 128, "SDL: %d.%d.%d", compiled.major, compiled.minor, compiled.patch);
     #ifndef _WIN32
