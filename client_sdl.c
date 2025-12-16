@@ -2544,8 +2544,8 @@ int main(int argc, char *argv[]) {
     #ifdef __APPLE__
     win_flags |= SDL_WINDOW_ALLOW_HIGHDPI;
     #endif
-    
-    SDL_Window *window = SDL_CreateWindow("C MMO Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 800, 600, SDL_WINDOW_SHOWN|SDL_WINDOW_RESIZABLE);
+
+    SDL_Window *window = SDL_CreateWindow("C MMO Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 800, 600, win_flags);
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     global_renderer = renderer;
 
@@ -2573,7 +2573,7 @@ int main(int argc, char *argv[]) {
 
     SDL_StartTextInput();
     int running = 1; SDL_Event event;
-    //int key_up=0, key_down=0, key_left=0, key_right=0;
+    int key_up=0, key_down=0, key_left=0, key_right=0;
     
     // State Tracking
     int last_active_field = -1;
@@ -2611,6 +2611,7 @@ int main(int argc, char *argv[]) {
             last_active_field = active_field;
         }
 
+        SDL_PumpEvents(); // Ensure keyboard state stays fresh even when no events are queued
         while (SDL_PollEvent(&event)) {
             // Auto-AFK Reset
             if (event.type == SDL_KEYDOWN || event.type == SDL_MOUSEBUTTONDOWN || event.type == SDL_MOUSEMOTION) {
@@ -2701,6 +2702,17 @@ int main(int argc, char *argv[]) {
                 }
             } else {
                 // GAME INPUTS
+                if(event.type == SDL_KEYDOWN) {
+                    if(event.key.keysym.sym == SDLK_w) key_up = 1;
+                    else if(event.key.keysym.sym == SDLK_s) key_down = 1;
+                    else if(event.key.keysym.sym == SDLK_a) key_left = 1;
+                    else if(event.key.keysym.sym == SDLK_d) key_right = 1;
+                } else if(event.type == SDL_KEYUP) {
+                    if(event.key.keysym.sym == SDLK_w) key_up = 0;
+                    else if(event.key.keysym.sym == SDLK_s) key_down = 0;
+                    else if(event.key.keysym.sym == SDLK_a) key_left = 0;
+                    else if(event.key.keysym.sym == SDLK_d) key_right = 0;
+                }
                 if (event.type == SDL_MOUSEBUTTONDOWN) {
                      int mx = event.button.x * scale_x; int my = event.button.y * scale_y;
                      
@@ -2815,12 +2827,10 @@ int main(int argc, char *argv[]) {
                 
                 // --- FIXED MOVEMENT LOGIC START ---
                 float dx = 0, dy = 0;
-                const Uint8 *state = SDL_GetKeyboardState(NULL);
-
-                if (state[SDL_SCANCODE_W]) dy = -1;
-                if (state[SDL_SCANCODE_S]) dy = 1;
-                if (state[SDL_SCANCODE_A]) dx = -1;
-                if (state[SDL_SCANCODE_D]) dx = 1;
+                if (key_up) dy = -1;
+                if (key_down) dy = 1;
+                if (key_left) dx = -1;
+                if (key_right) dx = 1;
                 
                 float my_x=0, my_y=0; 
                 for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) { my_x=local_players[i].x; my_y=local_players[i].y; }
