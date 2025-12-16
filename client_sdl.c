@@ -267,12 +267,13 @@ void save_config() {
                 r = local_players[i].r; g = local_players[i].g; b = local_players[i].b;
             }
         }
-        // Format: R G B R2 G2 B2 AFK_MIN DEBUG FPS COORDS VOL
-        fprintf(fp, "%d %d %d %d %d %d %d %d %d %d %d\n", 
+        // Format: R G B R2 G2 B2 AFK_MIN DEBUG FPS COORDS VOL UNREAD
+        fprintf(fp, "%d %d %d %d %d %d %d %d %d %d %d %d\n", 
             r, g, b, 
             my_r2, my_g2, my_b2, 
             afk_timeout_minutes,
-            show_debug_info, show_fps, show_coords, music_volume // <--- New Values
+            show_debug_info, show_fps, show_coords, music_volume,
+            show_unread_counter // <--- Added this
         );
         fclose(fp);
     }
@@ -281,25 +282,28 @@ void save_config() {
 void load_config() {
     FILE *fp = fopen("config.txt", "r");
     if (fp) {
-        // We use temporary variables for the new flags to avoid overwriting defaults if file is short/corrupt
-        int dbg=0, fps=0, crd=0, vol=64;
+        // Temp variables for flags
+        int dbg=0, fps=0, crd=0, vol=64, unread=1;
         
-        int count = fscanf(fp, "%d %d %d %d %d %d %d %d %d %d %d", 
+        int count = fscanf(fp, "%d %d %d %d %d %d %d %d %d %d %d %d", 
             &saved_r, &saved_g, &saved_b, 
             &my_r2, &my_g2, &my_b2, 
             &afk_timeout_minutes,
-            &dbg, &fps, &crd, &vol
+            &dbg, &fps, &crd, &vol, &unread // <--- Added this
         );
         
-        // Only apply if we successfully read the new values (backward compatibility)
+        // Only apply if we successfully read at least the old version (11) or new (12)
         if (count >= 11) {
             show_debug_info = dbg;
             show_fps = fps;
             show_coords = crd;
             music_volume = vol;
-            
-            // Apply volume immediately
             Mix_VolumeMusic(music_volume);
+        }
+        
+        // Apply new field if present
+        if (count >= 12) {
+            show_unread_counter = unread;
         }
         
         fclose(fp);
@@ -2177,7 +2181,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
                 show_nick_popup = 1; nick_new[0] = 0; nick_confirm[0] = 0; nick_pass[0] = 0; strcpy(auth_message, "Enter details."); return;
             }
 
-// --- Generic Slider Hit Detection (Replaces all specific slider logic) ---
+            // --- Generic Slider Hit Detection (Replaces all specific slider logic) ---
             SDL_Rect touch_pad = {0,0,0,0};
             int margin = 15; // Hit margin makes them easier to grab with touch
 
