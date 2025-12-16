@@ -18,7 +18,7 @@
 #define PLAYER_HEIGHT 32
 char current_map_file[32] = "map.jpg";
 #define PLAYER_FILE "player.png"
-#define FONT_PATH "/usr/share/fonts/TTF/DejaVuSans.ttf"
+#define FONT_PATH "DejaVuSans.ttf"
 #define FONT_SIZE 14
 
 
