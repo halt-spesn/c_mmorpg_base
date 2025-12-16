@@ -220,6 +220,7 @@ int show_unread_counter = 1; // Default ON
 SDL_Rect btn_toggle_unread;
 
 Uint32 last_input_tick = 0;
+Uint32 last_color_packet_ms = 0;
 int afk_timeout_minutes = 2; // Default 2 minutes
 int is_auto_afk = 0;         // Flag to know if we triggered it automatically
 SDL_Rect slider_afk;
@@ -1328,11 +1329,14 @@ void process_slider_drag(int mx) {
     if (active_slider == SLIDER_VOL) Mix_VolumeMusic(music_volume);
     
     if (update_color) {
-        // Send Packet using Globals
-        Packet pkt; pkt.type = PACKET_COLOR_CHANGE;
-        pkt.r = my_r; pkt.g = my_g; pkt.b = my_b;
-        pkt.r2 = my_r2; pkt.g2 = my_g2; pkt.b2 = my_b2;
-        send_packet(&pkt);
+        Uint32 nowc = SDL_GetTicks();
+        if (nowc - last_color_packet_ms > 100) { // throttle to ~10 packets/sec during drag
+            Packet pkt; pkt.type = PACKET_COLOR_CHANGE;
+            pkt.r = my_r; pkt.g = my_g; pkt.b = my_b;
+            pkt.r2 = my_r2; pkt.g2 = my_g2; pkt.b2 = my_b2;
+            send_packet(&pkt);
+            last_color_packet_ms = nowc;
+        }
         
         // Force Local Update (For Game View Preview)
         for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { 
