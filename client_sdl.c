@@ -1,17 +1,42 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <arpa/inet.h>
-#include <sys/ioctl.h>
+#include <sys/stat.h>
+
+#ifdef _WIN32
+    #include <winsock2.h>
+    #include <windows.h>
+    #include <ws2tcpip.h>
+    #define close closesocket
+    #define ioctl ioctlsocket
+    #define sleep(x) Sleep(x * 1000)
+    #define usleep(x) Sleep(x / 1000)
+#else
+    #include <unistd.h>
+    #include <arpa/inet.h>
+    #include <sys/ioctl.h>
+    #include <sys/socket.h>
+    #include <netinet/in.h>
+    #include <sys/utsname.h>
+#endif
+
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
 #include <SDL2/SDL_image.h>
-#include <sys/utsname.h>
-#include <GL/gl.h>
-#include "common.h"
 #include <SDL2/SDL_mixer.h>
-#include <dirent.h> 
+#include <sys/types.h>
+
+// Handle OpenGL headers
+#ifdef __APPLE__
+#include <SDL2/SDL_opengl.h>
+#elif defined(_WIN32)
+#include <SDL2/SDL_opengl.h>
+#else
+#include <GL/gl.h>
+#endif
+
+#include "common.h"
+#include <dirent.h> // MinGW usually provides this, but visual studio does not. MinGW is fine.
 
 // --- Config ---
 #define PLAYER_WIDTH 32
@@ -257,7 +282,9 @@ int trigger_count = 0;
 Uint32 last_map_switch_time = 0;
 
 // --- Helpers ---
-void send_packet(Packet *pkt) { send(sock, pkt, sizeof(Packet), 0); }
+void send_packet(Packet *pkt) { 
+    send(sock, (const char*)pkt, sizeof(Packet), 0); // Cast to (const char*)
+}
 
 void load_servers() {
     FILE *fp = fopen("servers.txt", "r");
@@ -1155,10 +1182,18 @@ void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
     snprintf(lines[line_count++], 128, "Server IP: %s", server_ip);
     float px=0, py=0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { px=local_players[i].x; py=local_players[i].y; }
     snprintf(lines[line_count++], 128, "Pos: %.1f, %.1f", px, py);
-    const unsigned char *renderer_str = glGetString(GL_RENDERER);
+    SDL_RendererInfo info;
+    SDL_GetRendererInfo(renderer, &info);
+    const char *renderer_str = info.name;
     if (renderer_str) snprintf(lines[line_count++], 128, "GPU: %s", renderer_str); else snprintf(lines[line_count++], 128, "GPU: Unknown");
     SDL_version compiled; SDL_VERSION(&compiled); snprintf(lines[line_count++], 128, "SDL: %d.%d.%d", compiled.major, compiled.minor, compiled.patch);
-    struct utsname buffer; if (uname(&buffer) == 0) snprintf(lines[line_count++], 128, "OS: %s %s", buffer.sysname, buffer.release); else snprintf(lines[line_count++], 128, "OS: Unknown");
+    #ifndef _WIN32
+    struct utsname buffer; 
+    if (uname(&buffer) == 0) snprintf(lines[line_count++], 128, "OS: %s %s", buffer.sysname, buffer.release); 
+    else snprintf(lines[line_count++], 128, "OS: Unknown");
+    #else
+    snprintf(lines[line_count++], 128, "OS: Windows");
+    #endif
     char compiler_name[10] = "Unknown";
     #if defined(__clang__) 
         strcpy(compiler_name, "Clang");
@@ -2452,8 +2487,15 @@ int y_start = auth_box.y + 80;
     CHECK_FIELD(r_pass, 1, auth_password);
 }
 
-int main(int argc, char const *argv[]) {
+int main(int argc, char *argv[]) {
     // 1. Init SDL & Libraries
+    #ifdef _WIN32
+    WSADATA wsa;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
+        printf("Failed. Error Code : %d", WSAGetLastError());
+        return 1;
+    }
+    #endif
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) return 1;
     if (TTF_Init() == -1) return 1;
     if (!(IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG) & (IMG_INIT_PNG | IMG_INIT_JPG))) printf("IMG Init Error: %s\n", IMG_GetError());
@@ -2746,10 +2788,22 @@ int main(int argc, char const *argv[]) {
         }
 
         if (sock > 0) {
-            int bytes; 
-            if (ioctl(sock, FIONREAD, &bytes) != -1 && bytes > 0) {
+            int has_data = 0;
+
+            #ifdef _WIN32
+                u_long bytes_available = 0; // Windows needs u_long
+                if (ioctlsocket(sock, FIONREAD, &bytes_available) == 0 && bytes_available > 0) {
+                    has_data = 1;
+                }
+            #else
+                int bytes_available = 0;    // Linux needs int
+                if (ioctl(sock, FIONREAD, &bytes_available) != -1 && bytes_available > 0) {
+                    has_data = 1;
+                }
+            #endif
+            if (has_data) {
                 Packet pkt; 
-                if (recv(sock, &pkt, sizeof(Packet), MSG_WAITALL) > 0) {
+                if (recv(sock, (char*)&pkt, sizeof(Packet), MSG_WAITALL) > 0) {
                     if (pkt.type == PACKET_AUTH_RESPONSE) {
                         if (pkt.status == AUTH_SUCCESS) { 
                             client_state = STATE_GAME; 

@@ -7,3 +7,5 @@ mmorpg.db-shm
 mmorpg.db-wal
 servers.txt
 config.txt
+windows_release
+game_client.exe
