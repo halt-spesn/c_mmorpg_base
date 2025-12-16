@@ -221,6 +221,11 @@ SDL_Rect btn_toggle_unread;
 
 Uint32 last_input_tick = 0;
 Uint32 last_color_packet_ms = 0;
+
+// --- GL Probe Cache ---
+char gl_renderer_cache[128] = "";
+char gl_vendor_cache[128] = "";
+int gl_probe_done = 0;
 int afk_timeout_minutes = 2; // Default 2 minutes
 int is_auto_afk = 0;         // Flag to know if we triggered it automatically
 SDL_Rect slider_afk;
@@ -1232,7 +1237,9 @@ void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
         if (gl_renderer && strlen(gl_renderer) > 0) snprintf(lines[line_count++], 128, "GL Renderer: %s", gl_renderer);
         if (gl_vendor   && strlen(gl_vendor)   > 0) snprintf(lines[line_count++], 128, "GL Vendor: %s", gl_vendor);
     } else {
-        snprintf(lines[line_count++], 128, "GL Renderer: N/A (non-GL backend)");
+        if (gl_renderer_cache[0]) snprintf(lines[line_count++], 128, "GL Renderer: %s", gl_renderer_cache);
+        if (gl_vendor_cache[0])   snprintf(lines[line_count++], 128, "GL Vendor: %s", gl_vendor_cache);
+        else snprintf(lines[line_count++], 128, "GL Renderer: N/A (non-GL backend)");
     }
     SDL_version compiled; SDL_VERSION(&compiled); snprintf(lines[line_count++], 128, "SDL: %d.%d.%d", compiled.major, compiled.minor, compiled.patch);
     #ifndef _WIN32
@@ -2542,7 +2549,7 @@ int main(int argc, char *argv[]) {
     setbuf(stdout, NULL);
     // 1. Init SDL & Libraries
     //printf("DEBUG: Packet Size is %d bytes\n", (int)sizeof(Packet));
-#ifdef _WIN32
+    #ifdef _WIN32
     WSADATA wsa;
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
         printf("Failed. Error Code : %d", WSAGetLastError());
@@ -2552,15 +2559,35 @@ int main(int argc, char *argv[]) {
     #ifdef SDL_HINT_WINDOWS_RAWKEYBOARD
     SDL_SetHint(SDL_HINT_WINDOWS_RAWKEYBOARD, "1");
     #endif
-#endif
+    #endif
+    #ifdef __APPLE__
+    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal"); // prefer Metal to avoid black titlebar
+    #endif
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) return 1;
     if (TTF_Init() == -1) return 1;
     if (!(IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG) & (IMG_INIT_PNG | IMG_INIT_JPG))) printf("IMG Init Error: %s\n", IMG_GetError());
+    // Probe GL strings even if active renderer is non-GL
+    if (!gl_probe_done) {
+        SDL_Window *tmpw = SDL_CreateWindow("probe", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 1, 1, SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN);
+        if (tmpw) {
+            SDL_GLContext tmpc = SDL_GL_CreateContext(tmpw);
+            if (tmpc) {
+                const char *gr = (const char*)glGetString(GL_RENDERER);
+                const char *gv = (const char*)glGetString(GL_VENDOR);
+                if (gr) strncpy(gl_renderer_cache, gr, sizeof(gl_renderer_cache)-1);
+                if (gv) strncpy(gl_vendor_cache, gv, sizeof(gl_vendor_cache)-1);
+                SDL_GL_DeleteContext(tmpc);
+            }
+            SDL_DestroyWindow(tmpw);
+        }
+        gl_probe_done = 1;
+    }
 
     font = TTF_OpenFont(FONT_PATH, FONT_SIZE);
     if (!font) { printf("Font missing: %s\n", FONT_PATH); return 1; }
     #ifdef __APPLE__
-    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengl"); // Try OpenGL to avoid black decorations
+    // Fallback to OpenGL if Metal unavailable
+    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengl");
     #endif
     SDL_EventState(SDL_KEYDOWN, SDL_ENABLE);
     SDL_EventState(SDL_KEYUP, SDL_ENABLE);
