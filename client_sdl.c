@@ -1213,7 +1213,7 @@ void render_my_warnings(SDL_Renderer *renderer, int w, int h) {
 
 void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
     if (!show_debug_info) return;
-    char lines[10][128]; int line_count = 0;
+    char lines[12][128]; int line_count = 0;
     snprintf(lines[line_count++], 128, "Ping: %d ms", current_ping);
     snprintf(lines[line_count++], 128, "Server IP: %s", server_ip);
     float px=0, py=0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { px=local_players[i].x; py=local_players[i].y; }
@@ -1221,7 +1221,14 @@ void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
     SDL_RendererInfo info;
     SDL_GetRendererInfo(renderer, &info);
     const char *renderer_str = info.name;
+    const char *video_drv = SDL_GetCurrentVideoDriver();
+    snprintf(lines[line_count++], 128, "VideoDrv: %s", video_drv ? video_drv : "Unknown");
     if (renderer_str) snprintf(lines[line_count++], 128, "GPU: %s", renderer_str); else snprintf(lines[line_count++], 128, "GPU: Unknown");
+    void *glctx = SDL_GL_GetCurrentContext();
+    if (glctx) {
+        const char *gl_renderer = (const char*)glGetString(GL_RENDERER);
+        if (gl_renderer && strlen(gl_renderer) > 0) snprintf(lines[line_count++], 128, "GL Renderer: %s", gl_renderer);
+    }
     SDL_version compiled; SDL_VERSION(&compiled); snprintf(lines[line_count++], 128, "SDL: %d.%d.%d", compiled.major, compiled.minor, compiled.patch);
     #ifndef _WIN32
     struct utsname buffer; 
@@ -2533,6 +2540,7 @@ int main(int argc, char *argv[]) {
         printf("Failed. Error Code : %d", WSAGetLastError());
         return 1;
     }
+    FreeConsole(); // Hide extra console window on Windows builds
     #ifdef SDL_HINT_WINDOWS_RAWKEYBOARD
     SDL_SetHint(SDL_HINT_WINDOWS_RAWKEYBOARD, "1");
     #endif
