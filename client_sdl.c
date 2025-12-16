@@ -280,10 +280,40 @@ typedef struct {
 MapTrigger triggers[20];
 int trigger_count = 0;
 Uint32 last_map_switch_time = 0;
+Uint32 last_move_time = 0; // <--- MOVE HERE
 
 // --- Helpers ---
+int send_all(int sockfd, const void *buf, size_t len) {
+    size_t total = 0;
+    size_t bytes_left = len;
+    int n;
+
+    while(total < len) {
+        n = send(sockfd, (const char*)buf + total, bytes_left, 0);
+        if (n == -1) { break; }
+        total += n;
+        bytes_left -= n;
+    }
+    return (n == -1) ? -1 : 0; // return -1 on failure, 0 on success
+}
+
 void send_packet(Packet *pkt) { 
-    send(sock, (const char*)pkt, sizeof(Packet), 0); // Cast to (const char*)
+    send_all(sock, pkt, sizeof(Packet)); 
+}
+
+// --- Helper to ensure full packet receipt on Windows ---
+int recv_total(int sockfd, void *buf, size_t len) {
+    size_t total = 0;
+    size_t bytes_left = len;
+    int n;
+    while(total < len) {
+        // Note: Using flag 0 instead of MSG_WAITALL
+        n = recv(sockfd, (char*)buf + total, bytes_left, 0); 
+        if(n <= 0) return n; // Error or disconnect
+        total += n; 
+        bytes_left -= n;
+    }
+    return total;
 }
 
 void load_servers() {
@@ -2489,6 +2519,7 @@ int y_start = auth_box.y + 80;
 
 int main(int argc, char *argv[]) {
     // 1. Init SDL & Libraries
+    //printf("DEBUG: Packet Size is %d bytes\n", (int)sizeof(Packet));
     #ifdef _WIN32
     WSADATA wsa;
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
@@ -2700,10 +2731,19 @@ int main(int argc, char *argv[]) {
                     if(event.type == SDL_KEYDOWN) {
                         if(event.key.keysym.sym == SDLK_RETURN) {
                             if(strlen(input_buffer)>0) { 
+                            if (chat_target_id != -1) {
+                                Packet pkt;
+                               memset(&pkt, 0, sizeof(Packet)); // <--- Zero it
+                                
                                 if (chat_target_id != -1) {
-                                    Packet pkt; pkt.type = PACKET_PRIVATE_MESSAGE; pkt.target_id = chat_target_id; strcpy(pkt.msg, input_buffer); send_packet(&pkt);
-                                    chat_target_id = -1;
-                                } else { Packet pkt; pkt.type = PACKET_CHAT; strcpy(pkt.msg, input_buffer); send_packet(&pkt); }
+                                    pkt.type = PACKET_PRIVATE_MESSAGE; 
+                                    pkt.target_id = chat_target_id; 
+                                } else { 
+                                    pkt.type = PACKET_CHAT; 
+                                }
+                                strcpy(pkt.msg, input_buffer); 
+                                send_packet(&pkt);
+                                
                                 input_buffer[0]=0; cursor_pos = 0;
                             }
                             is_chat_open=0; SDL_StopTextInput();
@@ -2782,11 +2822,27 @@ int main(int argc, char *argv[]) {
                    }
                 }
 
-                if (key_up) dy = -1; if (key_down) dy = 1; if (key_left) dx = -1; if (key_right) dx = 1;
-                if (dx != 0 || dy != 0) { Packet pkt; pkt.type = PACKET_MOVE; pkt.dx = dx; pkt.dy = dy; send_packet(&pkt); }
-            }
-        }
+            if (key_up) dy = -1; if (key_down) dy = 1; 
+            if (key_left) dx = -1; if (key_right) dx = 1;
+            
+            if (dx != 0 || dy != 0) { 
+                // 1. Rate Limiting: Only send move every 30ms (~30 times/sec)
+                // Rate Limiting
+                if (now - last_move_time > 30) { // Uses global variable
+                Packet pkt; 
+                memset(&pkt, 0, sizeof(Packet));
 
+                pkt.type = PACKET_MOVE; 
+                pkt.dx = dx; 
+                pkt.dy = dy; 
+
+                send_packet(&pkt);
+                last_move_time = now;
+                    }
+                }
+             }
+         }
+    }        
         if (sock > 0) {
             int has_data = 0;
 
@@ -2803,7 +2859,7 @@ int main(int argc, char *argv[]) {
             #endif
             if (has_data) {
                 Packet pkt; 
-                if (recv(sock, (char*)&pkt, sizeof(Packet), MSG_WAITALL) > 0) {
+                if (recv_total(sock, &pkt, sizeof(Packet)) > 0) {
                     if (pkt.type == PACKET_AUTH_RESPONSE) {
                         if (pkt.status == AUTH_SUCCESS) { 
                             client_state = STATE_GAME; 

@@ -6,8 +6,12 @@ IMG_PATH="win_libs/SDL2_image-2.8.2/x86_64-w64-mingw32"
 TTF_PATH="win_libs/SDL2_ttf-2.22.0/x86_64-w64-mingw32"
 MIX_PATH="win_libs/SDL2_mixer-2.8.0/x86_64-w64-mingw32"
 
+# 1. Create folder for release
+mkdir -p windows_release
+echo "Creating folder windows_release..."
+
 # Compile Command
-x86_64-w64-mingw32-gcc client_sdl.c -o game_client.exe \
+x86_64-w64-mingw32-gcc client_sdl.c -o windows_release/game_client.exe \
     -I$SDL2_PATH/include/SDL2 \
     -I$SDL2_PATH/include \
     -I$IMG_PATH/include \
@@ -19,14 +23,6 @@ x86_64-w64-mingw32-gcc client_sdl.c -o game_client.exe \
     -L$MIX_PATH/lib \
     -lmingw32 -lSDL2main -lSDL2 -lSDL2_image -lSDL2_ttf -lSDL2_mixer \
     -lws2_32 -lopengl32 -static-libgcc -static-libstdc++
-
-
-# 1. Create folder for release
-mkdir -p windows_release
-echo "Створено папку windows_release..."
-
-# 2. Copy executable file
-cp game_client.exe windows_release/
 
 # 3. Copy resources
 cp map.jpg windows_release/

@@ -742,11 +742,16 @@ void handle_client_message(int index, Packet *pkt) {
 }
 
 int recv_full(int sockfd, void *buf, size_t len) {
-    size_t total = 0; size_t bytes_left = len; int n;
+    size_t total = 0;
+    size_t bytes_left = len;
+    int n;
     while(total < len) {
-        n = recv(sockfd, (char*)buf + total, bytes_left, 0); if(n <= 0) return n; 
-        total += n; bytes_left -= n;
-    } return total;
+        n = recv(sockfd, (char*)buf + total, bytes_left, 0); 
+        if(n <= 0) return n; // Error or disconnect
+        total += n; 
+        bytes_left -= n;
+    }
+    return total;
 }
 
 // --- NEW TICK THREAD ---
@@ -763,7 +768,7 @@ void *tick_thread(void *arg) {
 void *client_handler(void *arg) {
     int index = *(int*)arg; free(arg); int sd = client_sockets[index]; Packet pkt;
     while (1) {
-        int valread = recv(sd, &pkt, sizeof(Packet), MSG_WAITALL);
+        int valread = recv_full(sd, &pkt, sizeof(Packet));
         if (valread <= 0) {
             pthread_mutex_lock(&state_mutex);
             close(sd); client_sockets[index] = 0;
@@ -798,6 +803,7 @@ void *client_handler(void *arg) {
 }
 
 int main(int argc, char *argv[]) {
+    //printf("DEBUG: Packet Size is %d bytes\n", (int)sizeof(Packet));
     int server_fd, new_socket; 
     struct sockaddr_in address;
     
