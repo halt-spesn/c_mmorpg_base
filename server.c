@@ -352,7 +352,15 @@ void handle_client_message(int index, Packet *pkt) {
         response.type = PACKET_AUTH_RESPONSE;
 
         if (pkt->type == PACKET_REGISTER_REQUEST) {
-            response.status = register_user(pkt->username, pkt->password);
+            if (pkt->username[0] == '\0' || pkt->password[0] == '\0') {
+                response.status = AUTH_FAILURE;
+                strcpy(response.msg, "Username and password required.");
+            } else {
+                response.status = register_user(pkt->username, pkt->password);
+                if (response.status == AUTH_REGISTER_SUCCESS) strcpy(response.msg, "Registered.");
+                else if (response.status == AUTH_REGISTER_FAILED_EXISTS) strcpy(response.msg, "User exists.");
+                else strcpy(response.msg, "Registration failed.");
+            }
         } 
         else if (pkt->type == PACKET_LOGIN_REQUEST) {
             float x, y; 
@@ -363,7 +371,11 @@ void handle_client_message(int index, Packet *pkt) {
             char db_map[32] = "map.jpg";
 
             // Pass &ban_expire to the function
-            if (login_user(pkt->username, pkt->password, &x, &y, &r, &g, &b, &r2, &g2, &b2, &role, &ban_expire, &db_map)) {
+            if (pkt->username[0] == '\0' || pkt->password[0] == '\0') {
+                response.status = AUTH_FAILURE;
+                strcpy(response.msg, "Username and password required.");
+            }
+            else if (login_user(pkt->username, pkt->password, &x, &y, &r, &g, &b, &r2, &g2, &b2, &role, &ban_expire, &db_map)) {
                 
                 // 1. Check Ban Logic
                 if (time(NULL) < ban_expire) {
