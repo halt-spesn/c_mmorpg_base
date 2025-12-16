@@ -2545,7 +2545,7 @@ int main(int argc, char *argv[]) {
     win_flags |= SDL_WINDOW_ALLOW_HIGHDPI;
     #endif
     
-    SDL_Window *window = SDL_CreateWindow("C MMO Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 800, 600, SDL_WINDOW_SHOWN|SDL_WINDOW_RESIZABLE);
+    SDL_Window *window = SDL_CreateWindow("C MMO Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 800, 600, win_flags);
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     global_renderer = renderer;
 
@@ -2815,6 +2815,7 @@ int main(int argc, char *argv[]) {
                 
                 // --- FIXED MOVEMENT LOGIC START ---
                 float dx = 0, dy = 0;
+                SDL_PumpEvents(); // Ensure keyboard state is fresh (especially on Windows)
                 const Uint8 *state = SDL_GetKeyboardState(NULL);
 
                 if (state[SDL_SCANCODE_W]) dy = -1;
