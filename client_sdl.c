@@ -2730,10 +2730,10 @@ int main(int argc, char *argv[]) {
                     handle_text_edit(input_buffer, 60, &event);
                     if(event.type == SDL_KEYDOWN) {
                         if(event.key.keysym.sym == SDLK_RETURN) {
-                            if(strlen(input_buffer)>0) { 
-                            if (chat_target_id != -1) {
+                            if(strlen(input_buffer) > 0) { 
+                                // FIX: Removed the outer 'if (chat_target_id != -1)' wrapper
                                 Packet pkt;
-                               memset(&pkt, 0, sizeof(Packet)); // <--- Zero it
+                                memset(&pkt, 0, sizeof(Packet)); 
                                 
                                 if (chat_target_id != -1) {
                                     pkt.type = PACKET_PRIVATE_MESSAGE; 
@@ -2744,11 +2744,17 @@ int main(int argc, char *argv[]) {
                                 strcpy(pkt.msg, input_buffer); 
                                 send_packet(&pkt);
                                 
-                                input_buffer[0]=0; cursor_pos = 0;
+                                input_buffer[0] = 0; 
+                                cursor_pos = 0;
                             }
-                            is_chat_open=0; SDL_StopTextInput();
+                            is_chat_open = 0; 
+                            SDL_StopTextInput();
                         }
-                        else if(event.key.keysym.sym == SDLK_ESCAPE) { is_chat_open=0; chat_target_id = -1; SDL_StopTextInput(); }
+                        else if(event.key.keysym.sym == SDLK_ESCAPE) { 
+                            is_chat_open = 0; 
+                            chat_target_id = -1; 
+                            SDL_StopTextInput(); 
+                        }
                     }
                 }
                 else if (is_settings_open && show_nick_popup) {
@@ -2842,22 +2848,20 @@ int main(int argc, char *argv[]) {
                 }
              }
          }
-    }        
+           
         if (sock > 0) {
-            int has_data = 0;
+            // FIX: Use select() instead of ioctl/ioctlsocket
+            fd_set readfds;
+            FD_ZERO(&readfds);
+            FD_SET(sock, &readfds);
+            
+            // Timeout 0 = Non-blocking check
+            struct timeval tv = {0, 0}; 
 
-            #ifdef _WIN32
-                u_long bytes_available = 0; // Windows needs u_long
-                if (ioctlsocket(sock, FIONREAD, &bytes_available) == 0 && bytes_available > 0) {
-                    has_data = 1;
-                }
-            #else
-                int bytes_available = 0;    // Linux needs int
-                if (ioctl(sock, FIONREAD, &bytes_available) != -1 && bytes_available > 0) {
-                    has_data = 1;
-                }
-            #endif
-            if (has_data) {
+            // Check if socket is readable
+            int activity = select(sock + 1, &readfds, NULL, NULL, &tv);
+
+            if (activity > 0 && FD_ISSET(sock, &readfds)) {
                 Packet pkt; 
                 if (recv_total(sock, &pkt, sizeof(Packet)) > 0) {
                     if (pkt.type == PACKET_AUTH_RESPONSE) {

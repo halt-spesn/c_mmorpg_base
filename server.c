@@ -101,29 +101,7 @@ int get_user_id(const char* username) {
     sqlite3_finalize(stmt); return id;
 }
 
-void send_friend_list(int client_index) {
-    int my_id = players[client_index].id; if (my_id == -1) return;
-    Packet pkt; pkt.type = PACKET_FRIEND_LIST; pkt.friend_count = 0;
-    char sql[512];
-    snprintf(sql, 512, "SELECT f.FRIEND_ID, u.USERNAME, u.LAST_LOGIN FROM friends f JOIN users u ON f.FRIEND_ID = u.ID WHERE f.USER_ID=%d AND f.STATUS=1;", my_id);
-    sqlite3_stmt *stmt;
-    if (sqlite3_prepare_v2(db, sql, -1, &stmt, 0) == SQLITE_OK) {
-        while (sqlite3_step(stmt) == SQLITE_ROW && pkt.friend_count < 20) {
-            int fid = sqlite3_column_int(stmt, 0);
-            const unsigned char *fname = sqlite3_column_text(stmt, 1);
-            const unsigned char *flogin = sqlite3_column_text(stmt, 2);
-            pkt.friends[pkt.friend_count].id = fid;
-            strncpy(pkt.friends[pkt.friend_count].username, (const char*)fname, 31);
-            if (flogin) strncpy(pkt.friends[pkt.friend_count].last_login, (const char*)flogin, 31);
-            else strcpy(pkt.friends[pkt.friend_count].last_login, "Unknown");
-            pkt.friends[pkt.friend_count].is_online = 0;
-            for(int i=0; i<MAX_CLIENTS; i++) if(players[i].active && players[i].id == fid) pkt.friends[pkt.friend_count].is_online = 1;
-            pkt.friend_count++;
-        }
-        sqlite3_finalize(stmt);
-    }
-    send(client_sockets[client_index], &pkt, sizeof(Packet), 0);
-}
+
 
 AuthStatus register_user(const char *user, const char *pass) {
     char sql[256]; int count = 0; sqlite3_stmt *stmt;
@@ -175,13 +153,54 @@ void init_game() {
     for (int i = 0; i < MAX_CLIENTS; i++) { client_sockets[i] = 0; players[i].active = 0; players[i].id = -1; }
 }
 
+
+// Updated to accept 'int flags' so it matches the send() signature
+int send_all(int sockfd, void *buf, size_t len, int flags) {
+    size_t total = 0;
+    size_t bytes_left = len;
+    int n;
+    while(total < len) {
+        // Pass the 'flags' (usually 0) through to the real send
+        n = send(sockfd, (char*)buf + total, bytes_left, flags);
+        if (n == -1) { break; }
+        total += n;
+        bytes_left -= n;
+    }
+    return (n == -1) ? -1 : 0; 
+}
+
 void broadcast_state() {
     Packet pkt; pkt.type = PACKET_UPDATE;
     memcpy(pkt.players, players, sizeof(players));
     for (int i = 0; i < MAX_CLIENTS; i++) {
-        if (client_sockets[i] > 0 && players[i].id != -1) send(client_sockets[i], &pkt, sizeof(Packet), 0);
+        if (client_sockets[i] > 0 && players[i].id != -1) send_all(client_sockets[i], &pkt, sizeof(Packet), 0);
     }
 }
+
+void send_friend_list(int client_index) {
+    int my_id = players[client_index].id; if (my_id == -1) return;
+    Packet pkt; pkt.type = PACKET_FRIEND_LIST; pkt.friend_count = 0;
+    char sql[512];
+    snprintf(sql, 512, "SELECT f.FRIEND_ID, u.USERNAME, u.LAST_LOGIN FROM friends f JOIN users u ON f.FRIEND_ID = u.ID WHERE f.USER_ID=%d AND f.STATUS=1;", my_id);
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, 0) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW && pkt.friend_count < 20) {
+            int fid = sqlite3_column_int(stmt, 0);
+            const unsigned char *fname = sqlite3_column_text(stmt, 1);
+            const unsigned char *flogin = sqlite3_column_text(stmt, 2);
+            pkt.friends[pkt.friend_count].id = fid;
+            strncpy(pkt.friends[pkt.friend_count].username, (const char*)fname, 31);
+            if (flogin) strncpy(pkt.friends[pkt.friend_count].last_login, (const char*)flogin, 31);
+            else strcpy(pkt.friends[pkt.friend_count].last_login, "Unknown");
+            pkt.friends[pkt.friend_count].is_online = 0;
+            for(int i=0; i<MAX_CLIENTS; i++) if(players[i].active && players[i].id == fid) pkt.friends[pkt.friend_count].is_online = 1;
+            pkt.friend_count++;
+        }
+        sqlite3_finalize(stmt);
+    }
+    send_all(client_sockets[client_index], &pkt, sizeof(Packet), 0);
+}
+
 
 void broadcast_friend_update() {
     for (int i = 0; i < MAX_CLIENTS; i++) {
@@ -192,7 +211,7 @@ void broadcast_friend_update() {
 void process_admin_command(int sender_idx, char *msg) {
     if (players[sender_idx].role != ROLE_ADMIN) {
         Packet err; err.type = PACKET_CHAT; err.player_id = -1; strcpy(err.msg, "Error: You do not have permission.");
-        send(client_sockets[sender_idx], &err, sizeof(Packet), 0); return;
+        send_all(client_sockets[sender_idx], &err, sizeof(Packet), 0); return;
     }
     char cmd[16], arg1[32], arg2[32];
     int args = sscanf(msg, "%s %s %s", cmd, arg1, arg2);
@@ -207,7 +226,7 @@ void process_admin_command(int sender_idx, char *msg) {
             if (players[i].active && players[i].id == target_id) {
                 players[i].role = new_role;
                 Packet notif; notif.type = PACKET_CHAT; notif.player_id = -1; snprintf(notif.msg, 64, "Role updated.");
-                send(client_sockets[i], &notif, sizeof(Packet), 0);
+                send_all(client_sockets[i], &notif, sizeof(Packet), 0);
             }
         }
         broadcast_state();
@@ -223,14 +242,14 @@ void process_nick_change(int index, Packet *pkt) {
     if (strcmp(confirm, "CONFIRM") != 0) {
         Packet resp; resp.type = PACKET_CHANGE_NICK_RESPONSE; resp.status = AUTH_FAILURE;
         strcpy(resp.msg, "Type CONFIRM to proceed.");
-        send(client_sockets[index], &resp, sizeof(Packet), 0);
+        send_all(client_sockets[index], &resp, sizeof(Packet), 0);
         return;
     }
 
     if (strlen(new_nick) < 3 || strlen(new_nick) > 31) {
         Packet resp; resp.type = PACKET_CHANGE_NICK_RESPONSE; resp.status = AUTH_FAILURE;
         strcpy(resp.msg, "Name too short/long.");
-        send(client_sockets[index], &resp, sizeof(Packet), 0);
+        send_all(client_sockets[index], &resp, sizeof(Packet), 0);
         return;
     }
 
@@ -249,7 +268,7 @@ void process_nick_change(int index, Packet *pkt) {
         if (strcmp(password, db_pass) != 0) {
             Packet resp; resp.type = PACKET_CHANGE_NICK_RESPONSE; resp.status = AUTH_FAILURE;
             strcpy(resp.msg, "Wrong Password.");
-            send(client_sockets[index], &resp, sizeof(Packet), 0);
+            send_all(client_sockets[index], &resp, sizeof(Packet), 0);
             sqlite3_finalize(stmt);
             return;
         }
@@ -260,7 +279,7 @@ void process_nick_change(int index, Packet *pkt) {
             Packet resp; resp.type = PACKET_CHANGE_NICK_RESPONSE; resp.status = AUTH_FAILURE;
             int days_left = (2592000 - (now - last_change)) / 86400;
             snprintf(resp.msg, 64, "Wait %d more days.", days_left);
-            send(client_sockets[index], &resp, sizeof(Packet), 0);
+            send_all(client_sockets[index], &resp, sizeof(Packet), 0);
             sqlite3_finalize(stmt);
             return;
         }
@@ -274,7 +293,7 @@ void process_nick_change(int index, Packet *pkt) {
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         Packet resp; resp.type = PACKET_CHANGE_NICK_RESPONSE; resp.status = AUTH_FAILURE;
         strcpy(resp.msg, "Name taken.");
-        send(client_sockets[index], &resp, sizeof(Packet), 0);
+        send_all(client_sockets[index], &resp, sizeof(Packet), 0);
         sqlite3_finalize(stmt);
         return;
     }
@@ -289,7 +308,7 @@ void process_nick_change(int index, Packet *pkt) {
         Packet resp; resp.type = PACKET_CHANGE_NICK_RESPONSE; resp.status = AUTH_SUCCESS;
         strcpy(resp.msg, "Nickname Changed!");
         strncpy(resp.username, new_nick, 31); // Send back new name
-        send(client_sockets[index], &resp, sizeof(Packet), 0);
+        send_all(client_sockets[index], &resp, sizeof(Packet), 0);
         
         // Broadcast updates
         broadcast_state();
@@ -297,7 +316,7 @@ void process_nick_change(int index, Packet *pkt) {
     } else {
         Packet resp; resp.type = PACKET_CHANGE_NICK_RESPONSE; resp.status = AUTH_FAILURE;
         strcpy(resp.msg, "Database Error.");
-        send(client_sockets[index], &resp, sizeof(Packet), 0);
+        send_all(client_sockets[index], &resp, sizeof(Packet), 0);
     }
 }
 
@@ -320,7 +339,7 @@ void send_pending_requests(int client_index) {
             req.player_id = sqlite3_column_int(stmt, 0); // The requester's ID
             strncpy(req.username, (const char*)sqlite3_column_text(stmt, 1), 31);
             
-            send(client_sockets[client_index], &req, sizeof(Packet), 0);
+            send_all(client_sockets[client_index], &req, sizeof(Packet), 0);
         }
         sqlite3_finalize(stmt);
     }
@@ -350,7 +369,7 @@ void handle_client_message(int index, Packet *pkt) {
                 if (time(NULL) < ban_expire) {
                     response.status = AUTH_FAILURE;
                     strcpy(response.msg, "Account is Banned."); // Fixed variable name
-                    send(client_sockets[index], &response, sizeof(Packet), 0);
+                    send_all(client_sockets[index], &response, sizeof(Packet), 0);
                     return;
                 }
 
@@ -390,7 +409,7 @@ void handle_client_message(int index, Packet *pkt) {
                     strncpy(players[index].map_name, db_map, 31);
                     
                     response.player_id = players[index].id;
-                    send(client_sockets[index], &response, sizeof(Packet), 0);
+                    send_all(client_sockets[index], &response, sizeof(Packet), 0);
                     
                     broadcast_friend_update(); 
                     send_pending_requests(index); 
@@ -402,7 +421,7 @@ void handle_client_message(int index, Packet *pkt) {
                 strcpy(response.msg, "Invalid username or password.");
             }
         }
-        send(client_sockets[index], &response, sizeof(Packet), 0); 
+        send_all(client_sockets[index], &response, sizeof(Packet), 0); 
         return;
     }
 
@@ -423,7 +442,7 @@ void handle_client_message(int index, Packet *pkt) {
             if (players[index].role < ROLE_ADMIN) {
                 Packet err; err.type = PACKET_CHAT; err.player_id = -1;
                 strcpy(err.msg, "Unknown command.");
-                send(client_sockets[index], &err, sizeof(Packet), 0);
+                send_all(client_sockets[index], &err, sizeof(Packet), 0);
                 return;
             }
 
@@ -438,7 +457,7 @@ void handle_client_message(int index, Packet *pkt) {
                     
                     Packet resp; resp.type = PACKET_CHAT; resp.player_id = -1;
                     snprintf(resp.msg, 64, "ID %d has been UNBANNED.", target_id);
-                    send(client_sockets[index], &resp, sizeof(Packet), 0);
+                    send_all(client_sockets[index], &resp, sizeof(Packet), 0);
                 }
             }
             // 3. /unwarn <ID> (Remove last warning)
@@ -458,7 +477,7 @@ void handle_client_message(int index, Packet *pkt) {
 
                     Packet resp; resp.type = PACKET_CHAT; resp.player_id = -1;
                     snprintf(resp.msg, 64, "ID %d: Last warning removed.", target_id);
-                    send(client_sockets[index], &resp, sizeof(Packet), 0);
+                    send_all(client_sockets[index], &resp, sizeof(Packet), 0);
                 }
             }
             // 4. /role <ID> <LEVEL> (Bonus: Set role via command)
@@ -478,13 +497,13 @@ void handle_client_message(int index, Packet *pkt) {
                     }
                     Packet resp; resp.type = PACKET_CHAT; resp.player_id = -1;
                     snprintf(resp.msg, 64, "ID %d Role set to %d.", target_id, level);
-                    send(client_sockets[index], &resp, sizeof(Packet), 0);
+                    send_all(client_sockets[index], &resp, sizeof(Packet), 0);
                 }
             }
             else {
                 Packet err; err.type = PACKET_CHAT; err.player_id = -1;
                 strcpy(err.msg, "Invalid command.");
-                send(client_sockets[index], &err, sizeof(Packet), 0);
+                send_all(client_sockets[index], &err, sizeof(Packet), 0);
             }
             return; // Don't broadcast commands
         }
@@ -494,7 +513,7 @@ void handle_client_message(int index, Packet *pkt) {
         pkt->player_id = players[index].id;
         for (int i = 0; i < MAX_CLIENTS; i++) {
             if (client_sockets[i] > 0 && players[i].active) {
-                send(client_sockets[i], pkt, sizeof(Packet), 0);
+                send_all(client_sockets[i], pkt, sizeof(Packet), 0);
             }
         }
     }
@@ -506,7 +525,7 @@ void handle_client_message(int index, Packet *pkt) {
         if (target_id == my_id) {
             Packet err; err.type = PACKET_CHAT; err.player_id = -1;
             strcpy(err.msg, "Error: You cannot add yourself.");
-            send(client_sockets[index], &err, sizeof(Packet), 0);
+            send_all(client_sockets[index], &err, sizeof(Packet), 0);
             return;
         }
 
@@ -523,7 +542,7 @@ void handle_client_message(int index, Packet *pkt) {
         if (!exists) {
             Packet err; err.type = PACKET_CHAT; err.player_id = -1;
             snprintf(err.msg, 64, "Error: User ID %d does not exist.", target_id);
-            send(client_sockets[index], &err, sizeof(Packet), 0);
+            send_all(client_sockets[index], &err, sizeof(Packet), 0);
             return;
         }
         
@@ -544,13 +563,13 @@ void handle_client_message(int index, Packet *pkt) {
             Packet req; req.type = PACKET_FRIEND_INCOMING;
             req.player_id = players[index].id; 
             strcpy(req.username, players[index].username);
-            send(client_sockets[target_idx], &req, sizeof(Packet), 0);
+            send_all(client_sockets[target_idx], &req, sizeof(Packet), 0);
         }
 
         // 6. Confirm to Sender
         Packet succ; succ.type = PACKET_CHAT; succ.player_id = -1;
         snprintf(succ.msg, 64, "Friend request sent to ID %d.", target_id);
-        send(client_sockets[index], &succ, sizeof(Packet), 0);
+        send_all(client_sockets[index], &succ, sizeof(Packet), 0);
     }
     else if (pkt->type == PACKET_FRIEND_RESPONSE) {
         int requester_id = pkt->target_id;
@@ -587,11 +606,11 @@ void handle_client_message(int index, Packet *pkt) {
         int target_id = pkt->target_id; int sender_id = players[index].id;
         Packet pm; pm.type = PACKET_PRIVATE_MESSAGE; pm.player_id = sender_id; pm.target_id = target_id; strncpy(pm.msg, pkt->msg, 64);
         int target_found = 0;
-        for (int i = 0; i < MAX_CLIENTS; i++) if (players[i].active && players[i].id == target_id) { if (client_sockets[i] > 0) { send(client_sockets[i], &pm, sizeof(Packet), 0); target_found = 1; } break; }
-        if (target_found) send(client_sockets[index], &pm, sizeof(Packet), 0);
-        else { Packet err; err.type = PACKET_CHAT; err.player_id = -1; strcpy(err.msg, "Player not online."); send(client_sockets[index], &err, sizeof(Packet), 0); }
+        for (int i = 0; i < MAX_CLIENTS; i++) if (players[i].active && players[i].id == target_id) { if (client_sockets[i] > 0) { send_all(client_sockets[i], &pm, sizeof(Packet), 0); target_found = 1; } break; }
+        if (target_found) send_all(client_sockets[index], &pm, sizeof(Packet), 0);
+        else { Packet err; err.type = PACKET_CHAT; err.player_id = -1; strcpy(err.msg, "Player not online."); send_all(client_sockets[index], &err, sizeof(Packet), 0); }
     }
-    else if (pkt->type == PACKET_PING) { send(client_sockets[index], pkt, sizeof(Packet), 0); }
+    else if (pkt->type == PACKET_PING) { send_all(client_sockets[index], pkt, sizeof(Packet), 0); }
     else if (pkt->type == PACKET_STATUS_CHANGE) { players[index].status = pkt->new_status; broadcast_state(); }
     else if (pkt->type == PACKET_COLOR_CHANGE) {
         players[index].r = pkt->r; players[index].g = pkt->g; players[index].b = pkt->b;
@@ -608,9 +627,9 @@ void handle_client_message(int index, Packet *pkt) {
             fseek(fp, 0, SEEK_END); int size = ftell(fp); fseek(fp, 0, SEEK_SET);
             if (size <= MAX_AVATAR_SIZE) {
                 Packet resp; resp.type = PACKET_AVATAR_RESPONSE; resp.player_id = target; resp.image_size = size;
-                send(client_sockets[index], &resp, sizeof(Packet), 0);
+                send_all(client_sockets[index], &resp, sizeof(Packet), 0);
                 uint8_t *file_buf = malloc(size); fread(file_buf, 1, size, fp);
-                send(client_sockets[index], file_buf, size, 0); free(file_buf);
+                send_all(client_sockets[index], file_buf, size, 0); free(file_buf);
             }
             fclose(fp);
         }
@@ -637,7 +656,7 @@ void handle_client_message(int index, Packet *pkt) {
             }
         }
         sqlite3_finalize(stmt);
-        send(client_sockets[index], &resp, sizeof(Packet), 0);
+        send_all(client_sockets[index], &resp, sizeof(Packet), 0);
     }
     else if (pkt->type == PACKET_SANCTION_REQUEST) {
         if (players[index].role < ROLE_ADMIN) return; // Security Check
@@ -672,7 +691,7 @@ void handle_client_message(int index, Packet *pkt) {
                     // Kick if online
                     for(int i=0; i<MAX_CLIENTS; i++) if(players[i].active && players[i].id == target_id) {
                         Packet k; k.type = PACKET_KICK; strcpy(k.msg, "Banned: 3 Warnings Reached.");
-                        send(client_sockets[i], &k, sizeof(Packet), 0);
+                        send_all(client_sockets[i], &k, sizeof(Packet), 0);
                         close(client_sockets[i]); players[i].active = 0;
                     }
                 }
@@ -681,7 +700,7 @@ void handle_client_message(int index, Packet *pkt) {
             
             // Notify Admin
             Packet msg; msg.type = PACKET_CHAT; msg.player_id = -1; strcpy(msg.msg, "Player Warned.");
-            send(client_sockets[index], &msg, sizeof(Packet), 0);
+            send_all(client_sockets[index], &msg, sizeof(Packet), 0);
 
         } 
         else { // BAN
@@ -696,11 +715,11 @@ void handle_client_message(int index, Packet *pkt) {
             for(int i=0; i<MAX_CLIENTS; i++) if(players[i].active && players[i].id == target_id) {
                 Packet k; k.type = PACKET_KICK; 
                 snprintf(k.msg, 64, "Banned: %s", pkt->sanction_reason);
-                send(client_sockets[i], &k, sizeof(Packet), 0);
+                send_all(client_sockets[i], &k, sizeof(Packet), 0);
                 close(client_sockets[i]); players[i].active = 0;
             }
              Packet msg; msg.type = PACKET_CHAT; msg.player_id = -1; strcpy(msg.msg, "Player Banned.");
-             send(client_sockets[index], &msg, sizeof(Packet), 0);
+             send_all(client_sockets[index], &msg, sizeof(Packet), 0);
         }
     }
 
@@ -724,7 +743,7 @@ void handle_client_message(int index, Packet *pkt) {
             }
         }
         sqlite3_finalize(stmt);
-        send(client_sockets[index], &resp, sizeof(Packet), 0);
+        send_all(client_sockets[index], &resp, sizeof(Packet), 0);
     }
     else if (pkt->type == PACKET_MAP_CHANGE) {
         strncpy(players[index].map_name, pkt->target_map, 31);

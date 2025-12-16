@@ -5,14 +5,14 @@ CFLAGS = -Wall -O2 -march=x86-64-v2
 SERVER_SRC = server.c
 SERVER_OUT = server
 # Лінкуємо все динамічно: sqlite3, math, threads
-SERVER_LDFLAGS = -lsqlite3 -lm -lpthread
+SERVER_LDFLAGS = -lsqlite3 -lm -lpthread -ferror-limit=0
 
 # --- CLIENT CONFIG ---
 CLIENT_SRC = client_sdl.c
 CLIENT_OUT = client
 
 # 1. Отримуємо прапори компіляції (шляхи до заголовків)
-CLIENT_CFLAGS = $(shell pkg-config --cflags sdl2 SDL2_image SDL2_ttf)
+CLIENT_CFLAGS = $(shell pkg-config --cflags sdl2 SDL2_image SDL2_ttf) -ferror-limit=0
 
 # 2. Отримуємо прапори лінкування (шляхи до .so бібліотек)
 # pkg-config автоматично додасть -lSDL2 -lSDL2_image -lSDL2_ttf
