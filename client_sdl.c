@@ -234,6 +234,16 @@ int my_warning_count = 0;
 SDL_Rect btn_sanction_open; // In Profile
 SDL_Rect btn_my_warnings;   // In Settings
 
+enum { SLIDER_NONE, SLIDER_R, SLIDER_G, SLIDER_B, SLIDER_R2, SLIDER_G2, SLIDER_B2, SLIDER_VOL, SLIDER_AFK };
+int active_slider = SLIDER_NONE;
+
+// --- Color Sliders ---
+SDL_Rect slider_r, slider_g, slider_b;
+SDL_Rect slider_r2, slider_g2, slider_b2;
+// Add these:
+int my_r = 255, my_g = 255, my_b = 255; 
+//int my_r2 = 255, my_g2 = 255, my_b2 = 255;
+
 // --- Helpers ---
 void send_packet(Packet *pkt) { send(sock, pkt, sizeof(Packet), 0); }
 
@@ -1122,6 +1132,98 @@ void render_role_list(SDL_Renderer *renderer, int w, int h) {
     }
 }
 
+void process_slider_drag(int mx) {
+    if (active_slider == SLIDER_NONE) return;
+
+    SDL_Rect *r = NULL;
+    int *val_ptr = NULL;
+    int max_val = 255;
+    int update_color = 0; // Flag to send packet
+
+    switch (active_slider) {
+        // FIX: Point to Global Variables
+        case SLIDER_R:   r = &slider_r;   val_ptr = &my_r; update_color=1; break;
+        case SLIDER_G:   r = &slider_g;   val_ptr = &my_g; update_color=1; break;
+        case SLIDER_B:   r = &slider_b;   val_ptr = &my_b; update_color=1; break;
+        
+        case SLIDER_R2:  r = &slider_r2;  val_ptr = &my_r2; update_color=1; break;
+        case SLIDER_G2:  r = &slider_g2;  val_ptr = &my_g2; update_color=1; break;
+        case SLIDER_B2:  r = &slider_b2;  val_ptr = &my_b2; update_color=1; break;
+        
+        case SLIDER_VOL: r = &slider_volume; val_ptr = &music_volume; max_val = 128; break;
+        case SLIDER_AFK: r = &slider_afk;    val_ptr = &afk_timeout_minutes; max_val = 10; break;
+    }
+
+    if (!r || !val_ptr) return;
+
+    // Calculate Value
+    float pct = (float)(mx - r->x) / (float)r->w;
+    if (pct < 0.0f) pct = 0.0f; else if (pct > 1.0f) pct = 1.0f;
+
+    if (active_slider == SLIDER_AFK) *val_ptr = 2 + (int)(pct * 8.0f + 0.5f);
+    else *val_ptr = (int)(pct * max_val);
+
+    // Apply Immediate Effects
+    if (active_slider == SLIDER_VOL) Mix_VolumeMusic(music_volume);
+    
+    if (update_color) {
+        // Send Packet using Globals
+        Packet pkt; pkt.type = PACKET_COLOR_CHANGE;
+        pkt.r = my_r; pkt.g = my_g; pkt.b = my_b;
+        pkt.r2 = my_r2; pkt.g2 = my_g2; pkt.b2 = my_b2;
+        send_packet(&pkt);
+        
+        // Force Local Update (For Game View Preview)
+        for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { 
+            local_players[i].r = my_r; local_players[i].g = my_g; local_players[i].b = my_b;
+            local_players[i].r2 = my_r2; local_players[i].g2 = my_g2; local_players[i].b2 = my_b2;
+        }
+    }
+    save_config(); 
+}
+
+void render_fancy_slider(SDL_Renderer *renderer, SDL_Rect *rect, float pct, SDL_Color fill_col) {
+    // 1. Draw Hit Area Debug (Optional, disabled)
+    // SDL_SetRenderDrawColor(renderer, 50, 50, 50, 255); SDL_RenderDrawRect(renderer, rect);
+
+    // 2. Draw Track (Thin line centered vertically)
+    int track_h = 4;
+    int track_y = rect->y + (rect->h / 2) - (track_h / 2);
+    SDL_Rect track = {rect->x, track_y, rect->w, track_h};
+
+    // Track Background (Dark)
+    SDL_SetRenderDrawColor(renderer, 60, 60, 60, 255);
+    SDL_RenderFillRect(renderer, &track);
+
+    // Track Fill (Colored)
+    SDL_Rect filled = {track.x, track.y, (int)(track.w * pct), track.h};
+    SDL_SetRenderDrawColor(renderer, fill_col.r, fill_col.g, fill_col.b, 255);
+    SDL_RenderFillRect(renderer, &filled);
+
+    // 3. Draw Knob (Centered)
+    int knob_w = 12;
+    int knob_h = 20;
+    int knob_x = rect->x + (int)(rect->w * pct) - (knob_w / 2);
+    int knob_y = rect->y + (rect->h / 2) - (knob_h / 2);
+
+    SDL_Rect knob = {knob_x, knob_y, knob_w, knob_h};
+
+    // Knob Shadow
+    SDL_Rect shadow = knob; shadow.x += 1; shadow.y += 1;
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 100);
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    SDL_RenderFillRect(renderer, &shadow);
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+
+    // Knob Body
+    SDL_SetRenderDrawColor(renderer, 230, 230, 230, 255);
+    SDL_RenderFillRect(renderer, &knob);
+    
+    // Knob Border
+    SDL_SetRenderDrawColor(renderer, 20, 20, 20, 255);
+    SDL_RenderDrawRect(renderer, &knob);
+}
+
 void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     if (!is_settings_open) return;
     
@@ -1183,66 +1285,57 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     SDL_SetRenderDrawColor(renderer, 100, 50, 150, 255); SDL_RenderFillRect(renderer, &btn_nick);
     render_text(renderer, "Change Nickname", btn_nick.x + 150, btn_nick.y + 5, col_white, 1);
     y += 40;
-
-    // -- Color Sliders 1 (Start) --
-    int my_r=255, my_g=255, my_b=255;
-    for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) { my_r=local_players[i].r; my_g=local_players[i].g; my_b=local_players[i].b; }
+ 
     
-    render_text(renderer, "Name Color (Start)", settings_win.x + 175, y, (SDL_Color){my_r, my_g, my_b, 255}, 1); y += 25;
+
+    render_text(renderer, "Name Color (Start)", settings_win.x + 175, y, (SDL_Color){my_r, my_g, my_b, 255}, 1); 
+    y += 25; // Header Gap
     
-    slider_r = (SDL_Rect){start_x + 30, y, 240, 20};
-    SDL_SetRenderDrawColor(renderer, 50, 0, 0, 255); SDL_RenderFillRect(renderer, &slider_r);
-    SDL_Rect fill_r = {slider_r.x, slider_r.y, (int)((my_r/255.0)*240), 20};
-    SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); SDL_RenderFillRect(renderer, &fill_r); y += 30;
+    slider_r = (SDL_Rect){start_x + 30, y, 240, 15};
+    render_fancy_slider(renderer, &slider_r, my_r/255.0f, (SDL_Color){255, 50, 50, 255}); 
+    y += 40; // Increased spacing
 
-    slider_g = (SDL_Rect){start_x + 30, y, 240, 20};
-    SDL_SetRenderDrawColor(renderer, 0, 50, 0, 255); SDL_RenderFillRect(renderer, &slider_g);
-    SDL_Rect fill_g = {slider_g.x, slider_g.y, (int)((my_g/255.0)*240), 20};
-    SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255); SDL_RenderFillRect(renderer, &fill_g); y += 30;
+    slider_g = (SDL_Rect){start_x + 30, y, 240, 15};
+    render_fancy_slider(renderer, &slider_g, my_g/255.0f, (SDL_Color){50, 255, 50, 255}); 
+    y += 40;
 
-    slider_b = (SDL_Rect){start_x + 30, y, 240, 20};
-    SDL_SetRenderDrawColor(renderer, 0, 0, 50, 255); SDL_RenderFillRect(renderer, &slider_b);
-    SDL_Rect fill_b = {slider_b.x, slider_b.y, (int)((my_b/255.0)*240), 20};
-    SDL_SetRenderDrawColor(renderer, 0, 0, 255, 255); SDL_RenderFillRect(renderer, &fill_b); y += 40;
+    slider_b = (SDL_Rect){start_x + 30, y, 240, 15};
+    render_fancy_slider(renderer, &slider_b, my_b/255.0f, (SDL_Color){50, 50, 255, 255}); 
+    y += 50; // Extra gap before next section title
 
     // -- Color Sliders 2 (End) --
-    render_text(renderer, "Name Color (End)", settings_win.x + 175, y, (SDL_Color){my_r2, my_g2, my_b2, 255}, 1); y += 25;
+    render_text(renderer, "Name Color (End)", settings_win.x + 175, y, (SDL_Color){my_r2, my_g2, my_b2, 255}, 1); 
+    y += 25;
 
-    slider_r2 = (SDL_Rect){start_x + 30, y, 240, 20};
-    SDL_SetRenderDrawColor(renderer, 50, 0, 0, 255); SDL_RenderFillRect(renderer, &slider_r2);
-    SDL_Rect fill_r2 = {slider_r2.x, slider_r2.y, (int)((my_r2/255.0)*240), 20};
-    SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); SDL_RenderFillRect(renderer, &fill_r2); y += 30;
+    slider_r2 = (SDL_Rect){start_x + 30, y, 240, 15};
+    render_fancy_slider(renderer, &slider_r2, my_r2/255.0f, (SDL_Color){255, 50, 50, 255}); 
+    y += 40;
 
-    slider_g2 = (SDL_Rect){start_x + 30, y, 240, 20};
-    SDL_SetRenderDrawColor(renderer, 0, 50, 0, 255); SDL_RenderFillRect(renderer, &slider_g2);
-    SDL_Rect fill_g2 = {slider_g2.x, slider_g2.y, (int)((my_g2/255.0)*240), 20};
-    SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255); SDL_RenderFillRect(renderer, &fill_g2); y += 30;
+    slider_g2 = (SDL_Rect){start_x + 30, y, 240, 15};
+    render_fancy_slider(renderer, &slider_g2, my_g2/255.0f, (SDL_Color){50, 255, 50, 255}); 
+    y += 40;
 
-    slider_b2 = (SDL_Rect){start_x + 30, y, 240, 20};
-    SDL_SetRenderDrawColor(renderer, 0, 0, 50, 255); SDL_RenderFillRect(renderer, &slider_b2);
-    SDL_Rect fill_b2 = {slider_b2.x, slider_b2.y, (int)((my_b2/255.0)*240), 20};
-    SDL_SetRenderDrawColor(renderer, 0, 0, 255, 255); SDL_RenderFillRect(renderer, &fill_b2); y += 40;
+    slider_b2 = (SDL_Rect){start_x + 30, y, 240, 15};
+    render_fancy_slider(renderer, &slider_b2, my_b2/255.0f, (SDL_Color){50, 50, 255, 255}); 
+    y += 50; // Extra gap
 
-    // -- Volume & AFK --
-    render_text(renderer, "Music Volume", settings_win.x + 175, y, col_white, 1); y += 25;
-    slider_volume = (SDL_Rect){start_x + 30, y, 240, 20};
-    SDL_SetRenderDrawColor(renderer, 50, 50, 50, 255); SDL_RenderFillRect(renderer, &slider_volume);
-    SDL_Rect fill_vol = {slider_volume.x, slider_volume.y, (int)((music_volume/128.0)*240), 20};
-    SDL_SetRenderDrawColor(renderer, 0, 200, 255, 255); SDL_RenderFillRect(renderer, &fill_vol);
-    SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255); SDL_RenderDrawRect(renderer, &slider_volume); y += 40;
+    // -- Volume --
+    render_text(renderer, "Music Volume", settings_win.x + 175, y, col_white, 1); 
+    y += 25;
+    slider_volume = (SDL_Rect){start_x + 30, y, 240, 15};
+    render_fancy_slider(renderer, &slider_volume, music_volume/128.0f, (SDL_Color){0, 200, 255, 255}); 
+    y += 50;
 
+    // -- AFK --
     char afk_str[64]; snprintf(afk_str, 64, "Auto-AFK: %d min", afk_timeout_minutes);
-    render_text(renderer, afk_str, settings_win.x + 175, y, col_white, 1); y += 25;
+    render_text(renderer, afk_str, settings_win.x + 175, y, col_white, 1); 
+    y += 25;
     
-    slider_afk = (SDL_Rect){start_x + 30, y, 240, 20};
-    SDL_SetRenderDrawColor(renderer, 50, 50, 50, 255); SDL_RenderFillRect(renderer, &slider_afk);
-    SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255); SDL_RenderDrawRect(renderer, &slider_afk);
+    slider_afk = (SDL_Rect){start_x + 30, y, 240, 15};
+    float afk_pct = (afk_timeout_minutes - 2) / 8.0f;
+    render_fancy_slider(renderer, &slider_afk, afk_pct, (SDL_Color){255, 165, 0, 255});
     
-    float afk_pct = (afk_timeout_minutes - 2) / 8.0f; 
-    SDL_Rect fill_afk = {slider_afk.x, slider_afk.y, (int)(afk_pct * 240), 20};
-    SDL_SetRenderDrawColor(renderer, 255, 165, 0, 255); SDL_RenderFillRect(renderer, &fill_afk);
     render_text(renderer, "2m", slider_afk.x - 20, slider_afk.y + 2, col_white, 0);  
-    render_text(renderer, "6m", slider_afk.x + 110, slider_afk.y + 2, col_white, 0); 
     render_text(renderer, "10m", slider_afk.x + 245, slider_afk.y + 2, col_white, 0); 
     y += 50;
 
@@ -2084,80 +2177,32 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
                 show_nick_popup = 1; nick_new[0] = 0; nick_confirm[0] = 0; nick_pass[0] = 0; strcpy(auth_message, "Enter details."); return;
             }
 
-        // --- Sliders (Primary & Secondary) ---
-            int changed = 0; 
-            int my_r = 0, my_g = 0, my_b = 0; 
-            
-            // 1. Get current values from local player
-            for(int i=0; i<MAX_CLIENTS; i++) { 
-                if(local_players[i].active && local_players[i].id == local_player_id) { 
-                    my_r = local_players[i].r; 
-                    my_g = local_players[i].g; 
-                    my_b = local_players[i].b; 
-                    // Note: my_r2, my_g2, my_b2 are globals, so we use their current values
-                } 
-            }
+// --- Generic Slider Hit Detection (Replaces all specific slider logic) ---
+            SDL_Rect touch_pad = {0,0,0,0};
+            int margin = 15; // Hit margin makes them easier to grab with touch
 
-            // 2. Check Primary Sliders
-            if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_r)) { 
-                my_r = (int)(((float)(mx - slider_r.x) / slider_r.w) * 255); changed = 1; 
-            }
-            else if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_g)) { 
-                my_g = (int)(((float)(mx - slider_g.x) / slider_g.w) * 255); changed = 1; 
-            }
-            else if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_b)) { 
-                my_b = (int)(((float)(mx - slider_b.x) / slider_b.w) * 255); changed = 1; 
-            }
-
-            // 3. Check Secondary Sliders (Update Globals)
-            if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_r2)) { 
-                my_r2 = (int)(((float)(mx - slider_r2.x) / slider_r2.w) * 255); changed = 1; 
-            }
-            else if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_g2)) { 
-                my_g2 = (int)(((float)(mx - slider_g2.x) / slider_g2.w) * 255); changed = 1; 
-            }
-            else if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_b2)) { 
-                my_b2 = (int)(((float)(mx - slider_b2.x) / slider_b2.w) * 255); changed = 1; 
-            }
-
-            // 4. If ANY slider changed, update everything
-            if (changed) { 
-                // Clamp values
-                if(my_r < 0) my_r = 0; if(my_r > 255) my_r = 255;
-                if(my_g < 0) my_g = 0; if(my_g > 255) my_g = 255;
-                if(my_b < 0) my_b = 0; if(my_b > 255) my_b = 255;
-                if(my_r2 < 0) my_r2 = 0; if(my_r2 > 255) my_r2 = 255;
-                if(my_g2 < 0) my_g2 = 0; if(my_g2 > 255) my_g2 = 255;
-                if(my_b2 < 0) my_b2 = 0; if(my_b2 > 255) my_b2 = 255;
-
-                // Send Packet (Include ALL colors)
-                Packet pkt; pkt.type = PACKET_COLOR_CHANGE; 
-                pkt.r = my_r; pkt.g = my_g; pkt.b = my_b; 
-                pkt.r2 = my_r2; pkt.g2 = my_g2; pkt.b2 = my_b2;
-                send_packet(&pkt); 
-                
-                // Update Local Player Struct (Immediate visual feedback)
-                for(int i=0; i<MAX_CLIENTS; i++) {
-                    if(local_players[i].active && local_players[i].id == local_player_id) { 
-                        local_players[i].r = my_r; local_players[i].g = my_g; local_players[i].b = my_b;
-                        local_players[i].r2 = my_r2; local_players[i].g2 = my_g2; local_players[i].b2 = my_b2;
-                    } 
+            // Helper macro for cleaner code
+            #define CHECK_SLIDER(rect, id) \
+                touch_pad = rect; \
+                touch_pad.x -= margin; touch_pad.y -= margin; \
+                touch_pad.w += margin*2; touch_pad.h += margin*2; \
+                if (SDL_PointInRect(&(SDL_Point){mx, my}, &touch_pad)) { \
+                    active_slider = id; \
+                    process_slider_drag(mx); /* Update immediately on click */ \
+                    return; \
                 }
-                save_config(); 
-                return;
-            }
 
-            // Volume & AFK
-            if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_volume)) {
-                float pct = (mx - slider_volume.x) / (float)slider_volume.w; 
-                if (pct < 0) pct = 0; if (pct > 1) pct = 1;
-                music_volume = (int)(pct * 128); Mix_VolumeMusic(music_volume); save_config(); return;
-            }
-            if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_afk)) {
-                float pct = (mx - slider_afk.x) / (float)slider_afk.w; 
-                if (pct < 0) pct = 0; if (pct > 1) pct = 1;
-                afk_timeout_minutes = 2 + (int)(pct * 8.0f + 0.5f); save_config(); return;
-            }
+            // check all sliders
+            CHECK_SLIDER(slider_r, SLIDER_R);
+            CHECK_SLIDER(slider_g, SLIDER_G);
+            CHECK_SLIDER(slider_b, SLIDER_B);
+            
+            CHECK_SLIDER(slider_r2, SLIDER_R2);
+            CHECK_SLIDER(slider_g2, SLIDER_G2);
+            CHECK_SLIDER(slider_b2, SLIDER_B2);
+            
+            CHECK_SLIDER(slider_volume, SLIDER_VOL);
+            CHECK_SLIDER(slider_afk, SLIDER_AFK);
 
             // Bottom Buttons
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_disconnect_rect)) {
@@ -2370,8 +2415,10 @@ int main(int argc, char const *argv[]) {
         }
         else if (event.type == SDL_MOUSEBUTTONUP) {
                 is_dragging = 0;
+                active_slider = SLIDER_NONE;
             }
             else if (event.type == SDL_MOUSEMOTION) {
+                int mx = event.motion.x * scale_x;
                 if (is_dragging) {
                     // Identify which buffer we are editing
                     char *target = NULL;
@@ -2396,6 +2443,9 @@ int main(int argc, char const *argv[]) {
                         // Calculate selection length (Cursor - Start)
                         selection_len = cursor_pos - selection_start;
                     }
+                }
+                if (active_slider != SLIDER_NONE) {
+                    process_slider_drag(mx);
                 }
             }
         if (is_chat_open != was_chat_open) {
@@ -2473,6 +2523,19 @@ int main(int argc, char const *argv[]) {
                      else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_settings_toggle)) {
                         is_settings_open = !is_settings_open;
                         if (!is_settings_open) { show_nick_popup = 0; show_blocked_list = 0; active_field = -1; }
+                        else {
+                            // --- FIX: Sync Globals from Player Struct on Open ---
+                            for(int i=0; i<MAX_CLIENTS; i++) {
+                                if(local_players[i].active && local_players[i].id == local_player_id) {
+                                    my_r = local_players[i].r; 
+                                    my_g = local_players[i].g; 
+                                    my_b = local_players[i].b;
+                                    my_r2 = local_players[i].r2; 
+                                    my_g2 = local_players[i].g2; 
+                                    my_b2 = local_players[i].b2;
+                                }
+                            }
+                        }
                      }
                      else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_view_friends)) {
                         show_friend_list = !show_friend_list;
