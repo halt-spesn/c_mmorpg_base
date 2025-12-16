@@ -48,7 +48,13 @@ char current_map_file[32] = "map.jpg";
 
 
 // --- Globals ---
-int sock;
+#ifdef _WIN32
+    typedef SOCKET socket_t;
+#else
+    typedef int socket_t;
+#endif
+
+socket_t sock = 0;
 char server_ip[16] = "127.0.0.1";
 TTF_Font *font = NULL;
 SDL_Texture *tex_map = NULL;
@@ -283,7 +289,7 @@ Uint32 last_map_switch_time = 0;
 Uint32 last_move_time = 0; // <--- MOVE HERE
 
 // --- Helpers ---
-int send_all(int sockfd, const void *buf, size_t len) {
+int send_all(socket_t sockfd, const void *buf, size_t len) {
     size_t total = 0;
     size_t bytes_left = len;
     int n;
@@ -302,7 +308,7 @@ void send_packet(Packet *pkt) {
 }
 
 // --- Helper to ensure full packet receipt on Windows ---
-int recv_total(int sockfd, void *buf, size_t len) {
+int recv_total(socket_t sockfd, void *buf, size_t len) {
     size_t total = 0;
     size_t bytes_left = len;
     int n;
@@ -631,7 +637,7 @@ int try_connect() {
     if (is_connected) close(sock);
     
     struct sockaddr_in serv_addr;
-    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) == (socket_t)-1) { // Check against -1 casted
         strcpy(auth_message, "Socket Error");
         return 0;
     }
@@ -2518,6 +2524,7 @@ int y_start = auth_box.y + 80;
 }
 
 int main(int argc, char *argv[]) {
+    setbuf(stdout, NULL);
     // 1. Init SDL & Libraries
     //printf("DEBUG: Packet Size is %d bytes\n", (int)sizeof(Packet));
     #ifdef _WIN32
@@ -2562,7 +2569,7 @@ int main(int argc, char *argv[]) {
 
     SDL_StartTextInput();
     int running = 1; SDL_Event event;
-    int key_up=0, key_down=0, key_left=0, key_right=0;
+    //int key_up=0, key_down=0, key_left=0, key_right=0;
     
     // State Tracking
     int last_active_field = -1;
@@ -2604,7 +2611,7 @@ int main(int argc, char *argv[]) {
             // Auto-AFK Reset
             if (event.type == SDL_KEYDOWN || event.type == SDL_MOUSEBUTTONDOWN || event.type == SDL_MOUSEMOTION) {
                 last_input_tick = SDL_GetTicks();
-                if (is_auto_afk && sock > 0) {
+                if (is_auto_afk && is_connected) {
                     Packet pkt; pkt.type = PACKET_STATUS_CHANGE; pkt.new_status = STATUS_ONLINE; send_packet(&pkt);
                     is_auto_afk = 0;
                 }
@@ -2774,17 +2781,9 @@ int main(int argc, char *argv[]) {
                     if (target) handle_text_edit(target, max, &event);
                 }
                 else {
-                    if (event.type == SDL_KEYDOWN) {
-                        if (event.key.keysym.sym == SDLK_w) key_up=1; if (event.key.keysym.sym == SDLK_s) key_down=1;
-                        if (event.key.keysym.sym == SDLK_a) key_left=1; if (event.key.keysym.sym == SDLK_d) key_right=1;
-                        if (event.key.keysym.sym == SDLK_RETURN || event.key.keysym.sym == SDLK_t) { 
-                            is_chat_open=1; input_buffer[0]=0; cursor_pos=0; unread_chat_count=0; 
-                            key_up=0; key_down=0; key_left=0; key_right=0; SDL_StartTextInput(); 
-                        }
-                    }
-                    if (event.type == SDL_KEYUP) {
-                        if (event.key.keysym.sym == SDLK_w) key_up=0; if (event.key.keysym.sym == SDLK_s) key_down=0;
-                        if (event.key.keysym.sym == SDLK_a) key_left=0; if (event.key.keysym.sym == SDLK_d) key_right=0;
+                    // Chat Trigger
+                    if (event.type == SDL_KEYDOWN && (event.key.keysym.sym == SDLK_RETURN || event.key.keysym.sym == SDLK_t)) { 
+                        is_chat_open=1; input_buffer[0]=0; cursor_pos=0; unread_chat_count=0; SDL_StartTextInput(); 
                     }
                 }
             }
@@ -2796,7 +2795,7 @@ int main(int argc, char *argv[]) {
         }
 
         Uint32 now = SDL_GetTicks();
-        if (sock > 0 && client_state == STATE_GAME && !is_auto_afk) {
+        if (is_connected && client_state == STATE_GAME && !is_auto_afk) {
             int my_status = 0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) my_status = local_players[i].status;
             if (my_status == STATUS_ONLINE) { 
                 if (now > last_input_tick + (afk_timeout_minutes * 60 * 1000)) {
@@ -2806,21 +2805,24 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        if (sock > 0 && client_state == STATE_GAME) {
+        if (is_connected && client_state == STATE_GAME) {
             if (now - last_ping_sent > 1000) { Packet pkt; pkt.type = PACKET_PING; pkt.timestamp = now; send_packet(&pkt); last_ping_sent = now; }
             if (!is_chat_open && !show_nick_popup && !show_add_friend_popup && pending_friend_req_id == -1) {
-                // FIX: Declare dx, dy here
-                float dx = 0, dy = 0;
                 
-                // Map Trigger Logic (Area vs Area)
+                // --- FIXED MOVEMENT LOGIC START ---
+                float dx = 0, dy = 0;
+                const Uint8 *state = SDL_GetKeyboardState(NULL);
+
+                if (state[SDL_SCANCODE_W]) dy = -1;
+                if (state[SDL_SCANCODE_S]) dy = 1;
+                if (state[SDL_SCANCODE_A]) dx = -1;
+                if (state[SDL_SCANCODE_D]) dx = 1;
+                
                 float my_x=0, my_y=0; 
                 for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) { my_x=local_players[i].x; my_y=local_players[i].y; }
-               
                 SDL_Rect player_box = {(int)my_x, (int)my_y, PLAYER_WIDTH, PLAYER_HEIGHT};
-               
                 for(int t=0; t<trigger_count; t++) {
                    if (strcmp(triggers[t].src_map, current_map_file) == 0) {
-                       // FIX: Use SDL_HasIntersection for Box-vs-Box collision (Area)
                        if (SDL_HasIntersection(&player_box, &triggers[t].rect)) {
                            switch_map(triggers[t].target_map, triggers[t].spawn_x, triggers[t].spawn_y);
                            break; 
@@ -2828,28 +2830,21 @@ int main(int argc, char *argv[]) {
                    }
                 }
 
-            if (key_up) dy = -1; if (key_down) dy = 1; 
-            if (key_left) dx = -1; if (key_right) dx = 1;
-            
-            if (dx != 0 || dy != 0) { 
-                // 1. Rate Limiting: Only send move every 30ms (~30 times/sec)
-                // Rate Limiting
-                if (now - last_move_time > 30) { // Uses global variable
-                Packet pkt; 
-                memset(&pkt, 0, sizeof(Packet));
-
-                pkt.type = PACKET_MOVE; 
-                pkt.dx = dx; 
-                pkt.dy = dy; 
-
-                send_packet(&pkt);
-                last_move_time = now;
+                if (dx != 0 || dy != 0) { 
+                    if (now - last_move_time > 30) {
+                        Packet pkt; 
+                        memset(&pkt, 0, sizeof(Packet));
+                        pkt.type = PACKET_MOVE; 
+                        pkt.dx = dx; pkt.dy = dy; 
+                        send_packet(&pkt);
+                        last_move_time = now;
                     }
                 }
+                // --- FIXED MOVEMENT LOGIC END ---
              }
          }
            
-        if (sock > 0) {
+        if (is_connected && sock != 0) {
             // FIX: Use select() instead of ioctl/ioctlsocket
             fd_set readfds;
             FD_ZERO(&readfds);
