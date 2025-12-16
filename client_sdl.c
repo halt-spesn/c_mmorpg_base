@@ -2527,14 +2527,16 @@ int main(int argc, char *argv[]) {
     setbuf(stdout, NULL);
     // 1. Init SDL & Libraries
     //printf("DEBUG: Packet Size is %d bytes\n", (int)sizeof(Packet));
-    #ifdef _WIN32
+#ifdef _WIN32
     WSADATA wsa;
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
         printf("Failed. Error Code : %d", WSAGetLastError());
         return 1;
     }
+    #ifdef SDL_HINT_WINDOWS_RAWKEYBOARD
     SDL_SetHint(SDL_HINT_WINDOWS_RAWKEYBOARD, "1");
     #endif
+#endif
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) return 1;
     if (TTF_Init() == -1) return 1;
     if (!(IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG) & (IMG_INIT_PNG | IMG_INIT_JPG))) printf("IMG Init Error: %s\n", IMG_GetError());
