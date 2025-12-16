@@ -2611,6 +2611,7 @@ int main(int argc, char *argv[]) {
             last_active_field = active_field;
         }
 
+        SDL_PumpEvents(); // Ensure keyboard state stays fresh even when no events are queued
         while (SDL_PollEvent(&event)) {
             // Auto-AFK Reset
             if (event.type == SDL_KEYDOWN || event.type == SDL_MOUSEBUTTONDOWN || event.type == SDL_MOUSEMOTION) {
@@ -2815,7 +2816,6 @@ int main(int argc, char *argv[]) {
                 
                 // --- FIXED MOVEMENT LOGIC START ---
                 float dx = 0, dy = 0;
-                SDL_PumpEvents(); // Ensure keyboard state is fresh (especially on Windows)
                 const Uint8 *state = SDL_GetKeyboardState(NULL);
 
                 if (state[SDL_SCANCODE_W]) dy = -1;
