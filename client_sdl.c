@@ -1213,7 +1213,7 @@ void render_my_warnings(SDL_Renderer *renderer, int w, int h) {
 
 void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
     if (!show_debug_info) return;
-    char lines[10][128]; int line_count = 0;
+    char lines[12][128]; int line_count = 0;
     snprintf(lines[line_count++], 128, "Ping: %d ms", current_ping);
     snprintf(lines[line_count++], 128, "Server IP: %s", server_ip);
     float px=0, py=0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { px=local_players[i].x; py=local_players[i].y; }
@@ -1221,6 +1221,13 @@ void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
     SDL_RendererInfo info;
     SDL_GetRendererInfo(renderer, &info);
     const char *renderer_str = info.name;
+    const char *video_drv = SDL_GetCurrentVideoDriver();
+    snprintf(lines[line_count++], 128, "VideoDrv: %s", video_drv ? video_drv : "Unknown");
+    void *glctx = SDL_GL_GetCurrentContext();
+    if (glctx) {
+        const char *gl_renderer = (const char*)glGetString(GL_RENDERER);
+        if (gl_renderer && strlen(gl_renderer) > 0) snprintf(lines[line_count++], 128, "GL Renderer: %s", gl_renderer);
+    }
     if (renderer_str) snprintf(lines[line_count++], 128, "GPU: %s", renderer_str); else snprintf(lines[line_count++], 128, "GPU: Unknown");
     SDL_version compiled; SDL_VERSION(&compiled); snprintf(lines[line_count++], 128, "SDL: %d.%d.%d", compiled.major, compiled.minor, compiled.patch);
     #ifndef _WIN32
@@ -2533,9 +2540,10 @@ int main(int argc, char *argv[]) {
         printf("Failed. Error Code : %d", WSAGetLastError());
         return 1;
     }
+    FreeConsole();
     #endif
-    #ifdef __APPLE__
-    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal"); // Prefer Metal to avoid black decorations
+    #ifdef SDL_HINT_WINDOWS_RAWKEYBOARD
+    SDL_SetHint(SDL_HINT_WINDOWS_RAWKEYBOARD, "1");
     #endif
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) return 1;
     if (TTF_Init() == -1) return 1;
@@ -2543,6 +2551,11 @@ int main(int argc, char *argv[]) {
 
     font = TTF_OpenFont(FONT_PATH, FONT_SIZE);
     if (!font) { printf("Font missing: %s\n", FONT_PATH); return 1; }
+        #ifdef __APPLE__
+    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengl"); // Try OpenGL to avoid black decorations
+    #endif
+    SDL_EventState(SDL_KEYDOWN, SDL_ENABLE);
+    SDL_EventState(SDL_KEYUP, SDL_ENABLE);
     Uint32 win_flags = SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE;
     #ifdef __APPLE__
     win_flags |= SDL_WINDOW_ALLOW_HIGHDPI;
@@ -2709,15 +2722,17 @@ int main(int argc, char *argv[]) {
             } else {
                 // GAME INPUTS
                 if(event.type == SDL_KEYDOWN) {
-                    if(event.key.keysym.sym == SDLK_w) key_up = 1;
-                    else if(event.key.keysym.sym == SDLK_s) key_down = 1;
-                    else if(event.key.keysym.sym == SDLK_a) key_left = 1;
-                    else if(event.key.keysym.sym == SDLK_d) key_right = 1;
+                    SDL_Scancode sc = event.key.keysym.scancode;
+                    if(sc == SDL_SCANCODE_W || sc == SDL_SCANCODE_UP) key_up = 1;
+                    else if(sc == SDL_SCANCODE_S || sc == SDL_SCANCODE_DOWN) key_down = 1;
+                    else if(sc == SDL_SCANCODE_A || sc == SDL_SCANCODE_LEFT) key_left = 1;
+                    else if(sc == SDL_SCANCODE_D || sc == SDL_SCANCODE_RIGHT) key_right = 1;
                 } else if(event.type == SDL_KEYUP) {
-                    if(event.key.keysym.sym == SDLK_w) key_up = 0;
-                    else if(event.key.keysym.sym == SDLK_s) key_down = 0;
-                    else if(event.key.keysym.sym == SDLK_a) key_left = 0;
-                    else if(event.key.keysym.sym == SDLK_d) key_right = 0;
+                    SDL_Scancode sc = event.key.keysym.scancode;
+                    if(sc == SDL_SCANCODE_W || sc == SDL_SCANCODE_UP) key_up = 0;
+                    else if(sc == SDL_SCANCODE_S || sc == SDL_SCANCODE_DOWN) key_down = 0;
+                    else if(sc == SDL_SCANCODE_A || sc == SDL_SCANCODE_LEFT) key_left = 0;
+                    else if(sc == SDL_SCANCODE_D || sc == SDL_SCANCODE_RIGHT) key_right = 0;
                 }
                 if (event.type == SDL_MOUSEBUTTONDOWN) {
                      int mx = event.button.x * scale_x; int my = event.button.y * scale_y;
@@ -2833,10 +2848,11 @@ int main(int argc, char *argv[]) {
                 
                 // --- FIXED MOVEMENT LOGIC START ---
                 float dx = 0, dy = 0;
-                if (key_up) dy = -1;
-                if (key_down) dy = 1;
-                if (key_left) dx = -1;
-                if (key_right) dx = 1;
+                const Uint8 *state = SDL_GetKeyboardState(NULL);
+                if (key_up || state[SDL_SCANCODE_W] || state[SDL_SCANCODE_UP]) dy = -1;
+                if (key_down || state[SDL_SCANCODE_S] || state[SDL_SCANCODE_DOWN]) dy = 1;
+                if (key_left || state[SDL_SCANCODE_A] || state[SDL_SCANCODE_LEFT]) dx = -1;
+                if (key_right || state[SDL_SCANCODE_D] || state[SDL_SCANCODE_RIGHT]) dx = 1;
                 
                 float my_x=0, my_y=0; 
                 for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) { my_x=local_players[i].x; my_y=local_players[i].y; }
