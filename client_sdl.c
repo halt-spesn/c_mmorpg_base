@@ -2534,15 +2534,17 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     #endif
-    #ifdef __APPLE__
-    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal"); // Prefer Metal to avoid black decorations
-    #endif
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) return 1;
     if (TTF_Init() == -1) return 1;
     if (!(IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG) & (IMG_INIT_PNG | IMG_INIT_JPG))) printf("IMG Init Error: %s\n", IMG_GetError());
 
     font = TTF_OpenFont(FONT_PATH, FONT_SIZE);
     if (!font) { printf("Font missing: %s\n", FONT_PATH); return 1; }
+    #ifdef __APPLE__
+    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengl"); // Try OpenGL to avoid black decorations
+    #endif
+    SDL_EventState(SDL_KEYDOWN, SDL_ENABLE);
+    SDL_EventState(SDL_KEYUP, SDL_ENABLE);
     Uint32 win_flags = SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE;
     #ifdef __APPLE__
     win_flags |= SDL_WINDOW_ALLOW_HIGHDPI;
