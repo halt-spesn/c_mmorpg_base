@@ -2534,6 +2534,9 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     #endif
+    #ifdef __APPLE__
+    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal"); // Prefer Metal to avoid black decorations
+    #endif
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) return 1;
     if (TTF_Init() == -1) return 1;
     if (!(IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG) & (IMG_INIT_PNG | IMG_INIT_JPG))) printf("IMG Init Error: %s\n", IMG_GetError());
@@ -2620,6 +2623,9 @@ int main(int argc, char *argv[]) {
                     Packet pkt; pkt.type = PACKET_STATUS_CHANGE; pkt.new_status = STATUS_ONLINE; send_packet(&pkt);
                     is_auto_afk = 0;
                 }
+            }
+            if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+                key_up = key_down = key_left = key_right = 0;
             }
 
             if (event.type == SDL_QUIT) running = 0;
@@ -2821,7 +2827,7 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        if (is_connected && client_state == STATE_GAME) {
+            if (is_connected && client_state == STATE_GAME) {
             if (now - last_ping_sent > 1000) { Packet pkt; pkt.type = PACKET_PING; pkt.timestamp = now; send_packet(&pkt); last_ping_sent = now; }
             if (!is_chat_open && !show_nick_popup && !show_add_friend_popup && pending_friend_req_id == -1) {
                 
