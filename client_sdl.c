@@ -2533,6 +2533,7 @@ int main(int argc, char *argv[]) {
         printf("Failed. Error Code : %d", WSAGetLastError());
         return 1;
     }
+    SDL_SetHint(SDL_HINT_WINDOWS_RAWKEYBOARD, "1");
     #endif
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) return 1;
     if (TTF_Init() == -1) return 1;
@@ -2711,15 +2712,17 @@ int main(int argc, char *argv[]) {
             } else {
                 // GAME INPUTS
                 if(event.type == SDL_KEYDOWN) {
-                    if(event.key.keysym.sym == SDLK_w) key_up = 1;
-                    else if(event.key.keysym.sym == SDLK_s) key_down = 1;
-                    else if(event.key.keysym.sym == SDLK_a) key_left = 1;
-                    else if(event.key.keysym.sym == SDLK_d) key_right = 1;
+                    SDL_Scancode sc = event.key.keysym.scancode;
+                    if(sc == SDL_SCANCODE_W || sc == SDL_SCANCODE_UP) key_up = 1;
+                    else if(sc == SDL_SCANCODE_S || sc == SDL_SCANCODE_DOWN) key_down = 1;
+                    else if(sc == SDL_SCANCODE_A || sc == SDL_SCANCODE_LEFT) key_left = 1;
+                    else if(sc == SDL_SCANCODE_D || sc == SDL_SCANCODE_RIGHT) key_right = 1;
                 } else if(event.type == SDL_KEYUP) {
-                    if(event.key.keysym.sym == SDLK_w) key_up = 0;
-                    else if(event.key.keysym.sym == SDLK_s) key_down = 0;
-                    else if(event.key.keysym.sym == SDLK_a) key_left = 0;
-                    else if(event.key.keysym.sym == SDLK_d) key_right = 0;
+                    SDL_Scancode sc = event.key.keysym.scancode;
+                    if(sc == SDL_SCANCODE_W || sc == SDL_SCANCODE_UP) key_up = 0;
+                    else if(sc == SDL_SCANCODE_S || sc == SDL_SCANCODE_DOWN) key_down = 0;
+                    else if(sc == SDL_SCANCODE_A || sc == SDL_SCANCODE_LEFT) key_left = 0;
+                    else if(sc == SDL_SCANCODE_D || sc == SDL_SCANCODE_RIGHT) key_right = 0;
                 }
                 if (event.type == SDL_MOUSEBUTTONDOWN) {
                      int mx = event.button.x * scale_x; int my = event.button.y * scale_y;
@@ -2836,10 +2839,10 @@ int main(int argc, char *argv[]) {
                 // --- FIXED MOVEMENT LOGIC START ---
                 float dx = 0, dy = 0;
                 const Uint8 *state = SDL_GetKeyboardState(NULL);
-                if (key_up || state[SDL_SCANCODE_W]) dy = -1;
-                if (key_down || state[SDL_SCANCODE_S]) dy = 1;
-                if (key_left || state[SDL_SCANCODE_A]) dx = -1;
-                if (key_right || state[SDL_SCANCODE_D]) dx = 1;
+                if (key_up || state[SDL_SCANCODE_W] || state[SDL_SCANCODE_UP]) dy = -1;
+                if (key_down || state[SDL_SCANCODE_S] || state[SDL_SCANCODE_DOWN]) dy = 1;
+                if (key_left || state[SDL_SCANCODE_A] || state[SDL_SCANCODE_LEFT]) dx = -1;
+                if (key_right || state[SDL_SCANCODE_D] || state[SDL_SCANCODE_RIGHT]) dx = 1;
                 
                 float my_x=0, my_y=0; 
                 for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) { my_x=local_players[i].x; my_y=local_players[i].y; }
