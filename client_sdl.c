@@ -220,6 +220,20 @@ struct { int id; char name[32]; int role; } staff_list[50];
 int staff_count = 0;
 SDL_Rect btn_staff_list_rect;
 
+// --- Sanction System ---
+int show_sanction_popup = 0;
+int sanction_target_id = -1;
+int sanction_mode = 0; // 0=Warn, 1=Ban
+char input_sanction_reason[64] = "";
+char input_ban_time[16] = ""; // e.g. "1d"
+
+int show_my_warnings = 0;
+struct { char reason[64]; char date[32]; } my_warning_list[20];
+int my_warning_count = 0;
+
+SDL_Rect btn_sanction_open; // In Profile
+SDL_Rect btn_my_warnings;   // In Settings
+
 // --- Helpers ---
 void send_packet(Packet *pkt) { send(sock, pkt, sizeof(Packet), 0); }
 
@@ -971,6 +985,80 @@ void render_add_friend_popup(SDL_Renderer *renderer, int w, int h) {
     render_text(renderer, "Cancel", btn_cancel.x+15, btn_cancel.y+5, col_white, 0);
 }
 
+
+void render_sanction_popup(SDL_Renderer *renderer, int w, int h) {
+    if (!show_sanction_popup) return;
+
+    SDL_Rect win = {w/2 - 150, h/2 - 150, 300, 300};
+    SDL_SetRenderDrawColor(renderer, 40, 0, 0, 255); SDL_RenderFillRect(renderer, &win);
+    SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); SDL_RenderDrawRect(renderer, &win);
+
+    render_text(renderer, "Sanction Player", win.x + 150, win.y + 10, col_red, 1);
+
+    // Mode Toggle (Warn / Ban)
+    SDL_Rect btn_warn = {win.x + 20, win.y + 40, 120, 30};
+    SDL_Rect btn_ban = {win.x + 160, win.y + 40, 120, 30};
+    
+    SDL_SetRenderDrawColor(renderer, sanction_mode==0?200:50, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_warn);
+    render_text(renderer, "WARN", btn_warn.x + 60, btn_warn.y + 5, col_white, 1);
+    
+    SDL_SetRenderDrawColor(renderer, sanction_mode==1?200:50, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_ban);
+    render_text(renderer, "BAN", btn_ban.x + 60, btn_ban.y + 5, col_white, 1);
+
+    int y = win.y + 90;
+    
+    // Reason Input
+    render_text(renderer, "Reason:", win.x + 20, y, col_white, 0);
+    render_input_with_cursor(renderer, (SDL_Rect){win.x + 20, y+25, 260, 30}, input_sanction_reason, active_field == 30, 0);
+    y += 70;
+
+    // Time Input (Ban Only)
+    if (sanction_mode == 1) {
+        render_text(renderer, "Time (1h, 1d, 1w):", win.x + 20, y, col_white, 0);
+        render_input_with_cursor(renderer, (SDL_Rect){win.x + 20, y+25, 100, 30}, input_ban_time, active_field == 31, 0);
+    } else {
+        render_text(renderer, "(3 Warns = Auto Ban)", win.x + 150, y+20, col_yellow, 1);
+    }
+
+    // Submit / Cancel
+    SDL_Rect btn_submit = {win.x + 20, win.y + 240, 120, 30};
+    SDL_Rect btn_cancel = {win.x + 160, win.y + 240, 120, 30};
+    
+    SDL_SetRenderDrawColor(renderer, 200, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_submit);
+    render_text(renderer, "EXECUTE", btn_submit.x + 60, btn_submit.y + 5, col_white, 1);
+    
+    SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_cancel);
+    render_text(renderer, "Cancel", btn_cancel.x + 60, btn_cancel.y + 5, col_white, 1);
+}
+
+void render_my_warnings(SDL_Renderer *renderer, int w, int h) {
+    if (!show_my_warnings) return;
+
+    SDL_Rect win = {w/2 - 200, h/2 - 200, 400, 400};
+    SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255); SDL_RenderFillRect(renderer, &win);
+    SDL_SetRenderDrawColor(renderer, 255, 165, 0, 255); SDL_RenderDrawRect(renderer, &win);
+
+    render_text(renderer, "My Warnings", win.x + 200, win.y + 10, col_yellow, 1);
+    
+    SDL_Rect btn_close = {win.x + 360, win.y + 5, 30, 30};
+    SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_close);
+    render_text(renderer, "X", btn_close.x + 10, btn_close.y + 5, col_white, 0);
+
+    int y = win.y + 50;
+    if (my_warning_count == 0) render_text(renderer, "No warnings on record.", win.x + 200, y+20, col_green, 1);
+
+    for (int i=0; i<my_warning_count; i++) {
+        SDL_SetRenderDrawColor(renderer, 50, 0, 0, 255);
+        SDL_Rect row = {win.x + 10, y, 380, 40};
+        SDL_RenderFillRect(renderer, &row);
+        
+        char buf[128];
+        snprintf(buf, 128, "[%s] %s", my_warning_list[i].date, my_warning_list[i].reason);
+        render_text(renderer, buf, row.x + 10, row.y + 10, col_white, 0);
+        y += 45;
+    }
+}
+
 void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
     if (!show_debug_info) return;
     char lines[10][128]; int line_count = 0;
@@ -1165,6 +1253,10 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
 
     int btn_w = 95; // 300 total width / 3 approx   
     
+    btn_my_warnings = (SDL_Rect){start_x, y + 40, 300, 30};
+    SDL_SetRenderDrawColor(renderer, 200, 100, 0, 255); SDL_RenderFillRect(renderer, &btn_my_warnings);
+    render_text(renderer, "View My Warnings", btn_my_warnings.x + 150, btn_my_warnings.y + 5, col_white, 1);
+
     // 1. Docs
     btn_documentation_rect = (SDL_Rect){start_x, y, btn_w, 30};
     SDL_SetRenderDrawColor(renderer, 0, 100, 150, 255); SDL_RenderFillRect(renderer, &btn_documentation_rect);
@@ -1311,7 +1403,12 @@ void render_profile(SDL_Renderer *renderer) {
     int required_w = 100 + text_w + 20; if (required_w < 200) required_w = 200;
 
     profile_win.w = required_w; 
-    profile_win.h = 280; 
+    profile_win.h = 280; // Base height
+
+    // Check My Role to adjust height for Admin Button
+    int my_role = 0; 
+    for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) my_role = local_players[i].role;
+    if (my_role >= ROLE_ADMIN) profile_win.h = 330; // Taller for admin
 
     SDL_SetRenderDrawColor(renderer, 30, 30, 50, 230); SDL_RenderFillRect(renderer, &profile_win);
     SDL_SetRenderDrawColor(renderer, 200, 200, 255, 255); SDL_RenderDrawRect(renderer, &profile_win);
@@ -1344,25 +1441,30 @@ void render_profile(SDL_Renderer *renderer) {
     // Buttons
     int btn_w = profile_win.w - 40; int start_y = profile_win.y + 120;
     
-    // --- FIX: STRUCT ACCESS ---
     int is_friend = 0; 
     for(int i=0; i<friend_count; i++) if(my_friends[i].id == selected_player_id) is_friend = 1;
-    // --------------------------
 
     SDL_Rect btn = {profile_win.x + 20, start_y, btn_w, 30}; 
-    if (!is_friend) { SDL_SetRenderDrawColor(renderer, 0, 100, 0, 255); SDL_RenderFillRect(renderer, &btn); render_text(renderer, "+ Add Friend", btn.x + (btn_w/2), btn.y + 5, col_white, 1); } 
-    else { SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn); render_text(renderer, "- Remove Friend", btn.x + (btn_w/2), btn.y + 5, col_white, 1); }
+    if (!is_friend) { SDL_SetRenderDrawColor(renderer, 0, 100, 0, 255); SDL_RenderFillRect(renderer, &btn); render_text(renderer, "+ Add Friend", btn.x + (btn_w/2) - 40, btn.y + 5, col_white, 0); } 
+    else { SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn); render_text(renderer, "- Remove", btn.x + (btn_w/2) - 30, btn.y + 5, col_white, 0); }
     btn_add_friend = btn;
 
     btn_send_pm = (SDL_Rect){profile_win.x + 20, start_y + 40, btn_w, 30};
     SDL_SetRenderDrawColor(renderer, 100, 0, 100, 255); SDL_RenderFillRect(renderer, &btn_send_pm);
-    render_text(renderer, "Send Message", btn_send_pm.x + (btn_w/2), btn_send_pm.y + 5, col_white, 1);
+    render_text(renderer, "Message", btn_send_pm.x + (btn_w/2) - 30, btn_send_pm.y + 5, col_white, 0);
 
     SDL_Rect btn_hide = {profile_win.x + 20, start_y + 80, btn_w, 30};
     int hidden = is_blocked(selected_player_id);
-    if (hidden) { SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_hide); render_text(renderer, "Unhide", btn_hide.x + (btn_w/2), btn_hide.y + 5, col_white, 1); } 
-    else { SDL_SetRenderDrawColor(renderer, 200, 50, 50, 255); SDL_RenderFillRect(renderer, &btn_hide); render_text(renderer, "Hide", btn_hide.x + (btn_w/2), btn_hide.y + 5, col_white, 1); }
+    if (hidden) { SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_hide); render_text(renderer, "Unhide", btn_hide.x + (btn_w/2) - 20, btn_hide.y + 5, col_white, 0); } 
+    else { SDL_SetRenderDrawColor(renderer, 200, 50, 50, 255); SDL_RenderFillRect(renderer, &btn_hide); render_text(renderer, "Hide", btn_hide.x + (btn_w/2) - 20, btn_hide.y + 5, col_white, 0); }
     btn_hide_player_dyn = btn_hide;
+
+    // --- NEW: Sanction Button (Admin Only) ---
+    if (my_role >= ROLE_ADMIN) {
+        btn_sanction_open = (SDL_Rect){profile_win.x + 20, start_y + 120, btn_w, 30};
+        SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_sanction_open);
+        render_text(renderer, "SANCTION", btn_sanction_open.x + (btn_w/2) - 35, btn_sanction_open.y + 5, col_white, 0);
+    }
 }
 
 void render_auth_screen(SDL_Renderer *renderer) {
@@ -1605,6 +1707,8 @@ void render_game(SDL_Renderer *renderer) {
     render_contributors(renderer, w, h);
     render_documentation(renderer, w, h);
     render_role_list(renderer, w, h);
+    render_sanction_popup(renderer, w, h);
+    render_my_warnings(renderer, w, h);
     render_debug_overlay(renderer, w);
     render_hud(renderer, h);
 
@@ -1783,10 +1887,61 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
     }
 
     // ============================================================
-    // LAYER 2: MODAL WINDOWS
+    // LAYER 2: POPUPS & MODALS
     // ============================================================
 
-    // 2A. Inbox
+    // 2A. Sanction Popup
+    if (show_sanction_popup) {
+        SDL_Rect win = {w/2 - 150, h/2 - 150, 300, 300};
+        int y = win.y + 90;
+        
+        // Mode Buttons
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){win.x+20, win.y+40, 120, 30})) { sanction_mode = 0; return; }
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){win.x+160, win.y+40, 120, 30})) { sanction_mode = 1; return; }
+
+        // Reason Input
+        SDL_Rect r_reason = {win.x+20, y+25, 260, 30};
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &r_reason)) { 
+            active_field = 30; SDL_StartTextInput(); active_input_rect = r_reason;
+            cursor_pos = get_cursor_pos_from_click(input_sanction_reason, mx, r_reason.x);
+            selection_start = cursor_pos; selection_len=0; is_dragging=1; return; 
+        }
+        
+        // Time Input
+        if (sanction_mode == 1) {
+            y += 70;
+            SDL_Rect r_time = {win.x+20, y+25, 100, 30};
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &r_time)) { 
+                active_field = 31; SDL_StartTextInput(); active_input_rect = r_time;
+                cursor_pos = get_cursor_pos_from_click(input_ban_time, mx, r_time.x);
+                selection_start = cursor_pos; selection_len=0; is_dragging=1; return; 
+            }
+        }
+
+        // Execute
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){win.x+20, win.y+240, 120, 30})) {
+            Packet pkt; pkt.type = PACKET_SANCTION_REQUEST;
+            pkt.target_id = sanction_target_id;
+            pkt.sanction_type = sanction_mode;
+            strncpy(pkt.sanction_reason, input_sanction_reason, 63);
+            strncpy(pkt.ban_duration, input_ban_time, 15);
+            send_packet(&pkt);
+            show_sanction_popup = 0; return;
+        }
+        // Cancel
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){win.x+160, win.y+240, 120, 30})) { show_sanction_popup = 0; return; }
+        return;
+    }
+
+    // 2B. My Warnings
+    if (show_my_warnings) {
+        SDL_Rect win = {w/2 - 200, h/2 - 200, 400, 400};
+        SDL_Rect btn_close = {win.x + 360, win.y + 5, 30, 30};
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_close)) show_my_warnings = 0;
+        return;
+    }
+
+    // 2C. Inbox
     if (is_inbox_open) {
         SDL_Rect win = {w - 320, 60, 300, 300};
         int y = win.y + 40;
@@ -1806,7 +1961,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         return; 
     }
 
-    // 2B. Add Friend Popup
+    // 2D. Add Friend Popup
     if (show_add_friend_popup) {
         SDL_Rect pop = {w/2 - 150, h/2 - 100, 300, 200};
         SDL_Rect input = {pop.x+50, pop.y+60, 200, 30};
@@ -1825,7 +1980,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         return; 
     }
 
-    // 2C. Blocked List
+    // 2E. Blocked List
     if (show_blocked_list) {
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_blocked_close_rect)) { show_blocked_list = 0; return; }
         int y_off = 50;
@@ -1837,13 +1992,14 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         return;
     }
 
-    // 2D. Friends List
+    // 2F. Friends List (FIXED VARIABLE NAME)
     if (show_friend_list) {
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_friend_add_id_rect)) { show_add_friend_popup = 1; input_friend_id[0] = 0; return; }
         
-        int win_w = friend_win_rect.w; int y_off = 85; 
+        int win_w = friend_list_win.w; // Used correct global
+        int y_off = 85; 
         for(int i=0; i<friend_count; i++) {
-            SDL_Rect btn_del = {friend_win_rect.x + win_w - 50, friend_win_rect.y + y_off, 40, 20};
+            SDL_Rect btn_del = {friend_list_win.x + win_w - 50, friend_list_win.y + y_off, 40, 20};
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_del)) { Packet pkt; pkt.type = PACKET_FRIEND_REMOVE; pkt.target_id = my_friends[i].id; send_packet(&pkt); return; }
             y_off += 30;
         }
@@ -1851,24 +2007,21 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         return; 
     }
 
-    // 2E. Windows (Contributors, Docs, Staff)
+    // 2G. Info Windows
     if (show_contributors) {
         SDL_Rect win = {w/2 - 200, h/2 - 225, 400, 450}; 
         SDL_Rect btn_close = {win.x + 360, win.y + 5, 30, 30}; 
-        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_close)) show_contributors = 0;
-        return; 
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_close)) show_contributors = 0; return; 
     }
     if (show_documentation) {
         SDL_Rect win = {w/2 - 250, h/2 - 250, 500, 500};
         SDL_Rect btn_close = {win.x + 460, win.y + 5, 30, 30};
-        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_close)) show_documentation = 0;
-        return; 
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_close)) show_documentation = 0; return; 
     }
     if (show_role_list) {
         SDL_Rect win = {w/2 - 200, h/2 - 225, 400, 450}; 
         SDL_Rect btn_close = {win.x + 360, win.y + 5, 30, 30};
-        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_close)) show_role_list = 0;
-        return; 
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_close)) show_role_list = 0; return; 
     }
 
     // ============================================================
@@ -1876,11 +2029,9 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
     // ============================================================
 
     if (is_settings_open) {
-        // A. Nickname Popup (Highest Priority)
         if (show_nick_popup) {
             SDL_Rect pop = {w/2 - 150, h/2 - 150, 300, 300};
             int py = pop.y + 60; 
-
             SDL_Rect r_new = {pop.x+20, py+20, 260, 25};
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &r_new)) { 
                 active_field = 10; SDL_StartTextInput(); active_input_rect = r_new; cursor_pos = get_cursor_pos_from_click(nick_new, mx, r_new.x);
@@ -1910,17 +2061,17 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             return;
         }
 
-        // B. Main Settings Content
-        // Use Global Rects for items that Render already calculated
-        if (SDL_PointInRect(&(SDL_Point){mx, my}, &settings_view_port)) {
-            
+        // Main Settings Scrolled
+        SDL_Rect s_win = {w/2 - 175, h/2 - 300, 350, 600}; 
+        SDL_Rect viewport = {s_win.x + 10, s_win.y + 40, s_win.w - 20, s_win.h - 50};
+
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &viewport)) {
             // Toggles
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_debug)) { show_debug_info = !show_debug_info; save_config(); return; }
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_fps)) { show_fps = !show_fps; save_config(); return; }
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_coords)) { show_coords = !show_coords; save_config(); return; }
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_unread)) { show_unread_counter = !show_unread_counter; save_config(); return; }
 
-            // Blocked / Status
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_view_blocked)) { show_blocked_list = 1; return; } 
             
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_cycle_status)) {
@@ -1929,22 +2080,17 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
                 Packet pkt; pkt.type = PACKET_STATUS_CHANGE; pkt.new_status = my_status; send_packet(&pkt); return;
             }
 
-            // Nickname Button (Recalc logic since rect isn't global, or check approximate area)
-            // (Assuming standard position derived from view_port y + offset - scroll)
-            SDL_Rect btn_nick = {settings_win.x + 20, settings_win.y + 310 - settings_scroll_y, 300, 30}; 
+            SDL_Rect btn_nick = {btn_cycle_status.x, btn_cycle_status.y + 40, 300, 30};
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_nick)) {
-                show_nick_popup = 1; nick_new[0] = 0; nick_confirm[0] = 0; nick_pass[0] = 0;
-                strcpy(auth_message, "Enter details."); return;
+                show_nick_popup = 1; nick_new[0] = 0; nick_confirm[0] = 0; nick_pass[0] = 0; strcpy(auth_message, "Enter details."); return;
             }
 
-            // Sliders (Use Globals)
+            // Sliders Set 1
             int changed = 0; int my_r = 0, my_g = 0, my_b = 0; 
             for(int i=0; i<MAX_CLIENTS; i++) { if(local_players[i].active && local_players[i].id == local_player_id) { my_r=local_players[i].r; my_g=local_players[i].g; my_b=local_players[i].b; } }
-            
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_r)) { my_r = (int)(((float)(mx - slider_r.x) / slider_r.w) * 255); changed = 1; }
             else if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_g)) { my_g = (int)(((float)(mx - slider_g.x) / slider_g.w) * 255); changed = 1; }
             else if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_b)) { my_b = (int)(((float)(mx - slider_b.x) / slider_b.w) * 255); changed = 1; }
-
             if (changed) { 
                 if(my_r < 0) my_r = 0; if(my_r > 255) my_r = 255; if(my_g < 0) my_g = 0; if(my_g > 255) my_g = 255; if(my_b < 0) my_b = 0; if(my_b > 255) my_b = 255;
                 Packet pkt; pkt.type = PACKET_COLOR_CHANGE; pkt.r = my_r; pkt.g = my_g; pkt.b = my_b; send_packet(&pkt); 
@@ -1952,28 +2098,26 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
                 save_config(); return;
             }
 
-            // Sliders 2 (Use Globals)
+            // Sliders Set 2
             int changed2 = 0;
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_r2)) { my_r2 = (int)(((float)(mx - slider_r2.x) / slider_r2.w) * 255); changed2 = 1; } 
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_g2)) { my_g2 = (int)(((float)(mx - slider_g2.x) / slider_g2.w) * 255); changed2 = 1; }
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_b2)) { my_b2 = (int)(((float)(mx - slider_b2.x) / slider_b2.w) * 255); changed2 = 1; }
             if (changed2) { save_config(); return; }
 
-            // Volume (Use Global)
+            // Volume & AFK
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_volume)) {
                 float pct = (mx - slider_volume.x) / (float)slider_volume.w; 
                 if (pct < 0) pct = 0; if (pct > 1) pct = 1;
                 music_volume = (int)(pct * 128); Mix_VolumeMusic(music_volume); save_config(); return;
             }
-
-            // AFK (Use Global)
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &slider_afk)) {
                 float pct = (mx - slider_afk.x) / (float)slider_afk.w; 
                 if (pct < 0) pct = 0; if (pct > 1) pct = 1;
                 afk_timeout_minutes = 2 + (int)(pct * 8.0f + 0.5f); save_config(); return;
             }
 
-            // --- FIX: USE GLOBALS FOR BOTTOM BUTTONS ---
+            // Bottom Buttons
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_disconnect_rect)) {
                 if(sock > 0) close(sock); sock = -1; is_connected = 0; Mix_HaltMusic();
                 client_state = STATE_AUTH; is_settings_open = 0; local_player_id = -1;
@@ -1981,12 +2125,13 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
                 friend_count = 0; chat_log_count = 0; for(int i=0; i<CHAT_HISTORY; i++) strcpy(chat_log[i], "");
                 strcpy(auth_message, "Logged out."); return;
             }
-
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_documentation_rect)) { show_documentation = 1; return; }
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_contributors_rect)) { show_contributors = 1; return; }
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_staff_list_rect)) { 
-                show_role_list = 1; staff_count = 0; 
-                Packet req; req.type = PACKET_ROLE_LIST_REQUEST; send_packet(&req); return; 
+                show_role_list = 1; staff_count = 0; Packet req; req.type = PACKET_ROLE_LIST_REQUEST; send_packet(&req); return; 
+            }
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_my_warnings)) {
+                show_my_warnings = 1; my_warning_count = 0; Packet req; req.type = PACKET_WARNINGS_REQUEST; send_packet(&req); return;
             }
         }
         return; 
@@ -2017,6 +2162,16 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         }
         else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_hide_player_dyn)) {
             toggle_block(selected_player_id); selected_player_id = -1; return;
+        }
+        
+        // Sanction Button (Admin)
+        int my_role = 0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) my_role = local_players[i].role;
+        if (my_role >= ROLE_ADMIN && SDL_PointInRect(&(SDL_Point){mx, my}, &btn_sanction_open)) {
+            sanction_target_id = selected_player_id;
+            show_sanction_popup = 1;
+            input_sanction_reason[0] = 0; input_ban_time[0] = 0;
+            sanction_mode = 0; 
+            return;
         }
     }
 
@@ -2187,6 +2342,8 @@ int main(int argc, char const *argv[]) {
                     else if (active_field == 11) target = nick_confirm;
                     else if (active_field == 12) target = nick_pass;
                     else if (active_field == 20) target = input_friend_id;
+                    else if (active_field == 30) target = input_sanction_reason;
+                    else if (active_field == 31) target = input_ban_time;
 
                     if (target) {
                         int mx = event.motion.x * scale_x; // Scale mouse pos
@@ -2312,6 +2469,12 @@ int main(int argc, char const *argv[]) {
                 else if (show_add_friend_popup) {
                     if (active_field == 20) handle_text_edit(input_friend_id, 8, &event);
                 }
+                else if (show_sanction_popup) {
+                    char *target = NULL; int max = 63;
+                    if (active_field == 30) { target = input_sanction_reason; max = 63; }
+                    if (active_field == 31) { target = input_ban_time; max = 15; }
+                    if (target) handle_text_edit(target, max, &event);
+                }
                 else {
                     if (event.type == SDL_KEYDOWN) {
                         if (event.key.keysym.sym == SDLK_w) key_up=1; if (event.key.keysym.sym == SDLK_s) key_down=1;
@@ -2396,6 +2559,19 @@ int main(int argc, char const *argv[]) {
                             staff_list[i].id = pkt.roles[i].id;
                             strncpy(staff_list[i].name, pkt.roles[i].username, 31);
                             staff_list[i].role = pkt.roles[i].role;
+                        }
+                    }
+                    if (pkt.type == PACKET_KICK) {
+                        printf("Kicked: %s\n", pkt.msg);
+                        strcpy(auth_message, pkt.msg);
+                        close(sock); sock = -1; is_connected = 0;
+                        client_state = STATE_AUTH;
+                    }
+                    if (pkt.type == PACKET_WARNINGS_RESPONSE) {
+                        my_warning_count = pkt.warning_count;
+                        for(int i=0; i<my_warning_count; i++) {
+                            strcpy(my_warning_list[i].reason, pkt.warnings[i].reason);
+                            strcpy(my_warning_list[i].date, pkt.warnings[i].date);
                         }
                     }
                     if (pkt.type == PACKET_AVATAR_RESPONSE) {

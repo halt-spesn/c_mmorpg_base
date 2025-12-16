@@ -50,6 +50,36 @@ void init_db() {
     sqlite3_exec(db, sql_users, 0, 0, 0);
     char *sql_friends = "CREATE TABLE IF NOT EXISTS friends(USER_ID INT, FRIEND_ID INT, STATUS INT, PRIMARY KEY (USER_ID, FRIEND_ID));";
     sqlite3_exec(db, sql_friends, 0, 0, 0);
+    char *alter1 = "ALTER TABLE users ADD COLUMN WARN_COUNT INTEGER DEFAULT 0;";
+    sqlite3_exec(db, alter1, 0, 0, 0);
+    char *alter2 = "ALTER TABLE users ADD COLUMN BAN_EXPIRE INTEGER DEFAULT 0;";
+    sqlite3_exec(db, alter2, 0, 0, 0);
+
+    // 2. Create Warnings Table
+    char *sql_warn = 
+        "CREATE TABLE IF NOT EXISTS warnings ("
+        "ID INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "USER_ID INTEGER, "
+        "REASON TEXT, "
+        "TIMESTAMP INTEGER);";
+    sqlite3_exec(db, sql_warn, 0, 0, 0);
+}
+
+long parse_ban_duration(const char* str) {
+    int val = atoi(str);
+    char unit = str[strlen(str)-1];
+    long multiplier = 1;
+    
+    switch(unit) {
+        case 's': multiplier = 1; break;
+        case 'm': multiplier = 60; break;
+        case 'h': multiplier = 3600; break;
+        case 'd': multiplier = 86400; break;
+        case 'w': multiplier = 604800; break;
+        case 'y': multiplier = 31536000; break;
+        default: multiplier = 60; break; // Default to minutes if no unit
+    }
+    return val * multiplier;
 }
 
 void init_storage() {
@@ -101,22 +131,30 @@ AuthStatus register_user(const char *user, const char *pass) {
     sqlite3_exec(db, sql, 0, 0, 0); return AUTH_REGISTER_SUCCESS;
 }
 
-int login_user(const char *user, const char *pass, float *px, float *py, uint8_t *r, uint8_t *g, uint8_t *b, int *role) {
-    sqlite3_stmt *stmt; char sql[256];
-    snprintf(sql, 256, "SELECT X, Y, R, G, B, ROLE FROM users WHERE USERNAME=? AND PASSWORD=?;");
+// Update signature to accept 'long *ban_expire'
+int login_user(const char *username, const char *password, float *x, float *y, uint8_t *r, uint8_t *g, uint8_t *b, int *role, long *ban_expire) {
+    sqlite3_stmt *stmt;
+    // Added BAN_EXPIRE to the SELECT query (Column index 6)
+    const char *sql = "SELECT X, Y, R, G, B, ROLE, BAN_EXPIRE FROM users WHERE USERNAME=? AND PASSWORD=?;";
+    
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, 0) != SQLITE_OK) return 0;
-    sqlite3_bind_text(stmt, 1, user, -1, SQLITE_STATIC); sqlite3_bind_text(stmt, 2, pass, -1, SQLITE_STATIC);
-    int logged_in = 0;
-    if (sqlite3_step(stmt) == SQLITE_ROW) { 
-        *px = (float)sqlite3_column_double(stmt, 0); *py = (float)sqlite3_column_double(stmt, 1);
-        *r = (uint8_t)sqlite3_column_int(stmt, 2); *g = (uint8_t)sqlite3_column_int(stmt, 3); *b = (uint8_t)sqlite3_column_int(stmt, 4);
-        *role = sqlite3_column_int(stmt, 5); logged_in = 1; 
+    
+    sqlite3_bind_text(stmt, 1, username, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 2, password, -1, SQLITE_STATIC);
+    
+    int success = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        *x = (float)sqlite3_column_double(stmt, 0);
+        *y = (float)sqlite3_column_double(stmt, 1);
+        *r = (uint8_t)sqlite3_column_int(stmt, 2);
+        *g = (uint8_t)sqlite3_column_int(stmt, 3);
+        *b = (uint8_t)sqlite3_column_int(stmt, 4);
+        *role = sqlite3_column_int(stmt, 5);
+        *ban_expire = (long)sqlite3_column_int64(stmt, 6); // Fetch Ban Time
+        success = 1;
     }
-    if (logged_in) {
-        char update_sql[256]; snprintf(update_sql, 256, "UPDATE users SET LAST_LOGIN=datetime('now', 'localtime') WHERE USERNAME='%s';", user);
-        sqlite3_exec(db, update_sql, 0, 0, 0);
-    }
-    sqlite3_finalize(stmt); return logged_in;
+    sqlite3_finalize(stmt);
+    return success;
 }
 
 void save_player_location(const char *user, float x, float y) {
@@ -281,26 +319,76 @@ void send_pending_requests(int client_index) {
 
 void handle_client_message(int index, Packet *pkt) {
     if (players[index].id == -1) {
-        Packet response; response.type = PACKET_AUTH_RESPONSE;
+        Packet response; 
+        memset(&response, 0, sizeof(Packet)); // Good practice to clear it
+        response.type = PACKET_AUTH_RESPONSE;
+
         if (pkt->type == PACKET_REGISTER_REQUEST) {
             response.status = register_user(pkt->username, pkt->password);
-        } else if (pkt->type == PACKET_LOGIN_REQUEST) {
-            float x, y; uint8_t r, g, b; int role;
-            if (login_user(pkt->username, pkt->password, &x, &y, &r, &g, &b, &role)) {
-                 int already = 0; for(int i=0; i<MAX_CLIENTS; i++) if(players[i].active && strcmp(players[i].username, pkt->username)==0) already=1;
-                 if(already) response.status = AUTH_FAILURE; 
-                 else {
-                    response.status = AUTH_SUCCESS; players[index].active = 1; players[index].id = get_user_id(pkt->username); 
-                    if (players[index].id == 1) { role = ROLE_ADMIN; sqlite3_exec(db, "UPDATE users SET ROLE=1 WHERE ID=1;", 0, 0, 0); }
-                    players[index].x = x; players[index].y = y; players[index].r = r; players[index].g = g; players[index].b = b; players[index].role = role; 
+        } 
+        else if (pkt->type == PACKET_LOGIN_REQUEST) {
+            float x, y; 
+            uint8_t r, g, b; 
+            int role;
+            long ban_expire = 0;
+
+            // Pass &ban_expire to the function
+            if (login_user(pkt->username, pkt->password, &x, &y, &r, &g, &b, &role, &ban_expire)) {
+                
+                // 1. Check Ban Logic
+                if (time(NULL) < ban_expire) {
+                    response.status = AUTH_FAILURE;
+                    strcpy(response.msg, "Account is Banned."); // Fixed variable name
+                    send(client_sockets[index], &response, sizeof(Packet), 0);
+                    return;
+                }
+
+                // 2. Check Double Login
+                int already = 0; 
+                for(int i=0; i<MAX_CLIENTS; i++) {
+                    if(players[i].active && strcmp(players[i].username, pkt->username) == 0) {
+                        already = 1; break;
+                    }
+                }
+
+                if(already) {
+                    response.status = AUTH_FAILURE;
+                    strcpy(response.msg, "Already logged in.");
+                } 
+                else {
+                    response.status = AUTH_SUCCESS; 
+                    players[index].active = 1; 
+                    players[index].id = get_user_id(pkt->username); 
+                    
+                    // Auto-Admin ID 1 (Optional, generally safer to do in DB manually)
+                    if (players[index].id == 1 && role != ROLE_ADMIN) { 
+                        role = ROLE_ADMIN; 
+                        sqlite3_exec(db, "UPDATE users SET ROLE=1 WHERE ID=1;", 0, 0, 0); 
+                    }
+
+                    players[index].x = x; 
+                    players[index].y = y; 
+                    players[index].r = r; 
+                    players[index].g = g; 
+                    players[index].b = b; 
+                    players[index].role = role; 
                     strncpy(players[index].username, pkt->username, 31);
+                    
                     response.player_id = players[index].id;
                     send(client_sockets[index], &response, sizeof(Packet), 0);
-                    broadcast_friend_update(); send_pending_requests(index); broadcast_state(); return;
-                 }
-            } else response.status = AUTH_FAILURE;
+                    
+                    broadcast_friend_update(); 
+                    send_pending_requests(index); 
+                    broadcast_state(); 
+                    return;
+                }
+            } else {
+                response.status = AUTH_FAILURE;
+                strcpy(response.msg, "Invalid username or password.");
+            }
         }
-        send(client_sockets[index], &response, sizeof(Packet), 0); return;
+        send(client_sockets[index], &response, sizeof(Packet), 0); 
+        return;
     }
 
     if (pkt->type == PACKET_MOVE) {
@@ -314,11 +402,85 @@ void handle_client_message(int index, Packet *pkt) {
         // REMOVED: broadcast_state(); -- Handled by Tick Thread
     } 
     else if (pkt->type == PACKET_CHAT) {
+        // --- ADMIN COMMANDS ---
         if (pkt->msg[0] == '/') {
-            if (strncmp(pkt->msg, "/promote", 8) == 0 || strncmp(pkt->msg, "/demote", 7) == 0) process_admin_command(index, pkt->msg);
-        } else {
-            Packet chatPkt = *pkt; chatPkt.player_id = players[index].id;
-            for (int i = 0; i < MAX_CLIENTS; i++) if (client_sockets[i] > 0 && players[i].id != -1) send(client_sockets[i], &chatPkt, sizeof(Packet), 0);
+            // 1. Security Check
+            if (players[index].role < ROLE_ADMIN) {
+                Packet err; err.type = PACKET_CHAT; err.player_id = -1;
+                strcpy(err.msg, "Unknown command.");
+                send(client_sockets[index], &err, sizeof(Packet), 0);
+                return;
+            }
+
+            // 2. /unban <ID>
+            if (strncmp(pkt->msg, "/unban ", 7) == 0) {
+                int target_id = atoi(pkt->msg + 7);
+                if (target_id > 0) {
+                    char sql[256];
+                    // Reset ban expiration to 0
+                    snprintf(sql, 256, "UPDATE users SET BAN_EXPIRE=0 WHERE ID=%d;", target_id);
+                    sqlite3_exec(db, sql, 0, 0, 0);
+                    
+                    Packet resp; resp.type = PACKET_CHAT; resp.player_id = -1;
+                    snprintf(resp.msg, 64, "ID %d has been UNBANNED.", target_id);
+                    send(client_sockets[index], &resp, sizeof(Packet), 0);
+                }
+            }
+            // 3. /unwarn <ID> (Remove last warning)
+            else if (strncmp(pkt->msg, "/unwarn ", 8) == 0) {
+                int target_id = atoi(pkt->msg + 8);
+                if (target_id > 0) {
+                    char sql[256];
+                    
+                    // A. Decrement user count (prevent negative)
+                    snprintf(sql, 256, "UPDATE users SET WARN_COUNT = MAX(0, WARN_COUNT - 1) WHERE ID=%d;", target_id);
+                    sqlite3_exec(db, sql, 0, 0, 0);
+
+                    // B. Delete most recent warning entry
+                    // SQLite specific: Delete row with highest ID for this user
+                    snprintf(sql, 256, "DELETE FROM warnings WHERE ID = (SELECT MAX(ID) FROM warnings WHERE USER_ID=%d);", target_id);
+                    sqlite3_exec(db, sql, 0, 0, 0);
+
+                    Packet resp; resp.type = PACKET_CHAT; resp.player_id = -1;
+                    snprintf(resp.msg, 64, "ID %d: Last warning removed.", target_id);
+                    send(client_sockets[index], &resp, sizeof(Packet), 0);
+                }
+            }
+            // 4. /role <ID> <LEVEL> (Bonus: Set role via command)
+            else if (strncmp(pkt->msg, "/role ", 6) == 0) {
+                int target_id, level;
+                if (sscanf(pkt->msg + 6, "%d %d", &target_id, &level) == 2) {
+                    char sql[256];
+                    snprintf(sql, 256, "UPDATE users SET ROLE=%d WHERE ID=%d;", level, target_id);
+                    sqlite3_exec(db, sql, 0, 0, 0);
+                    
+                    // Update online player if active
+                    for(int i=0; i<MAX_CLIENTS; i++) {
+                        if(players[i].active && players[i].id == target_id) {
+                            players[i].role = level;
+                            broadcast_state(); // Update colors/tags for everyone
+                        }
+                    }
+                    Packet resp; resp.type = PACKET_CHAT; resp.player_id = -1;
+                    snprintf(resp.msg, 64, "ID %d Role set to %d.", target_id, level);
+                    send(client_sockets[index], &resp, sizeof(Packet), 0);
+                }
+            }
+            else {
+                Packet err; err.type = PACKET_CHAT; err.player_id = -1;
+                strcpy(err.msg, "Invalid command.");
+                send(client_sockets[index], &err, sizeof(Packet), 0);
+            }
+            return; // Don't broadcast commands
+        }
+        // -----------------------
+
+        // Normal Chat Broadcast
+        pkt->player_id = players[index].id;
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+            if (client_sockets[i] > 0 && players[i].active) {
+                send(client_sockets[i], pkt, sizeof(Packet), 0);
+            }
         }
     }
     else if (pkt->type == PACKET_FRIEND_REQUEST) {
@@ -454,6 +616,93 @@ void handle_client_message(int index, Packet *pkt) {
                 strncpy(resp.roles[idx].username, (const char*)name, 31);
                 resp.roles[idx].role = sqlite3_column_int(stmt, 2);
                 resp.role_count++;
+            }
+        }
+        sqlite3_finalize(stmt);
+        send(client_sockets[index], &resp, sizeof(Packet), 0);
+    }
+    else if (pkt->type == PACKET_SANCTION_REQUEST) {
+        if (players[index].role < ROLE_ADMIN) return; // Security Check
+
+        int target_id = pkt->target_id;
+        
+        if (pkt->sanction_type == 0) { // WARN
+            // Add to DB
+            sqlite3_stmt *stmt;
+            char sql[256];
+            snprintf(sql, 256, "INSERT INTO warnings (USER_ID, REASON, TIMESTAMP) VALUES (%d, ?, %ld);", target_id, time(NULL));
+            sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
+            sqlite3_bind_text(stmt, 1, pkt->sanction_reason, -1, SQLITE_STATIC);
+            sqlite3_step(stmt); sqlite3_finalize(stmt);
+
+            // Increment Count
+            snprintf(sql, 256, "UPDATE users SET WARN_COUNT = WARN_COUNT + 1 WHERE ID=%d;", target_id);
+            sqlite3_exec(db, sql, 0, 0, 0);
+
+            // Check Auto-Ban (3 Strikes)
+            snprintf(sql, 256, "SELECT WARN_COUNT FROM users WHERE ID=%d;", target_id);
+            sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
+            if (sqlite3_step(stmt) == SQLITE_ROW) {
+                int count = sqlite3_column_int(stmt, 0);
+                if (count >= 3) {
+                    // Auto Ban (10 Years)
+                    long expire = time(NULL) + (10 * 31536000);
+                    char ban_sql[256];
+                    snprintf(ban_sql, 256, "UPDATE users SET BAN_EXPIRE=%ld WHERE ID=%d;", expire, target_id);
+                    sqlite3_exec(db, ban_sql, 0, 0, 0);
+                    
+                    // Kick if online
+                    for(int i=0; i<MAX_CLIENTS; i++) if(players[i].active && players[i].id == target_id) {
+                        Packet k; k.type = PACKET_KICK; strcpy(k.msg, "Banned: 3 Warnings Reached.");
+                        send(client_sockets[i], &k, sizeof(Packet), 0);
+                        close(client_sockets[i]); players[i].active = 0;
+                    }
+                }
+            }
+            sqlite3_finalize(stmt);
+            
+            // Notify Admin
+            Packet msg; msg.type = PACKET_CHAT; msg.player_id = -1; strcpy(msg.msg, "Player Warned.");
+            send(client_sockets[index], &msg, sizeof(Packet), 0);
+
+        } 
+        else { // BAN
+            long duration = parse_ban_duration(pkt->ban_duration);
+            long expire = time(NULL) + duration;
+            
+            char sql[256];
+            snprintf(sql, 256, "UPDATE users SET BAN_EXPIRE=%ld WHERE ID=%d;", expire, target_id);
+            sqlite3_exec(db, sql, 0, 0, 0);
+
+            // Kick if online
+            for(int i=0; i<MAX_CLIENTS; i++) if(players[i].active && players[i].id == target_id) {
+                Packet k; k.type = PACKET_KICK; 
+                snprintf(k.msg, 64, "Banned: %s", pkt->sanction_reason);
+                send(client_sockets[i], &k, sizeof(Packet), 0);
+                close(client_sockets[i]); players[i].active = 0;
+            }
+             Packet msg; msg.type = PACKET_CHAT; msg.player_id = -1; strcpy(msg.msg, "Player Banned.");
+             send(client_sockets[index], &msg, sizeof(Packet), 0);
+        }
+    }
+
+    // 3. FETCH WARNINGS (For User)
+    else if (pkt->type == PACKET_WARNINGS_REQUEST) {
+        Packet resp; resp.type = PACKET_WARNINGS_RESPONSE; resp.warning_count = 0;
+        
+        char sql[256];
+        snprintf(sql, 256, "SELECT REASON, TIMESTAMP FROM warnings WHERE USER_ID=%d ORDER BY ID DESC LIMIT 20;", players[index].id);
+        
+        sqlite3_stmt *stmt;
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, 0) == SQLITE_OK) {
+            while (sqlite3_step(stmt) == SQLITE_ROW) {
+                int i = resp.warning_count++;
+                const char *r = (const char*)sqlite3_column_text(stmt, 0);
+                time_t t = sqlite3_column_int64(stmt, 1);
+                
+                strncpy(resp.warnings[i].reason, r, 63);
+                struct tm *tm_info = localtime(&t);
+                strftime(resp.warnings[i].date, 32, "%Y-%m-%d", tm_info);
             }
         }
         sqlite3_finalize(stmt);

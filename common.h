@@ -36,7 +36,12 @@ typedef enum {
     PACKET_CHANGE_NICK_REQUEST, 
     PACKET_CHANGE_NICK_RESPONSE,
     PACKET_ROLE_LIST_REQUEST,  // New
-    PACKET_ROLE_LIST_RESPONSE  // New
+    PACKET_ROLE_LIST_RESPONSE,  // New
+    // NEW: Sanction System
+    PACKET_SANCTION_REQUEST,   // Admin -> Server (Warn/Ban)
+    PACKET_WARNINGS_REQUEST,   // User -> Server (Get history)
+    PACKET_WARNINGS_RESPONSE,  // Server -> User (History data)
+    PACKET_KICK                // Server -> Client (Force disconnect)
 } PacketType;
 
 typedef enum {
@@ -85,6 +90,16 @@ typedef struct {
     uint8_t r, g, b;
     int image_size;
     uint8_t image_data; 
+    int sanction_type; // 0 = Warn, 1 = Ban
+    char sanction_reason[64];
+    char ban_duration[16]; // "1h", "1d", etc.
+    
+    // NEW: Warning History List
+    int warning_count;
+    struct {
+        char reason[64];
+        char date[32];
+    } warnings[20];
 } Packet;
 
 #endif
