@@ -22,6 +22,7 @@
 		9F87790D2EF2CADE003F57C3 /* libSDL2_ttf.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F87790A2EF2CADD003F57C3 /* libSDL2_ttf.a */; };
 		9F87790E2EF2CADF003F57C3 /* libSDL2_mixer.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F87790B2EF2CADD003F57C3 /* libSDL2_mixer.a */; };
 		9F8779132EF2CC73003F57C3 /* libSDL2_image.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8779122EF2CC73003F57C3 /* libSDL2_image.a */; };
+		9F87791D2EF2D200003F57C3 /* DejaVuSans.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 9F87791C2EF2D200003F57C3 /* DejaVuSans.ttf */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -102,12 +103,14 @@
 		9F8778D02EF2C8F5003F57C3 /* mmotest */ = {
 			isa = PBXGroup;
 			children = (
+				9F87791C2EF2D200003F57C3 /* DejaVuSans.ttf */,
 				9F87791B2EF2CE02003F57C3 /* Info.plist */,
 				9F8778DD2EF2C8F8003F57C3 /* Assets.xcassets */,
 			);
 			path = mmotest;
 			sourceTree = "<group>";
 		};
+		9F87791C2EF2D200003F57C3 /* DejaVuSans.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = DejaVuSans.ttf; sourceTree = "<group>"; };
 		9F8778F42EF2CA78003F57C3 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
@@ -141,6 +144,7 @@
 			buildPhases = (
 				9F8778CA2EF2C8F5003F57C3 /* Sources */,
 				9F8778CB2EF2C8F5003F57C3 /* Frameworks */,
+				9F8778CC2EF2C8F5003F57C3 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -183,16 +187,18 @@
 		};
 /* End PBXProject section */
 
-/* Begin PBXSourcesBuildPhase section */
-		9F8778CA2EF2C8F5003F57C3 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
+/* Begin PBXResourcesBuildPhase section */
+		9F8778CC2EF2C8F5003F57C3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				9F8778ED2EF2C9C3003F57C3 /* client_sdl.c in Sources */,
+				9F8778DE2EF2C8F8003F57C3 /* Assets.xcassets in Resources */,
+				9F87791A2EF2CE02003F57C3 /* Info.plist in Resources */,
+				9F87791D2EF2D200003F57C3 /* DejaVuSans.ttf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-/* End PBXSourcesBuildPhase section */
+/* End PBXResourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
 		9F8778E52EF2C8F8003F57C3 /* Debug */ = {
