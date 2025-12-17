@@ -46,6 +46,8 @@ char current_map_file[32] = "map.jpg";
 #define PLAYER_FILE "player.png"
 #define FONT_PATH "DejaVuSans.ttf"
 #define FONT_SIZE 14
+#define SCROLL_SPEED 30  // Pixels per mouse wheel notch
+
 
 
 // --- Globals ---
@@ -2914,7 +2916,7 @@ int main(int argc, char *argv[]) {
             
             // --- Scroll Handling ---
             else if (event.type == SDL_MOUSEWHEEL) {
-                int scroll_amount = event.wheel.y * 30;
+                int scroll_amount = event.wheel.y * SCROLL_SPEED;
                 
                 if (is_settings_open) {
                     settings_scroll_y -= scroll_amount; 
