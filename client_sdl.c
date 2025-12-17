@@ -20,17 +20,17 @@
     #include <sys/utsname.h>
 #endif
 
-#include <SDL2/SDL.h>
-#include <SDL2/SDL_ttf.h>
-#include <SDL2/SDL_image.h>
-#include <SDL2/SDL_mixer.h>
+#include <SDL.h>
+#include <SDL_ttf.h>
+#include <SDL_image.h>
+#include <SDL_mixer.h>
 #include <sys/types.h>
 
 // Handle OpenGL headers
 #ifdef __APPLE__
-#include <SDL2/SDL_opengl.h>
+#include <SDL_opengl.h>
 #elif defined(_WIN32)
-#include <SDL2/SDL_opengl.h>
+#include <SDL_opengl.h>
 #else
 #include <GL/gl.h>
 #endif
