@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <math.h>
 
 #ifdef _WIN32
     #include <winsock2.h>
@@ -254,6 +255,12 @@ int show_contributors = 0;
 int show_documentation = 0;
 SDL_Rect btn_contributors_rect;
 SDL_Rect btn_documentation_rect;
+
+// Cached textures for performance on iOS
+SDL_Texture *cached_contributors_tex = NULL;
+SDL_Texture *cached_documentation_tex = NULL;
+int contributors_tex_w = 0, contributors_tex_h = 0;
+int documentation_tex_w = 0, documentation_tex_h = 0;
 
 int show_role_list = 0;
 struct { int id; char name[32]; int role; } staff_list[50];
@@ -1900,79 +1907,149 @@ void render_blocked_list(SDL_Renderer *renderer, int w, int h) {
 
 
 void render_contributors(SDL_Renderer *renderer, int w, int h) {
-    if (!show_contributors) return;
+    if (!show_contributors) {
+        // Clean up cache when window is closed
+        if (cached_contributors_tex) {
+            SDL_DestroyTexture(cached_contributors_tex);
+            cached_contributors_tex = NULL;
+        }
+        return;
+    }
 
     // Increased Size: 400x450
     SDL_Rect win = {w/2 - 200, h/2 - 225, 400, 450};
     
-    SDL_SetRenderDrawColor(renderer, 30, 30, 40, 255); SDL_RenderFillRect(renderer, &win);
-    SDL_SetRenderDrawColor(renderer, 200, 200, 255, 255); SDL_RenderDrawRect(renderer, &win);
+    // Create cached texture if needed (iOS performance optimization)
+    if (!cached_contributors_tex) {
+        // Create a target texture
+        cached_contributors_tex = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, 
+                                                     SDL_TEXTUREACCESS_TARGET, 400, 450);
+        if (cached_contributors_tex) {
+            SDL_SetTextureBlendMode(cached_contributors_tex, SDL_BLENDMODE_BLEND);
+            
+            // Render to texture
+            SDL_SetRenderTarget(renderer, cached_contributors_tex);
+            SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0); 
+            SDL_RenderClear(renderer);
+            
+            // Background
+            SDL_Rect bg = {0, 0, 400, 450};
+            SDL_SetRenderDrawColor(renderer, 30, 30, 40, 255); 
+            SDL_RenderFillRect(renderer, &bg);
+            SDL_SetRenderDrawColor(renderer, 200, 200, 255, 255); 
+            SDL_RenderDrawRect(renderer, &bg);
 
-    render_text(renderer, "Project Contributors", win.x + 200, win.y + 15, col_cyan, 1);
+            // Content
+            render_text(renderer, "Project Contributors", 200, 15, col_cyan, 1);
+            
+            int y = 60;
+            int center_x = 200;
 
-    // Close Button (Adjusted X for new width)
-    SDL_Rect btn_close = {win.x + 360, win.y + 5, 30, 30};
-    SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_close);
-    render_text(renderer, "X", btn_close.x + 10, btn_close.y + 5, col_white, 0);
-
-    // List
-    int y = win.y + 60;
-    int center_x = win.x + 200;
-
-    render_text(renderer, "You, for playing this game!", center_x, y, (SDL_Color){200,200,200,255}, 1); y += 40;
-
-    render_text(renderer, "#Main Developer#", center_x, y, col_white, 1); y += 25;
-    render_text(renderer, "HALt The Dragon", center_x, y, col_white, 1); y += 40;
-
-    render_text(renderer, "#AI Assistant#", center_x, y, col_white, 1); y += 25;
-    render_text(renderer, "Gemini", center_x, y, col_white, 1); y += 40;
+            render_text(renderer, "You, for playing this game!", center_x, y, (SDL_Color){200,200,200,255}, 1); y += 40;
+            render_text(renderer, "#Main Developer#", center_x, y, col_white, 1); y += 25;
+            render_text(renderer, "HALt The Dragon", center_x, y, col_white, 1); y += 40;
+            render_text(renderer, "#AI Assistant#", center_x, y, col_white, 1); y += 25;
+            render_text(renderer, "Gemini", center_x, y, col_white, 1); y += 40;
+            render_text(renderer, "#Multiplayer Tests#", center_x, y, col_white, 1); y += 25;
+            render_text(renderer, "PugzAreCute", center_x, y, col_white, 1); y += 40;
+            render_text(renderer, "#Libraries#", center_x, y, col_white, 1); y += 25;
+            render_text(renderer, "SDL2, SDL_ttf, SDL_image, SDL_mixer", center_x, y, col_white, 1); y += 25;
+            render_text(renderer, "sqlite3", center_x, y, col_white, 1);
+            
+            // Restore render target
+            SDL_SetRenderTarget(renderer, NULL);
+            
+            contributors_tex_w = 400;
+            contributors_tex_h = 450;
+        }
+    }
     
-    render_text(renderer, "#Multiplayer Tests#", center_x, y, col_white, 1); y += 25;
-    render_text(renderer, "PugzAreCute", center_x, y, col_white, 1); y += 40;
-
-    render_text(renderer, "#Libraries#", center_x, y, col_white, 1); y += 25;
-    render_text(renderer, "SDL2, SDL_ttf, SDL_image, SDL_mixer", center_x, y, col_white, 1); y += 25;
-    render_text(renderer, "sqlite3", center_x, y, col_white, 1);
+    // Draw cached texture
+    if (cached_contributors_tex) {
+        SDL_RenderCopy(renderer, cached_contributors_tex, NULL, &win);
+    }
+    
+    // Draw close button on top (not cached since it needs to be interactive)
+    SDL_Rect btn_close = {win.x + 360, win.y + 5, 30, 30};
+    SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); 
+    SDL_RenderFillRect(renderer, &btn_close);
+    render_text(renderer, "X", btn_close.x + 10, btn_close.y + 5, col_white, 0);
 }
 
 void render_documentation(SDL_Renderer *renderer, int w, int h) {
-    if (!show_documentation) return;
+    if (!show_documentation) {
+        // Clean up cache when window is closed
+        if (cached_documentation_tex) {
+            SDL_DestroyTexture(cached_documentation_tex);
+            cached_documentation_tex = NULL;
+        }
+        return;
+    }
 
     SDL_Rect win = {w/2 - 250, h/2 - 250, 500, 500};
-    SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255); SDL_RenderFillRect(renderer, &win);
-    SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255); SDL_RenderDrawRect(renderer, &win);
+    
+    // Create cached texture if needed (iOS performance optimization)
+    if (!cached_documentation_tex) {
+        // Create a target texture
+        cached_documentation_tex = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, 
+                                                      SDL_TEXTUREACCESS_TARGET, 500, 500);
+        if (cached_documentation_tex) {
+            SDL_SetTextureBlendMode(cached_documentation_tex, SDL_BLENDMODE_BLEND);
+            
+            // Render to texture
+            SDL_SetRenderTarget(renderer, cached_documentation_tex);
+            SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0); 
+            SDL_RenderClear(renderer);
+            
+            // Background
+            SDL_Rect bg = {0, 0, 500, 500};
+            SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255); 
+            SDL_RenderFillRect(renderer, &bg);
+            SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255); 
+            SDL_RenderDrawRect(renderer, &bg);
 
-    render_text(renderer, "Game Documentation", win.x + 250, win.y + 15, col_green, 1);
+            // Content
+            render_text(renderer, "Game Documentation", 250, 15, col_green, 1);
 
+            int start_x = 20;
+            int y = 60;
+
+            // 1. Text Formatting
+            render_text(renderer, "#Text Formatting#", start_x, y, col_yellow, 0); y += 30;
+            render_text(renderer, "Style: *Italic*, #Bold#, ~Strike~", start_x, y, col_white, 0); y += 25;
+            render_raw_text(renderer, "Usage: wrap text in symbols (*, #, ~)", start_x, y, (SDL_Color){150,150,150,255}, 0); y += 35;
+
+            // 2. Colors
+            render_text(renderer, "#Colors#", start_x, y, col_yellow, 0); y += 30;
+            render_text(renderer, "^1Red ^2Green ^3Blue ^4Yellow ^5Cyan ^6Magenta", start_x, y, col_white, 0); y += 25;
+            render_text(renderer, "^7White ^8Gray ^9Black", start_x, y, col_white, 0); y += 25;
+            render_raw_text(renderer, "Usage: type ^ (caret) + number", start_x, y, (SDL_Color){150,150,150,255}, 0); y += 35;
+
+            // 3. Shortcuts
+            render_text(renderer, "#Shortcuts & Editing#", start_x, y, col_yellow, 0); y += 30;
+            render_text(renderer, "- Select: Shift + Arrows OR Mouse Drag", start_x, y, col_white, 0); y += 25;
+            render_text(renderer, "- Copy/Paste: Ctrl+C, Ctrl+V, Ctrl+X", start_x, y, col_white, 0); y += 25;
+            render_text(renderer, "- Select All: Ctrl+A", start_x, y, col_white, 0); y += 25;
+            render_text(renderer, "- Cursor: Click to move, Arrows to nav", start_x, y, col_white, 0); y += 35;
+            
+            // Restore render target
+            SDL_SetRenderTarget(renderer, NULL);
+            
+            documentation_tex_w = 500;
+            documentation_tex_h = 500;
+        }
+    }
+    
+    // Draw cached texture
+    if (cached_documentation_tex) {
+        SDL_RenderCopy(renderer, cached_documentation_tex, NULL, &win);
+    }
+    
+    // Draw close button on top (not cached since it needs to be interactive)
     SDL_Rect btn_close = {win.x + 460, win.y + 5, 30, 30};
-    SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_close);
+    SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); 
+    SDL_RenderFillRect(renderer, &btn_close);
     render_text(renderer, "X", btn_close.x + 10, btn_close.y + 5, col_white, 0);
-
-    int start_x = win.x + 20;
-    int y = win.y + 60;
-
-    // 1. Text Formatting
-    render_text(renderer, "#Text Formatting#", start_x, y, col_yellow, 0); y += 30;
-    render_text(renderer, "Style: *Italic*, #Bold#, ~Strike~", start_x, y, col_white, 0); y += 25;
-    
-    // USE RAW TEXT HERE to show literal symbols
-    render_raw_text(renderer, "Usage: wrap text in symbols (*, #, ~)", start_x, y, (SDL_Color){150,150,150,255}, 0); y += 35;
-
-    // 2. Colors
-    render_text(renderer, "#Colors#", start_x, y, col_yellow, 0); y += 30;
-    render_text(renderer, "^1Red ^2Green ^3Blue ^4Yellow ^5Cyan ^6Magenta", start_x, y, col_white, 0); y += 25;
-    render_text(renderer, "^7White ^8Gray ^9Black", start_x, y, col_white, 0); y += 25;
-    
-    // USE RAW TEXT HERE to show literal caret
-    render_raw_text(renderer, "Usage: type ^ (caret) + number", start_x, y, (SDL_Color){150,150,150,255}, 0); y += 35;
-
-    // 3. Shortcuts
-    render_text(renderer, "#Shortcuts & Editing#", start_x, y, col_yellow, 0); y += 30;
-    render_text(renderer, "- Select: Shift + Arrows OR Mouse Drag", start_x, y, col_white, 0); y += 25;
-    render_text(renderer, "- Copy/Paste: Ctrl+C, Ctrl+V, Ctrl+X", start_x, y, col_white, 0); y += 25;
-    render_text(renderer, "- Select All: Ctrl+A", start_x, y, col_white, 0); y += 25;
-    render_text(renderer, "- Cursor: Click to move, Arrows to nav", start_x, y, col_white, 0); y += 35;
-
 }
 
 
@@ -3102,6 +3179,23 @@ int main(int argc, char *argv[]) {
                         pkt.dx = dx; pkt.dy = dy; 
                         send_packet(&pkt);
                         last_move_time = now;
+                        
+                        // Update local position immediately for trigger detection
+                        float length = sqrt(dx * dx + dy * dy);
+                        if (length > 0) {
+                            float norm_dx = dx / length;
+                            float norm_dy = dy / length;
+                            for(int i=0; i<MAX_CLIENTS; i++) {
+                                if(local_players[i].id == local_player_id) {
+                                    local_players[i].x += norm_dx * PLAYER_SPEED;
+                                    local_players[i].y += norm_dy * PLAYER_SPEED;
+                                    if (local_players[i].x < 0) local_players[i].x = 0;
+                                    if (local_players[i].x > MAP_WIDTH - 32) local_players[i].x = MAP_WIDTH - 32;
+                                    if (local_players[i].y < 0) local_players[i].y = 0;
+                                    if (local_players[i].y > MAP_HEIGHT - 32) local_players[i].y = MAP_HEIGHT - 32;
+                                }
+                            }
+                        }
                     }
                 }
                 // --- FIXED MOVEMENT LOGIC END ---

@@ -380,6 +380,12 @@ void handle_client_message(int index, Packet *pkt) {
         if (pkt->username[0] == '\0' || pkt->password[0] == '\0') {
                 response.status = AUTH_FAILURE;
                 strcpy(response.msg, "Username and password required.");
+            } else if (strlen(pkt->username) < 5) {
+                response.status = AUTH_FAILURE;
+                strcpy(response.msg, "Username must be at least 5 characters.");
+            } else if (strlen(pkt->password) < 8) {
+                response.status = AUTH_FAILURE;
+                strcpy(response.msg, "Password must be at least 8 characters.");
             } else {
                 response.status = register_user(pkt->username, pkt->password);
                 if (response.status == AUTH_REGISTER_SUCCESS) strcpy(response.msg, "Registered.");
