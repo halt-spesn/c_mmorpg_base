@@ -740,7 +740,7 @@ void init_audio() {
             }
         }
         closedir(d);
-    } else system("mkdir -p music");
+    }
     Mix_VolumeMusic(music_volume);
 }
 
