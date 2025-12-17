@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <math.h>
 
 #ifdef _WIN32
     #include <winsock2.h>
@@ -45,6 +46,8 @@ char current_map_file[32] = "map.jpg";
 #define PLAYER_FILE "player.png"
 #define FONT_PATH "DejaVuSans.ttf"
 #define FONT_SIZE 14
+#define SCROLL_SPEED 30  // Pixels per mouse wheel notch
+
 
 
 // --- Globals ---
@@ -70,7 +73,8 @@ int friend_count = 0;
 // BLOCKED SYSTEM
 int blocked_ids[50];
 int blocked_count = 0;
-int show_blocked_list = 0; 
+int show_blocked_list = 0;
+int blocked_scroll = 0; // Scroll offset for blocked list 
 
 // UI Rects
 SDL_Rect btn_hide_player;      
@@ -151,6 +155,7 @@ SDL_Rect btn_cycle_status;
 SDL_Rect btn_view_friends; 
 SDL_Rect friend_list_win;
 int show_friend_list = 0;
+int friend_list_scroll = 0; // Scroll offset for friend list
 
 SDL_Rect slider_r, slider_g, slider_b;
 
@@ -191,7 +196,8 @@ typedef struct { int id; char name[32]; } IncomingReq;
 IncomingReq inbox[10];
 int inbox_count = 0;
 int is_inbox_open = 0;
-SDL_Rect btn_inbox; 
+SDL_Rect btn_inbox;
+int inbox_scroll = 0; // Scroll offset for inbox 
 
 // --- Add Friend Popup State ---
 int show_add_friend_popup = 0;
@@ -255,6 +261,14 @@ int show_documentation = 0;
 SDL_Rect btn_contributors_rect;
 SDL_Rect btn_documentation_rect;
 
+// Cached textures for performance on iOS
+SDL_Texture *cached_contributors_tex = NULL;
+SDL_Texture *cached_documentation_tex = NULL;
+int contributors_tex_w = 0, contributors_tex_h = 0;
+int documentation_tex_w = 0, documentation_tex_h = 0;
+int contributors_scroll = 0; // Scroll offset for contributors window
+int documentation_scroll = 0; // Scroll offset for documentation window
+
 int show_role_list = 0;
 struct { int id; char name[32]; int role; } staff_list[50];
 int staff_count = 0;
@@ -270,6 +284,7 @@ char input_ban_time[16] = ""; // e.g. "1d"
 int show_my_warnings = 0;
 struct { char reason[64]; char date[32]; } my_warning_list[20];
 int my_warning_count = 0;
+int warnings_scroll = 0; // Scroll offset for warnings window
 
 SDL_Rect btn_sanction_open; // In Profile
 SDL_Rect btn_my_warnings;   // In Settings
@@ -1156,28 +1171,40 @@ void render_inbox(SDL_Renderer *renderer, int w, int h) {
     SDL_SetRenderDrawColor(renderer, 100, 100, 255, 255); SDL_RenderDrawRect(renderer, &win);
     render_text(renderer, "Pending Requests", win.x + 80, win.y + 10, col_yellow, 0);
 
-    int y = win.y + 40;
-    if (inbox_count == 0) render_text(renderer, "No new requests.", win.x + 80, y, col_white, 0);
+    if (inbox_count == 0) {
+        render_text(renderer, "No new requests.", win.x + 80, win.y + 40, col_white, 0);
+        return;
+    }
+    
+    // Set up clipping for scrollable area
+    SDL_Rect clip_rect = {win.x, win.y + 35, win.w, win.h - 35};
+    SDL_RenderSetClipRect(renderer, &clip_rect);
 
+    int y = win.y + 40 - inbox_scroll; // Apply scroll offset
     for(int i=0; i<inbox_count; i++) {
-        SDL_Rect row = {win.x+10, y, 280, 50};
-        SDL_SetRenderDrawColor(renderer, 50, 50, 60, 255); SDL_RenderFillRect(renderer, &row);
-        
-        char label[64]; snprintf(label, 64, "%s (ID: %d)", inbox[i].name, inbox[i].id);
-        render_text(renderer, label, row.x+5, row.y+5, col_white, 0);
+        // Only render if within visible area
+        if (y + 55 > win.y + 35 && y < win.y + win.h) {
+            SDL_Rect row = {win.x+10, y, 280, 50};
+            SDL_SetRenderDrawColor(renderer, 50, 50, 60, 255); SDL_RenderFillRect(renderer, &row);
+            
+            char label[64]; snprintf(label, 64, "%s (ID: %d)", inbox[i].name, inbox[i].id);
+            render_text(renderer, label, row.x+5, row.y+5, col_white, 0);
 
-        // Accept
-        SDL_Rect btn_acc = {row.x+160, row.y+25, 50, 20};
-        SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_acc);
-        render_text(renderer, "Yes", btn_acc.x+10, btn_acc.y+2, col_white, 0);
+            // Accept
+            SDL_Rect btn_acc = {row.x+160, row.y+25, 50, 20};
+            SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_acc);
+            render_text(renderer, "Yes", btn_acc.x+10, btn_acc.y+2, col_white, 0);
 
-        // Deny
-        SDL_Rect btn_deny = {row.x+220, row.y+25, 50, 20};
-        SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_deny);
-        render_text(renderer, "No", btn_deny.x+15, btn_deny.y+2, col_white, 0);
-
+            // Deny
+            SDL_Rect btn_deny = {row.x+220, row.y+25, 50, 20};
+            SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_deny);
+            render_text(renderer, "No", btn_deny.x+15, btn_deny.y+2, col_white, 0);
+        }
         y += 55;
     }
+    
+    // Reset clipping
+    SDL_RenderSetClipRect(renderer, NULL);
 }
 
 void render_add_friend_popup(SDL_Renderer *renderer, int w, int h) {
@@ -1266,19 +1293,32 @@ void render_my_warnings(SDL_Renderer *renderer, int w, int h) {
     SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_close);
     render_text(renderer, "X", btn_close.x + 10, btn_close.y + 5, col_white, 0);
 
-    int y = win.y + 50;
-    if (my_warning_count == 0) render_text(renderer, "No warnings on record.", win.x + 200, y+20, col_green, 1);
+    if (my_warning_count == 0) {
+        render_text(renderer, "No warnings on record.", win.x + 200, win.y + 70, col_green, 1);
+        return;
+    }
+    
+    // Set up clipping for scrollable area
+    SDL_Rect clip_rect = {win.x, win.y + 45, win.w, win.h - 45};
+    SDL_RenderSetClipRect(renderer, &clip_rect);
 
+    int y = win.y + 50 - warnings_scroll; // Apply scroll offset
     for (int i=0; i<my_warning_count; i++) {
-        SDL_SetRenderDrawColor(renderer, 50, 0, 0, 255);
-        SDL_Rect row = {win.x + 10, y, 380, 40};
-        SDL_RenderFillRect(renderer, &row);
-        
-        char buf[128];
-        snprintf(buf, 128, "[%s] %s", my_warning_list[i].date, my_warning_list[i].reason);
-        render_text(renderer, buf, row.x + 10, row.y + 10, col_white, 0);
+        // Only render if within visible area
+        if (y + 45 > win.y + 45 && y < win.y + win.h) {
+            SDL_SetRenderDrawColor(renderer, 50, 0, 0, 255);
+            SDL_Rect row = {win.x + 10, y, 380, 40};
+            SDL_RenderFillRect(renderer, &row);
+            
+            char buf[128];
+            snprintf(buf, 128, "[%s] %s", my_warning_list[i].date, my_warning_list[i].reason);
+            render_text(renderer, buf, row.x + 10, row.y + 10, col_white, 0);
+        }
         y += 45;
     }
+    
+    // Reset clipping
+    SDL_RenderSetClipRect(renderer, NULL);
 }
 
 void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
@@ -1692,19 +1732,29 @@ void render_friend_list(SDL_Renderer *renderer, int w, int h) {
     SDL_SetRenderDrawColor(renderer, 50, 50, 150, 255); SDL_RenderFillRect(renderer, &btn_friend_add_id_rect);
     render_text(renderer, "+ ID", btn_friend_add_id_rect.x+30, btn_friend_add_id_rect.y+5, col_white, 0);
 
-    int y_off = 85; 
+    // Set up clipping for scrollable area
+    SDL_Rect clip_rect = {friend_list_win.x, friend_list_win.y + 80, friend_list_win.w, friend_list_win.h - 80};
+    SDL_RenderSetClipRect(renderer, &clip_rect);
+    
+    int y_off = 85 - friend_list_scroll; // Apply scroll offset
     for(int i=0; i<friend_count; i++) {
-        char display[128];
-        SDL_Color text_col = col_white;
-        if (my_friends[i].is_online) { snprintf(display, 128, "%s (Online)", my_friends[i].username); text_col = col_green; } 
-        else { snprintf(display, 128, "%s (Last: %s)", my_friends[i].username, my_friends[i].last_login); text_col = (SDL_Color){150, 150, 150, 255}; }
-        render_text(renderer, display, friend_list_win.x + 20, friend_list_win.y + y_off, text_col, 0);
+        // Only render if within visible area
+        if (y_off + 30 > 80 && y_off < friend_list_win.h) {
+            char display[128];
+            SDL_Color text_col = col_white;
+            if (my_friends[i].is_online) { snprintf(display, 128, "%s (Online)", my_friends[i].username); text_col = col_green; } 
+            else { snprintf(display, 128, "%s (Last: %s)", my_friends[i].username, my_friends[i].last_login); text_col = (SDL_Color){150, 150, 150, 255}; }
+            render_text(renderer, display, friend_list_win.x + 20, friend_list_win.y + y_off, text_col, 0);
 
-        SDL_Rect btn_del = {friend_list_win.x + win_w - 50, friend_list_win.y + y_off, 40, 20};
-        SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_del);
-        render_text(renderer, "Del", btn_del.x+8, btn_del.y+2, col_white, 0);
+            SDL_Rect btn_del = {friend_list_win.x + win_w - 50, friend_list_win.y + y_off, 40, 20};
+            SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_del);
+            render_text(renderer, "Del", btn_del.x+8, btn_del.y+2, col_white, 0);
+        }
         y_off += 30;
     }
+    
+    // Reset clipping
+    SDL_RenderSetClipRect(renderer, NULL);
 }
 
 void render_popup(SDL_Renderer *renderer, int w, int h) {
@@ -1883,96 +1933,180 @@ void render_blocked_list(SDL_Renderer *renderer, int w, int h) {
     render_text(renderer, "X", btn_blocked_close_rect.x + 15, btn_blocked_close_rect.y + 5, col_white, 1);
     // ----------------------------------
 
-    int y_off = 50;
-    for(int i=0; i<blocked_count; i++) {
-        int id = blocked_ids[i];
-        char display[64]; snprintf(display, 64, "ID: %d", id);
-        for(int p=0; p<MAX_CLIENTS; p++) if(local_players[p].active && local_players[p].id == id) snprintf(display, 64, "%s", local_players[p].username);
-        render_text(renderer, display, blocked_win_rect.x + 20, blocked_win_rect.y + y_off, col_white, 0);
+    if (blocked_count == 0) {
+        render_text(renderer, "(No hidden players)", blocked_win_rect.x + 150, blocked_win_rect.y + 100, col_white, 1);
+        return;
+    }
+    
+    // Set up clipping for scrollable area
+    SDL_Rect clip_rect = {blocked_win_rect.x, blocked_win_rect.y + 45, blocked_win_rect.w, blocked_win_rect.h - 45};
+    SDL_RenderSetClipRect(renderer, &clip_rect);
 
-        SDL_Rect btn_unblock = {blocked_win_rect.x + 200, blocked_win_rect.y + y_off, 60, 25};
-        SDL_SetRenderDrawColor(renderer, 0, 100, 0, 255); SDL_RenderFillRect(renderer, &btn_unblock);
-        render_text(renderer, "Show", btn_unblock.x + 30, btn_unblock.y + 2, col_white, 1);
+    int y_off = 50 - blocked_scroll; // Apply scroll offset
+    for(int i=0; i<blocked_count; i++) {
+        // Only render if within visible area
+        if (y_off + 35 > 45 && y_off < blocked_win_rect.h) {
+            int id = blocked_ids[i];
+            char display[64]; snprintf(display, 64, "ID: %d", id);
+            for(int p=0; p<MAX_CLIENTS; p++) if(local_players[p].active && local_players[p].id == id) snprintf(display, 64, "%s", local_players[p].username);
+            render_text(renderer, display, blocked_win_rect.x + 20, blocked_win_rect.y + y_off, col_white, 0);
+
+            SDL_Rect btn_unblock = {blocked_win_rect.x + 200, blocked_win_rect.y + y_off, 60, 25};
+            SDL_SetRenderDrawColor(renderer, 0, 100, 0, 255); SDL_RenderFillRect(renderer, &btn_unblock);
+            render_text(renderer, "Show", btn_unblock.x + 30, btn_unblock.y + 2, col_white, 1);
+        }
         y_off += 35;
     }
-    if (blocked_count == 0) render_text(renderer, "(No hidden players)", blocked_win_rect.x + 150, blocked_win_rect.y + 100, col_white, 1);
+    
+    // Reset clipping
+    SDL_RenderSetClipRect(renderer, NULL);
 }
 
 
 void render_contributors(SDL_Renderer *renderer, int w, int h) {
-    if (!show_contributors) return;
+    if (!show_contributors) {
+        // Clean up cache when window is closed
+        if (cached_contributors_tex) {
+            SDL_DestroyTexture(cached_contributors_tex);
+            cached_contributors_tex = NULL;
+        }
+        return;
+    }
 
     // Increased Size: 400x450
     SDL_Rect win = {w/2 - 200, h/2 - 225, 400, 450};
     
-    SDL_SetRenderDrawColor(renderer, 30, 30, 40, 255); SDL_RenderFillRect(renderer, &win);
-    SDL_SetRenderDrawColor(renderer, 200, 200, 255, 255); SDL_RenderDrawRect(renderer, &win);
+    // Create cached texture if needed (iOS performance optimization)
+    if (!cached_contributors_tex) {
+        // Create a target texture
+        cached_contributors_tex = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, 
+                                                     SDL_TEXTUREACCESS_TARGET, 400, 450);
+        if (cached_contributors_tex) {
+            SDL_SetTextureBlendMode(cached_contributors_tex, SDL_BLENDMODE_BLEND);
+            
+            // Render to texture
+            SDL_SetRenderTarget(renderer, cached_contributors_tex);
+            SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0); 
+            SDL_RenderClear(renderer);
+            
+            // Background
+            SDL_Rect bg = {0, 0, 400, 450};
+            SDL_SetRenderDrawColor(renderer, 30, 30, 40, 255); 
+            SDL_RenderFillRect(renderer, &bg);
+            SDL_SetRenderDrawColor(renderer, 200, 200, 255, 255); 
+            SDL_RenderDrawRect(renderer, &bg);
 
-    render_text(renderer, "Project Contributors", win.x + 200, win.y + 15, col_cyan, 1);
+            // Content
+            render_text(renderer, "Project Contributors", 200, 15, col_cyan, 1);
+            
+            int y = 60;
+            int center_x = 200;
 
-    // Close Button (Adjusted X for new width)
-    SDL_Rect btn_close = {win.x + 360, win.y + 5, 30, 30};
-    SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_close);
-    render_text(renderer, "X", btn_close.x + 10, btn_close.y + 5, col_white, 0);
-
-    // List
-    int y = win.y + 60;
-    int center_x = win.x + 200;
-
-    render_text(renderer, "You, for playing this game!", center_x, y, (SDL_Color){200,200,200,255}, 1); y += 40;
-
-    render_text(renderer, "#Main Developer#", center_x, y, col_white, 1); y += 25;
-    render_text(renderer, "HALt The Dragon", center_x, y, col_white, 1); y += 40;
-
-    render_text(renderer, "#AI Assistant#", center_x, y, col_white, 1); y += 25;
-    render_text(renderer, "Gemini", center_x, y, col_white, 1); y += 40;
+            render_text(renderer, "You, for playing this game!", center_x, y, (SDL_Color){200,200,200,255}, 1); y += 40;
+            render_text(renderer, "#Main Developer#", center_x, y, col_white, 1); y += 25;
+            render_text(renderer, "HALt The Dragon", center_x, y, col_white, 1); y += 40;
+            render_text(renderer, "#AI Assistant#", center_x, y, col_white, 1); y += 25;
+            render_text(renderer, "Gemini", center_x, y, col_white, 1); y += 40;
+            render_text(renderer, "#Multiplayer Tests#", center_x, y, col_white, 1); y += 25;
+            render_text(renderer, "PugzAreCute", center_x, y, col_white, 1); y += 40;
+            render_text(renderer, "#Libraries#", center_x, y, col_white, 1); y += 25;
+            render_text(renderer, "SDL2, SDL_ttf, SDL_image, SDL_mixer", center_x, y, col_white, 1); y += 25;
+            render_text(renderer, "sqlite3", center_x, y, col_white, 1);
+            
+            // Restore render target
+            SDL_SetRenderTarget(renderer, NULL);
+            
+            contributors_tex_w = 400;
+            contributors_tex_h = 450;
+        }
+    }
     
-    render_text(renderer, "#Multiplayer Tests#", center_x, y, col_white, 1); y += 25;
-    render_text(renderer, "PugzAreCute", center_x, y, col_white, 1); y += 40;
-
-    render_text(renderer, "#Libraries#", center_x, y, col_white, 1); y += 25;
-    render_text(renderer, "SDL2, SDL_ttf, SDL_image, SDL_mixer", center_x, y, col_white, 1); y += 25;
-    render_text(renderer, "sqlite3", center_x, y, col_white, 1);
+    // Draw cached texture
+    if (cached_contributors_tex) {
+        SDL_RenderCopy(renderer, cached_contributors_tex, NULL, &win);
+    }
+    
+    // Draw close button on top (not cached since it needs to be interactive)
+    SDL_Rect btn_close = {win.x + 360, win.y + 5, 30, 30};
+    SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); 
+    SDL_RenderFillRect(renderer, &btn_close);
+    render_text(renderer, "X", btn_close.x + 10, btn_close.y + 5, col_white, 0);
 }
 
 void render_documentation(SDL_Renderer *renderer, int w, int h) {
-    if (!show_documentation) return;
+    if (!show_documentation) {
+        // Clean up cache when window is closed
+        if (cached_documentation_tex) {
+            SDL_DestroyTexture(cached_documentation_tex);
+            cached_documentation_tex = NULL;
+        }
+        return;
+    }
 
     SDL_Rect win = {w/2 - 250, h/2 - 250, 500, 500};
-    SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255); SDL_RenderFillRect(renderer, &win);
-    SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255); SDL_RenderDrawRect(renderer, &win);
+    
+    // Create cached texture if needed (iOS performance optimization)
+    if (!cached_documentation_tex) {
+        // Create a target texture
+        cached_documentation_tex = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, 
+                                                      SDL_TEXTUREACCESS_TARGET, 500, 500);
+        if (cached_documentation_tex) {
+            SDL_SetTextureBlendMode(cached_documentation_tex, SDL_BLENDMODE_BLEND);
+            
+            // Render to texture
+            SDL_SetRenderTarget(renderer, cached_documentation_tex);
+            SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0); 
+            SDL_RenderClear(renderer);
+            
+            // Background
+            SDL_Rect bg = {0, 0, 500, 500};
+            SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255); 
+            SDL_RenderFillRect(renderer, &bg);
+            SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255); 
+            SDL_RenderDrawRect(renderer, &bg);
 
-    render_text(renderer, "Game Documentation", win.x + 250, win.y + 15, col_green, 1);
+            // Content
+            render_text(renderer, "Game Documentation", 250, 15, col_green, 1);
 
+            int start_x = 20;
+            int y = 60;
+
+            // 1. Text Formatting
+            render_text(renderer, "#Text Formatting#", start_x, y, col_yellow, 0); y += 30;
+            render_text(renderer, "Style: *Italic*, #Bold#, ~Strike~", start_x, y, col_white, 0); y += 25;
+            render_raw_text(renderer, "Usage: wrap text in symbols (*, #, ~)", start_x, y, (SDL_Color){150,150,150,255}, 0); y += 35;
+
+            // 2. Colors
+            render_text(renderer, "#Colors#", start_x, y, col_yellow, 0); y += 30;
+            render_text(renderer, "^1Red ^2Green ^3Blue ^4Yellow ^5Cyan ^6Magenta", start_x, y, col_white, 0); y += 25;
+            render_text(renderer, "^7White ^8Gray ^9Black", start_x, y, col_white, 0); y += 25;
+            render_raw_text(renderer, "Usage: type ^ (caret) + number", start_x, y, (SDL_Color){150,150,150,255}, 0); y += 35;
+
+            // 3. Shortcuts
+            render_text(renderer, "#Shortcuts & Editing#", start_x, y, col_yellow, 0); y += 30;
+            render_text(renderer, "- Select: Shift + Arrows OR Mouse Drag", start_x, y, col_white, 0); y += 25;
+            render_text(renderer, "- Copy/Paste: Ctrl+C, Ctrl+V, Ctrl+X", start_x, y, col_white, 0); y += 25;
+            render_text(renderer, "- Select All: Ctrl+A", start_x, y, col_white, 0); y += 25;
+            render_text(renderer, "- Cursor: Click to move, Arrows to nav", start_x, y, col_white, 0); y += 35;
+            
+            // Restore render target
+            SDL_SetRenderTarget(renderer, NULL);
+            
+            documentation_tex_w = 500;
+            documentation_tex_h = 500;
+        }
+    }
+    
+    // Draw cached texture
+    if (cached_documentation_tex) {
+        SDL_RenderCopy(renderer, cached_documentation_tex, NULL, &win);
+    }
+    
+    // Draw close button on top (not cached since it needs to be interactive)
     SDL_Rect btn_close = {win.x + 460, win.y + 5, 30, 30};
-    SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_close);
+    SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); 
+    SDL_RenderFillRect(renderer, &btn_close);
     render_text(renderer, "X", btn_close.x + 10, btn_close.y + 5, col_white, 0);
-
-    int start_x = win.x + 20;
-    int y = win.y + 60;
-
-    // 1. Text Formatting
-    render_text(renderer, "#Text Formatting#", start_x, y, col_yellow, 0); y += 30;
-    render_text(renderer, "Style: *Italic*, #Bold#, ~Strike~", start_x, y, col_white, 0); y += 25;
-    
-    // USE RAW TEXT HERE to show literal symbols
-    render_raw_text(renderer, "Usage: wrap text in symbols (*, #, ~)", start_x, y, (SDL_Color){150,150,150,255}, 0); y += 35;
-
-    // 2. Colors
-    render_text(renderer, "#Colors#", start_x, y, col_yellow, 0); y += 30;
-    render_text(renderer, "^1Red ^2Green ^3Blue ^4Yellow ^5Cyan ^6Magenta", start_x, y, col_white, 0); y += 25;
-    render_text(renderer, "^7White ^8Gray ^9Black", start_x, y, col_white, 0); y += 25;
-    
-    // USE RAW TEXT HERE to show literal caret
-    render_raw_text(renderer, "Usage: type ^ (caret) + number", start_x, y, (SDL_Color){150,150,150,255}, 0); y += 35;
-
-    // 3. Shortcuts
-    render_text(renderer, "#Shortcuts & Editing#", start_x, y, col_yellow, 0); y += 30;
-    render_text(renderer, "- Select: Shift + Arrows OR Mouse Drag", start_x, y, col_white, 0); y += 25;
-    render_text(renderer, "- Copy/Paste: Ctrl+C, Ctrl+V, Ctrl+X", start_x, y, col_white, 0); y += 25;
-    render_text(renderer, "- Select All: Ctrl+A", start_x, y, col_white, 0); y += 25;
-    render_text(renderer, "- Cursor: Click to move, Arrows to nav", start_x, y, col_white, 0); y += 35;
-
 }
 
 
@@ -2782,13 +2916,77 @@ int main(int argc, char *argv[]) {
             
             // --- Scroll Handling ---
             else if (event.type == SDL_MOUSEWHEEL) {
+                int scroll_amount = event.wheel.y * SCROLL_SPEED;
+                
                 if (is_settings_open) {
-                    settings_scroll_y -= event.wheel.y * 30; 
+                    settings_scroll_y -= scroll_amount; 
                     if (settings_scroll_y < 0) settings_scroll_y = 0;
                     
-                    int max_scroll = settings_content_h - settings_view_port.h;; 
+                    int max_scroll = settings_content_h - settings_view_port.h;
                     if (max_scroll < 0) max_scroll = 0;
                     if (settings_scroll_y > max_scroll) settings_scroll_y = max_scroll;
+                }
+                else if (show_friend_list) {
+                    friend_list_scroll -= scroll_amount;
+                    if (friend_list_scroll < 0) friend_list_scroll = 0;
+                    // Max scroll based on friend count (30px per friend + 85px header)
+                    int content_height = 85 + (friend_count * 30);
+                    int visible_height = 400 - 80; // Window height minus header
+                    int max_scroll = content_height - visible_height;
+                    if (max_scroll < 0) max_scroll = 0;
+                    if (friend_list_scroll > max_scroll) friend_list_scroll = max_scroll;
+                }
+                else if (is_inbox_open) {
+                    inbox_scroll -= scroll_amount;
+                    if (inbox_scroll < 0) inbox_scroll = 0;
+                    // Max scroll based on inbox count (55px per request + 40px header)
+                    int content_height = 40 + (inbox_count * 55);
+                    int visible_height = 300 - 35; // Window height minus header
+                    int max_scroll = content_height - visible_height;
+                    if (max_scroll < 0) max_scroll = 0;
+                    if (inbox_scroll > max_scroll) inbox_scroll = max_scroll;
+                }
+                else if (show_contributors) {
+                    contributors_scroll -= scroll_amount;
+                    if (contributors_scroll < 0) contributors_scroll = 0;
+                    // Contributors window: 450px content height, 400px visible area
+                    // Content includes title (15px) + close btn area (30px) + ~9 text lines
+                    int content_height = 450;
+                    int visible_height = 400;
+                    int max_scroll = content_height - visible_height;
+                    if (max_scroll < 0) max_scroll = 0;
+                    if (contributors_scroll > max_scroll) contributors_scroll = max_scroll;
+                }
+                else if (show_documentation) {
+                    documentation_scroll -= scroll_amount;
+                    if (documentation_scroll < 0) documentation_scroll = 0;
+                    // Documentation window: 500px content height, 450px visible area
+                    // Content includes title + close btn + ~12 text lines with sections
+                    int content_height = 500;
+                    int visible_height = 450;
+                    int max_scroll = content_height - visible_height;
+                    if (max_scroll < 0) max_scroll = 0;
+                    if (documentation_scroll > max_scroll) documentation_scroll = max_scroll;
+                }
+                else if (show_my_warnings) {
+                    warnings_scroll -= scroll_amount;
+                    if (warnings_scroll < 0) warnings_scroll = 0;
+                    // Max scroll based on actual warning count (45px per warning + 50px header)
+                    int content_height = 50 + (my_warning_count * 45);
+                    int visible_height = 400 - 45; // Window height minus header
+                    int max_scroll = content_height - visible_height;
+                    if (max_scroll < 0) max_scroll = 0;
+                    if (warnings_scroll > max_scroll) warnings_scroll = max_scroll;
+                }
+                else if (show_blocked_list) {
+                    blocked_scroll -= scroll_amount;
+                    if (blocked_scroll < 0) blocked_scroll = 0;
+                    // Max scroll based on actual blocked count (35px per entry + 50px header)
+                    int content_height = 50 + (blocked_count * 35);
+                    int visible_height = 400 - 45; // Window height minus header
+                    int max_scroll = content_height - visible_height;
+                    if (max_scroll < 0) max_scroll = 0;
+                    if (blocked_scroll > max_scroll) blocked_scroll = max_scroll;
                 }
             }
             else if (event.type == SDL_FINGERDOWN) {
@@ -3102,6 +3300,23 @@ int main(int argc, char *argv[]) {
                         pkt.dx = dx; pkt.dy = dy; 
                         send_packet(&pkt);
                         last_move_time = now;
+                        
+                        // Update local position immediately for trigger detection
+                        float length = sqrt(dx * dx + dy * dy);
+                        if (length > 0) {
+                            float norm_dx = dx / length;
+                            float norm_dy = dy / length;
+                            for(int i=0; i<MAX_CLIENTS; i++) {
+                                if(local_players[i].id == local_player_id) {
+                                    local_players[i].x += norm_dx * PLAYER_SPEED;
+                                    local_players[i].y += norm_dy * PLAYER_SPEED;
+                                    if (local_players[i].x < 0) local_players[i].x = 0;
+                                    if (local_players[i].x > MAP_WIDTH - 32) local_players[i].x = MAP_WIDTH - 32;
+                                    if (local_players[i].y < 0) local_players[i].y = 0;
+                                    if (local_players[i].y > MAP_HEIGHT - 32) local_players[i].y = MAP_HEIGHT - 32;
+                                }
+                            }
+                        }
                     }
                 }
                 // --- FIXED MOVEMENT LOGIC END ---
@@ -3209,6 +3424,8 @@ int main(int argc, char *argv[]) {
     }
     
     if(tex_map) SDL_DestroyTexture(tex_map); if(tex_player) SDL_DestroyTexture(tex_player);
+    if(cached_contributors_tex) SDL_DestroyTexture(cached_contributors_tex);
+    if(cached_documentation_tex) SDL_DestroyTexture(cached_documentation_tex);
     if(bgm) Mix_FreeMusic(bgm); Mix_CloseAudio();
     if(sock > 0) close(sock); 
     TTF_CloseFont(font); TTF_Quit(); IMG_Quit();
