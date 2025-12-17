@@ -115,6 +115,7 @@ char chat_log[CHAT_HISTORY][64];
 int chat_log_count = 0;
 int is_chat_open = 0;
 int chat_target_id = -1; 
+int chat_input_active = 0;
 char input_buffer[64] = "";
 
 typedef enum { STATE_AUTH, STATE_GAME } ClientState;
@@ -300,6 +301,7 @@ float vjoy_dx = 0, vjoy_dy = 0;
 int touch_id_dpad = -1; // Track which finger is on the D-Pad
 int scroll_touch_id = -1;
 int scroll_last_y = 0;
+int joystick_active = 0;
 
 
 void get_path(char *out, const char *filename, int is_save_file) {
@@ -1976,7 +1978,7 @@ void render_documentation(SDL_Renderer *renderer, int w, int h) {
 
 void render_mobile_controls(SDL_Renderer *renderer, int h) {
     #if defined(__IPHONEOS__) || defined(__ANDROID__)
-    if (touch_id_dpad == -1) return;
+    if (!joystick_active) return;
 
     // Draw Base
     SDL_SetRenderDrawColor(renderer, 50, 50, 50, 100);
@@ -2758,7 +2760,7 @@ int main(int argc, char *argv[]) {
             last_active_field = active_field;
         }
 
-        int should_text_input = (active_field >= 0) || is_chat_open;
+        int should_text_input = (active_field >= 0) || chat_input_active;
         if (should_text_input && !text_input_enabled) { SDL_StartTextInput(); text_input_enabled = 1; }
         else if (!should_text_input && text_input_enabled) { SDL_StopTextInput(); text_input_enabled = 0; }
 
@@ -2784,23 +2786,34 @@ int main(int argc, char *argv[]) {
                     settings_scroll_y -= event.wheel.y * 30; 
                     if (settings_scroll_y < 0) settings_scroll_y = 0;
                     
-                    int max_scroll = settings_content_h - 600; 
+                    int max_scroll = settings_content_h - settings_view_port.h; 
                     if (max_scroll < 0) max_scroll = 0;
                     if (settings_scroll_y > max_scroll) settings_scroll_y = max_scroll;
                 }
             }
             else if (event.type == SDL_FINGERDOWN) {
-                int w, h; SDL_GetWindowSize(window, &w, &h);
+                int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
                 int tx = event.tfinger.x * w;
                 int ty = event.tfinger.y * h;
                 
                 if (is_settings_open && SDL_PointInRect(&(SDL_Point){tx, ty}, &settings_view_port)) {
                     scroll_touch_id = event.tfinger.fingerId;
                     scroll_last_y = ty;
+                } else if (is_chat_open) {
+                    SDL_Rect chat_win = (SDL_Rect){10, h-240, 300, 190};
+                    SDL_Rect chat_input = (SDL_Rect){15, chat_win.y + chat_win.h - 24, 270, 24};
+                    if (SDL_PointInRect(&(SDL_Point){tx, ty}, &chat_input)) {
+                        chat_input_active = 1;
+                        SDL_StartTextInput();
+                    } else if (!SDL_PointInRect(&(SDL_Point){tx, ty}, &chat_win)) {
+                        chat_input_active = 0;
+                        if (active_field < 0) SDL_StopTextInput();
+                    }
                 } else if (touch_id_dpad == -1) {
                     dpad_rect = (SDL_Rect){tx - 75, ty - 75, 150, 150};
                     touch_id_dpad = event.tfinger.fingerId;
                     vjoy_dx = 0; vjoy_dy = 0;
+                    joystick_active = 1;
                 } else {
                     // Treat other touches as Mouse Clicks for UI
                     handle_game_click(tx, ty, 0, 0, w, h); // Adjust args as needed
@@ -2808,17 +2821,17 @@ int main(int argc, char *argv[]) {
             }
             else if (event.type == SDL_FINGERMOTION) {
                 if (event.tfinger.fingerId == scroll_touch_id) {
-                    int w, h; SDL_GetWindowSize(window, &w, &h);
+                    int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
                     int ty = event.tfinger.y * h;
                     int delta = scroll_last_y - ty;
                     settings_scroll_y += delta;
                     if (settings_scroll_y < 0) settings_scroll_y = 0;
-                    int max_scroll = settings_content_h - 600; 
+                    int max_scroll = settings_content_h - settings_view_port.h; 
                     if (max_scroll < 0) max_scroll = 0;
                     if (settings_scroll_y > max_scroll) settings_scroll_y = max_scroll;
                     scroll_last_y = ty;
                 } else if (event.tfinger.fingerId == touch_id_dpad) {
-                    int w, h; SDL_GetWindowSize(window, &w, &h);
+                    int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
                     float cx = dpad_rect.x + dpad_rect.w/2;
                     float cy = dpad_rect.y + dpad_rect.h/2;
                     vjoy_dx = (event.tfinger.x * w - cx) / 60.0f;
@@ -2834,7 +2847,11 @@ int main(int argc, char *argv[]) {
                 } else if (event.tfinger.fingerId == touch_id_dpad) {
                     touch_id_dpad = -1;
                     vjoy_dx = 0; vjoy_dy = 0;
+                    joystick_active = 0;
                 }
+            }
+            else if (event.type == SDL_FINGERDOWN || event.type == SDL_FINGERUP) {
+                // Already handled above, but ensure chat input toggles
             }
             
             // --- Mouse Drag Handling ---
@@ -2922,8 +2939,8 @@ int main(int argc, char *argv[]) {
                      
                      if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_chat_toggle)) {
                         is_chat_open = !is_chat_open; 
-                        if(is_chat_open) { unread_chat_count = 0; SDL_StartTextInput(); } 
-                        else SDL_StopTextInput();
+                        if(is_chat_open) { unread_chat_count = 0; chat_input_active = 0; } 
+                        else { chat_input_active = 0; SDL_StopTextInput(); }
                      } 
                      else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_settings_toggle)) {
                         is_settings_open = !is_settings_open;
@@ -2945,9 +2962,20 @@ int main(int argc, char *argv[]) {
                      else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_view_friends)) {
                         show_friend_list = !show_friend_list;
                      }
+                     else if (is_chat_open) {
+                         SDL_Rect chat_win = (SDL_Rect){10, screen_h-240, 300, 190};
+                         SDL_Rect chat_input = (SDL_Rect){15, chat_win.y + chat_win.h - 24, 270, 24};
+                         if (SDL_PointInRect(&(SDL_Point){mx, my}, &chat_input)) {
+                             chat_input_active = 1;
+                             SDL_StartTextInput();
+                         } else if (!SDL_PointInRect(&(SDL_Point){mx, my}, &chat_win)) {
+                             chat_input_active = 0;
+                             if (active_field < 0) SDL_StopTextInput();
+                         }
+                     }
                      else {
-                        float px=0, py=0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { px=local_players[i].x; py=local_players[i].y; }
-                        int cam_x = (int)px - (screen_w/2) + 16; int cam_y = (int)py - (screen_h/2) + 16;
+                         float px=0, py=0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { px=local_players[i].x; py=local_players[i].y; }
+                         int cam_x = (int)px - (screen_w/2) + 16; int cam_y = (int)py - (screen_h/2) + 16;
                         if (screen_w > map_w) cam_x = -(screen_w - map_w)/2; if (screen_h > map_h) cam_y = -(screen_h - map_h)/2;
                         handle_game_click(mx, my, cam_x, cam_y, screen_w, screen_h);
                      }
@@ -2975,11 +3003,13 @@ int main(int argc, char *argv[]) {
                                 cursor_pos = 0;
                             }
                             is_chat_open = 0; 
+                            chat_input_active = 0;
                             SDL_StopTextInput();
                         }
                         else if(event.key.keysym.sym == SDLK_ESCAPE) { 
                             is_chat_open = 0; 
                             chat_target_id = -1; 
+                            chat_input_active = 0;
                             SDL_StopTextInput(); 
                         }
                     }
