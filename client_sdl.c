@@ -2627,6 +2627,12 @@ int y_start = auth_box.y + 80;
 
     SDL_Rect r_pass = {auth_box.x+130, y_start+135, 200, 25};
     CHECK_FIELD(r_pass, 1, auth_password);
+
+    // Click outside inputs: deactivate
+    active_field = -1;
+    selection_len = 0;
+    selection_start = 0;
+    is_dragging = 0;
 }
 
 int main(int argc, char *argv[]) {
@@ -2683,6 +2689,9 @@ int main(int argc, char *argv[]) {
 
     SDL_Window *window = SDL_CreateWindow("C MMO Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, win_w, win_h, win_flags);
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+#ifdef __IPHONEOS__
+    SDL_RenderSetLogicalSize(renderer, 800, 600);
+#endif
     global_renderer = renderer;
 
     // 2. Load Assets
@@ -2902,6 +2911,7 @@ int main(int argc, char *argv[]) {
                     else if(sc == SDL_SCANCODE_D || sc == SDL_SCANCODE_RIGHT) key_right = 0;
                 }
                 if (event.type == SDL_MOUSEBUTTONDOWN) {
+                     active_field = -1; selection_len = 0; selection_start = 0;
                      int mx = event.button.x * scale_x; int my = event.button.y * scale_y;
                      
                      if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_chat_toggle)) {

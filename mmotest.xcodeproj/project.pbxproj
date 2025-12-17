@@ -28,6 +28,7 @@
 		9F87790E2EF2CADF003F57C3 /* libSDL2_mixer.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F87790B2EF2CADD003F57C3 /* libSDL2_mixer.a */; };
 		9F8779132EF2CC73003F57C3 /* libSDL2_image.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8779122EF2CC73003F57C3 /* libSDL2_image.a */; };
 		9F87791E2EF2D500003F57C3 /* triggers.txt in Resources */ = {isa = PBXBuildFile; fileRef = 9F8778F12EF2C9F2003F57C3 /* triggers.txt */; };
+		9F87791F2EF2D600003F57C3 /* music in Resources */ = {isa = PBXBuildFile; fileRef = 9F8778EF2EF2C9DA003F57C3 /* music */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -217,6 +218,7 @@
 				9F87791A2EF2CE02003F57C3 /* Info.plist in Resources */,
 				9F87791D2EF2D200003F57C3 /* DejaVuSans.ttf in Resources */,
 				9F87791E2EF2D500003F57C3 /* triggers.txt in Resources */,
+				9F87791F2EF2D600003F57C3 /* music in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
