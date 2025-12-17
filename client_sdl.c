@@ -2589,9 +2589,6 @@ int main(int argc, char *argv[]) {
     SDL_EventState(SDL_KEYDOWN, SDL_ENABLE);
     SDL_EventState(SDL_KEYUP, SDL_ENABLE);
     Uint32 win_flags = SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE;
-    #ifdef __APPLE__
-    win_flags |= SDL_WINDOW_ALLOW_HIGHDPI;
-    #endif
     
     SDL_Window *window = SDL_CreateWindow("C MMO Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 800, 600, win_flags);
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
