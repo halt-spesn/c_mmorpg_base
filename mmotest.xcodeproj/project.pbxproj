@@ -220,6 +220,17 @@
 		};
 /* End PBXResourcesBuildPhasesection */
 
+/* Begin PBXSourcesBuildPhase section */
+		9F8778CA2EF2C8F5003F57C3 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9F8778ED2EF2C9C3003F57C3 /* client_sdl.c in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
 /* Begin XCBuildConfiguration section */
 		9F8778E52EF2C8F8003F57C3 /* Debug */ = {
 			isa = XCBuildConfiguration;
