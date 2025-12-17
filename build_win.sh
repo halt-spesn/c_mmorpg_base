@@ -52,4 +52,12 @@ else
     echo "libwinpthread-1.dll not found. Game may not launch."
 fi
 
+# 6. Thread library
+if [ -f /usr/x86_64-w64-mingw32/bin/libsqlite3-0.dll ]; then
+    cp /usr/x86_64-w64-mingw32/bin/libsqlite3-0.dll windows_release/
+    cp /usr/x86_64-w64-mingw32/bin/libssp-0.dll windows_release/
+else
+    echo "libsqlite3-0.dll not found. Server may not launch."
+fi
+
 echo "Done. Windows build is located in windows_release directory"
