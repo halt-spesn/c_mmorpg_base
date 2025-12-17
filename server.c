@@ -1,26 +1,48 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+#include <direct.h>
+#define close closesocket
+#define mkdir(path, mode) _mkdir(path)
+#define strcasecmp _stricmp
+#else
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <signal.h>
+#endif
 #include <sqlite3.h>
 #include <math.h>
 #include "common.h"
 #include <sys/stat.h>
 #include <errno.h>
 #include <pthread.h>
-#include <signal.h> // Added
+#include <time.h>
+
+#ifdef _WIN32
+typedef SOCKET socket_t;
+#define SOCKET_INVALID INVALID_SOCKET
+#define SOCKET_IS_VALID(s) ((s) != SOCKET_INVALID)
+#define usleep(x) Sleep((DWORD)(((x) + 999) / 1000))
+#else
+typedef int socket_t;
+#define SOCKET_INVALID -1
+#define SOCKET_IS_VALID(s) ((s) != SOCKET_INVALID)
+#endif
 
 Player players[MAX_CLIENTS];
-int client_sockets[MAX_CLIENTS];
+socket_t client_sockets[MAX_CLIENTS];
 sqlite3 *db;
 int next_player_id = 100;
 
 pthread_mutex_t state_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // --- Prototypes ---
-void broadcast_state(); 
+void broadcast_state();
 
 // --- Database ---
 int get_role_id_from_name(char *name) {
@@ -150,12 +172,12 @@ void save_player_location(const char *user, float x, float y) {
 
 void init_game() {
     init_db(); init_storage();
-    for (int i = 0; i < MAX_CLIENTS; i++) { client_sockets[i] = 0; players[i].active = 0; players[i].id = -1; }
+    for (int i = 0; i < MAX_CLIENTS; i++) { client_sockets[i] = SOCKET_INVALID; players[i].active = 0; players[i].id = -1; }
 }
 
 
 // Updated to accept 'int flags' so it matches the send() signature
-int send_all(int sockfd, void *buf, size_t len, int flags) {
+int send_all(socket_t sockfd, void *buf, size_t len, int flags) {
     size_t total = 0;
     size_t bytes_left = len;
     int n;
@@ -173,7 +195,7 @@ void broadcast_state() {
     Packet pkt; pkt.type = PACKET_UPDATE;
     memcpy(pkt.players, players, sizeof(players));
     for (int i = 0; i < MAX_CLIENTS; i++) {
-        if (client_sockets[i] > 0 && players[i].id != -1) send_all(client_sockets[i], &pkt, sizeof(Packet), 0);
+        if (SOCKET_IS_VALID(client_sockets[i]) && players[i].id != -1) send_all(client_sockets[i], &pkt, sizeof(Packet), 0);
     }
 }
 
@@ -204,7 +226,7 @@ void send_friend_list(int client_index) {
 
 void broadcast_friend_update() {
     for (int i = 0; i < MAX_CLIENTS; i++) {
-        if (client_sockets[i] > 0 && players[i].active) send_friend_list(i);
+        if (SOCKET_IS_VALID(client_sockets[i]) && players[i].active) send_friend_list(i);
     }
 }
 
@@ -375,7 +397,7 @@ void handle_client_message(int index, Packet *pkt) {
                 response.status = AUTH_FAILURE;
                 strcpy(response.msg, "Username and password required.");
             }
-            else if (login_user(pkt->username, pkt->password, &x, &y, &r, &g, &b, &r2, &g2, &b2, &role, &ban_expire, &db_map)) {
+            else if (login_user(pkt->username, pkt->password, &x, &y, &r, &g, &b, &r2, &g2, &b2, &role, &ban_expire, db_map)) {
                 
                 // 1. Check Ban Logic
                 if (time(NULL) < ban_expire) {
@@ -524,7 +546,7 @@ void handle_client_message(int index, Packet *pkt) {
         // Normal Chat Broadcast
         pkt->player_id = players[index].id;
         for (int i = 0; i < MAX_CLIENTS; i++) {
-            if (client_sockets[i] > 0 && players[i].active) {
+            if (SOCKET_IS_VALID(client_sockets[i]) && players[i].active) {
                 send_all(client_sockets[i], pkt, sizeof(Packet), 0);
             }
         }
@@ -618,7 +640,7 @@ void handle_client_message(int index, Packet *pkt) {
         int target_id = pkt->target_id; int sender_id = players[index].id;
         Packet pm; pm.type = PACKET_PRIVATE_MESSAGE; pm.player_id = sender_id; pm.target_id = target_id; strncpy(pm.msg, pkt->msg, 64);
         int target_found = 0;
-        for (int i = 0; i < MAX_CLIENTS; i++) if (players[i].active && players[i].id == target_id) { if (client_sockets[i] > 0) { send_all(client_sockets[i], &pm, sizeof(Packet), 0); target_found = 1; } break; }
+        for (int i = 0; i < MAX_CLIENTS; i++) if (players[i].active && players[i].id == target_id) { if (SOCKET_IS_VALID(client_sockets[i])) { send_all(client_sockets[i], &pm, sizeof(Packet), 0); target_found = 1; } break; }
         if (target_found) send_all(client_sockets[index], &pm, sizeof(Packet), 0);
         else { Packet err; err.type = PACKET_CHAT; err.player_id = -1; strcpy(err.msg, "Player not online."); send_all(client_sockets[index], &err, sizeof(Packet), 0); }
     }
@@ -772,7 +794,7 @@ void handle_client_message(int index, Packet *pkt) {
     }
 }
 
-int recv_full(int sockfd, void *buf, size_t len) {
+int recv_full(socket_t sockfd, void *buf, size_t len) {
     size_t total = 0;
     size_t bytes_left = len;
     int n;
@@ -797,12 +819,12 @@ void *tick_thread(void *arg) {
 }
 
 void *client_handler(void *arg) {
-    int index = *(int*)arg; free(arg); int sd = client_sockets[index]; Packet pkt;
+    int index = *(int*)arg; free(arg); socket_t sd = client_sockets[index]; Packet pkt;
     while (1) {
         int valread = recv_full(sd, &pkt, sizeof(Packet));
         if (valread <= 0) {
             pthread_mutex_lock(&state_mutex);
-            close(sd); client_sockets[index] = 0;
+            close(sd); client_sockets[index] = SOCKET_INVALID;
             if(players[index].active) {
                 save_player_location(players[index].username, players[index].x, players[index].y);
                 char sql[256]; snprintf(sql, 256, "UPDATE users SET LAST_LOGIN=datetime('now', 'localtime') WHERE ID=%d;", players[index].id);
@@ -835,7 +857,7 @@ void *client_handler(void *arg) {
 
 int main(int argc, char *argv[]) {
     //printf("DEBUG: Packet Size is %d bytes\n", (int)sizeof(Packet));
-    int server_fd, new_socket; 
+    socket_t server_fd, new_socket; 
     struct sockaddr_in address;
     
     // 1. Set Default Port
@@ -852,13 +874,25 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    signal(SIGPIPE, SIG_IGN); 
+#ifdef _WIN32
+    WSADATA wsaData;
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+        fprintf(stderr, "WSAStartup failed\n");
+        return 1;
+    }
+#else
+    signal(SIGPIPE, SIG_IGN);
+#endif 
     init_game();
     
-    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) exit(1);
+    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == SOCKET_INVALID) exit(1);
     
     int opt = 1; 
+#ifdef _WIN32
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
+#else
     setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+#endif
     
     address.sin_family = AF_INET; 
     address.sin_addr.s_addr = INADDR_ANY; 
@@ -887,18 +921,18 @@ int main(int argc, char *argv[]) {
 
     while (1) {
         socklen_t addrlen = sizeof(address);
-        if ((new_socket = accept(server_fd, (struct sockaddr *)&address, &addrlen)) < 0) { 
-            perror("Accept failed"); 
-            continue; 
-        }
-        
-        pthread_mutex_lock(&state_mutex);
-        int slot = -1;
-        for (int i = 0; i < MAX_CLIENTS; i++) { 
-            if (client_sockets[i] == 0) { 
-                client_sockets[i] = new_socket; 
-                players[i].id = -1; 
-                slot = i; 
+    if ((new_socket = accept(server_fd, (struct sockaddr *)&address, &addrlen)) == SOCKET_INVALID) { 
+        perror("Accept failed"); 
+        continue; 
+    }
+    
+    pthread_mutex_lock(&state_mutex);
+    int slot = -1;
+    for (int i = 0; i < MAX_CLIENTS; i++) { 
+        if (!SOCKET_IS_VALID(client_sockets[i])) { 
+            client_sockets[i] = new_socket; 
+            players[i].id = -1; 
+            slot = i; 
                 break; 
             } 
         }

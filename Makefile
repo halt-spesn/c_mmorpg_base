@@ -7,6 +7,10 @@ SERVER_OUT = server
 # Link everything dynamically(later static): sqlite3, math, threads
 SERVER_LDFLAGS = -lsqlite3 -lm -lpthread -ferror-limit=0
 
+ifeq ($(OS),Windows_NT)
+SERVER_LDFLAGS += -lws2_32
+endif
+
 # --- CLIENT CONFIG ---
 CLIENT_SRC = client_sdl.c
 CLIENT_OUT = client
