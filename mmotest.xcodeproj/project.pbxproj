@@ -341,9 +341,9 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PUBLIC_HEADERS_FOLDER_PATH = "$(PROJECT_DIR)/mach-o_deps/include";
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SYSTEM_HEADER_SEARCH_PATHS = "$(PROJECT_DIR)/mach-o_deps/include";
+				SYSTEM_HEADER_SEARCH_PATHS = "$(PROJECT_DIR)/mach-o_deps/include $(PROJECT_DIR)/win_libs/SDL2-2.28.5/x86_64-w64-mingw32/include";
 				TARGETED_DEVICE_FAMILY = "1,2";
-				USER_HEADER_SEARCH_PATHS = "$(PROJECT_DIR)/mach-o_deps/include";
+				USER_HEADER_SEARCH_PATHS = "$(PROJECT_DIR)/mach-o_deps/include $(PROJECT_DIR)/win_libs/SDL2-2.28.5/x86_64-w64-mingw32/include";
 				USE_HEADERMAP = NO;
 			};
 			name = Debug;
@@ -384,9 +384,9 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PUBLIC_HEADERS_FOLDER_PATH = "$(PROJECT_DIR)/mach-o_deps/include";
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SYSTEM_HEADER_SEARCH_PATHS = "$(PROJECT_DIR)/mach-o_deps/include";
+				SYSTEM_HEADER_SEARCH_PATHS = "$(PROJECT_DIR)/mach-o_deps/include $(PROJECT_DIR)/win_libs/SDL2-2.28.5/x86_64-w64-mingw32/include";
 				TARGETED_DEVICE_FAMILY = "1,2";
-				USER_HEADER_SEARCH_PATHS = "$(PROJECT_DIR)/mach-o_deps/include";
+				USER_HEADER_SEARCH_PATHS = "$(PROJECT_DIR)/mach-o_deps/include $(PROJECT_DIR)/win_libs/SDL2-2.28.5/x86_64-w64-mingw32/include";
 				USE_HEADERMAP = NO;
 			};
 			name = Release;
