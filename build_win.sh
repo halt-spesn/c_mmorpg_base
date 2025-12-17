@@ -10,7 +10,7 @@ MIX_PATH="win_libs/SDL2_mixer-2.8.0/x86_64-w64-mingw32"
 mkdir -p windows_release
 echo "Creating folder windows_release..."
 
-# Compile Command
+# Compile Client
 x86_64-w64-mingw32-gcc client_sdl.c -o windows_release/game_client.exe \
     -I$SDL2_PATH/include/SDL2 \
     -I$SDL2_PATH/include \
@@ -21,8 +21,14 @@ x86_64-w64-mingw32-gcc client_sdl.c -o windows_release/game_client.exe \
     -L$IMG_PATH/lib \
     -L$TTF_PATH/lib \
     -L$MIX_PATH/lib \
-    -lmingw32 -lSDL2main -lSDL2 -lSDL2_image -lSDL2_ttf -lSDL2_mixer \
-    -lws2_32 -lopengl32 -static-libgcc -static-libstdc++
+     -lmingw32 -lSDL2main -lSDL2 -lSDL2_image -lSDL2_ttf -lSDL2_mixer \
+     -lws2_32 -lopengl32 -static-libgcc -static-libstdc++
+
+# Compile Server (WinSock + SQLite + pthreads via winpthreads)
+x86_64-w64-mingw32-gcc server.c -o windows_release/server.exe \
+    -I$SDL2_PATH/include \
+    -L$SDL2_PATH/lib \
+    -lws2_32 -lsqlite3 -lm -lpthread -static-libgcc -static-libstdc++
 
 # 3. Copy resources
 cp map.jpg windows_release/
@@ -48,6 +54,13 @@ if [ -f /usr/x86_64-w64-mingw32/bin/libwinpthread-1.dll ]; then
     cp /usr/x86_64-w64-mingw32/bin/libwinpthread-1.dll windows_release/
 else
     echo "libwinpthread-1.dll not found. Game may not launch."
+fi
+
+# 7. SQLite runtime
+if [ -f /usr/x86_64-w64-mingw32/bin/libsqlite3-0.dll ]; then
+    cp /usr/x86_64-w64-mingw32/bin/libsqlite3-0.dll windows_release/
+else
+    echo "libsqlite3-0.dll not found. Server may not launch."
 fi
 
 echo "Done. Windows build is located in windows_release directory"
