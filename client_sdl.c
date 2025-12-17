@@ -2560,9 +2560,6 @@ int main(int argc, char *argv[]) {
     SDL_SetHint(SDL_HINT_WINDOWS_RAWKEYBOARD, "1");
     #endif
     #endif
-    #ifdef __APPLE__
-    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal"); // prefer Metal to avoid black titlebar
-    #endif
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) return 1;
     if (TTF_Init() == -1) return 1;
     if (!(IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG) & (IMG_INIT_PNG | IMG_INIT_JPG))) printf("IMG Init Error: %s\n", IMG_GetError());
@@ -2586,7 +2583,7 @@ int main(int argc, char *argv[]) {
     font = TTF_OpenFont(FONT_PATH, FONT_SIZE);
     if (!font) { printf("Font missing: %s\n", FONT_PATH); return 1; }
     #ifdef __APPLE__
-    // Fallback to OpenGL if Metal unavailable
+    // Force OpenGL renderer on macOS to avoid black titlebar in windowed mode
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengl");
     #endif
     SDL_EventState(SDL_KEYDOWN, SDL_ENABLE);
