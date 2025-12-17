@@ -20,7 +20,7 @@
 #include <sys/stat.h>
 #include <errno.h>
 #endif
-#include <pthread.h>
+#include <pthread.h> // Requires winpthreads on Windows (provided by MinGW)
 #include <sqlite3.h>
 #include <math.h>
 #include "common.h"
@@ -643,7 +643,8 @@ void handle_client_message(int index, Packet *pkt) {
         int target_id = pkt->target_id; int sender_id = players[index].id;
         Packet pm; pm.type = PACKET_PRIVATE_MESSAGE; pm.player_id = sender_id; pm.target_id = target_id; strncpy(pm.msg, pkt->msg, 64);
         int target_found = 0;
-        for (int i = 0; i < MAX_CLIENTS; i++) if (players[i].active && players[i].id == target_id) { if (SOCKET_IS_VALID(client_sockets[i])) { send_all(client_sockets[i], &pm, sizeof(Packet), 0); target_found = 1; } break; }        if (target_found) send_all(client_sockets[index], &pm, sizeof(Packet), 0);
+        for (int i = 0; i < MAX_CLIENTS; i++) if (players[i].active && players[i].id == target_id) { if (SOCKET_IS_VALID(client_sockets[i])) { send_all(client_sockets[i], &pm, sizeof(Packet), 0); target_found = 1; } break; }
+        if (target_found) send_all(client_sockets[index], &pm, sizeof(Packet), 0);
         else { Packet err; err.type = PACKET_CHAT; err.player_id = -1; strcpy(err.msg, "Player not online."); send_all(client_sockets[index], &err, sizeof(Packet), 0); }
     }
     else if (pkt->type == PACKET_PING) { send_all(client_sockets[index], pkt, sizeof(Packet), 0); }
@@ -876,25 +877,25 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    #ifdef _WIN32
+#ifdef _WIN32
     WSADATA wsaData;
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
         fprintf(stderr, "WSAStartup failed\n");
         return 1;
     }
-    #else
+#else
     signal(SIGPIPE, SIG_IGN);
-    #endif 
+#endif 
     init_game();
     
-    if ((server_fd = socket(AF_INET, SOCK_STREAM, SOCKET_INVALID)) == 0) exit(1);
+    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == SOCKET_INVALID) exit(1);
     
     int opt = 1; 
-    #ifdef _WIN32
+#ifdef _WIN32
     setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
-    #else
+#else
     setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-    #endif
+#endif
     
     address.sin_family = AF_INET; 
     address.sin_addr.s_addr = INADDR_ANY; 
@@ -928,14 +929,14 @@ int main(int argc, char *argv[]) {
             perror("Accept failed"); 
             continue; 
         }
-
+    
     pthread_mutex_lock(&state_mutex);
     int slot = -1;
     for (int i = 0; i < MAX_CLIENTS; i++) { 
         if (!SOCKET_IS_VALID(client_sockets[i])) { 
             client_sockets[i] = new_socket; 
             players[i].id = -1; 
-            slot = i;  
+            slot = i; 
                 break; 
             } 
         }
