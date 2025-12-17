@@ -9,26 +9,28 @@
 /* Begin PBXBuildFile section */
 		9F3ABCF22EF2FD7C0036A5E8 /* CoreText.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F3ABCF12EF2FD7C0036A5E8 /* CoreText.framework */; };
 		9F3ABCF42EF2FD850036A5E8 /* ImageIO.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F3ABCF32EF2FD850036A5E8 /* ImageIO.framework */; };
-		9F3ABCF62EF2FD930036A5E8 /* MobileCoreServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F3ABCF52EF2FD930036A5E8 /* MobileCoreServices.framework */; };
-		9F3ABCF82EF2FDBD0036A5E8 /* CoreHaptics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F3ABCF72EF2FDBD0036A5E8 /* CoreHaptics.framework */; };
+		9F3ABCF62EF2FD930036A5E8 /* MobileCoreServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F3ABCF52EF2FD930036A5E8 /* MobileCoreServices.framework */; platformFilter = ios; };
+		9F3ABCF82EF2FDBD0036A5E8 /* CoreHaptics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F3ABCF72EF2FDBD0036A5E8 /* CoreHaptics.framework */; platformFilter = ios; };
 		9F3ABCFA2EF2FEA30036A5E8 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F3ABCF92EF2FEA20036A5E8 /* Foundation.framework */; };
 		9F8778ED2EF2C9C3003F57C3 /* client_sdl.c in Sources */ = {isa = PBXBuildFile; fileRef = 9F8778EC2EF2C9C2003F57C3 /* client_sdl.c */; };
-		9F8778F62EF2CA78003F57C3 /* OpenGLES.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8778F52EF2CA78003F57C3 /* OpenGLES.framework */; };
+		9F8778F62EF2CA78003F57C3 /* OpenGLES.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8778F52EF2CA78003F57C3 /* OpenGLES.framework */; platformFilter = ios; };
 		9F8778F82EF2CA85003F57C3 /* AudioToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8778F72EF2CA85003F57C3 /* AudioToolbox.framework */; };
 		9F8778FA2EF2CA8A003F57C3 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8778F92EF2CA8A003F57C3 /* AVFoundation.framework */; };
 		9F8778FC2EF2CA92003F57C3 /* CoreAudio.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8778FB2EF2CA92003F57C3 /* CoreAudio.framework */; };
 		9F8778FE2EF2CA96003F57C3 /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8778FD2EF2CA96003F57C3 /* CoreGraphics.framework */; };
-		9F8779002EF2CA9E003F57C3 /* CoreMotion.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8778FF2EF2CA9E003F57C3 /* CoreMotion.framework */; };
+		9F8779002EF2CA9E003F57C3 /* CoreMotion.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8778FF2EF2CA9E003F57C3 /* CoreMotion.framework */; platformFilter = ios; };
 		9F8779022EF2CAA5003F57C3 /* GameController.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8779012EF2CAA5003F57C3 /* GameController.framework */; };
 		9F8779042EF2CAAC003F57C3 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8779032EF2CAAC003F57C3 /* Metal.framework */; };
 		9F8779062EF2CAB7003F57C3 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8779052EF2CAB7003F57C3 /* QuartzCore.framework */; };
-		9F8779082EF2CABF003F57C3 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8779072EF2CABF003F57C3 /* UIKit.framework */; };
+		9F8779082EF2CABF003F57C3 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8779072EF2CABF003F57C3 /* UIKit.framework */; platformFilter = ios; };
 		9F87790C2EF2CADD003F57C3 /* libSDL2.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8779092EF2CADD003F57C3 /* libSDL2.a */; };
 		9F87790D2EF2CADE003F57C3 /* libSDL2_ttf.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F87790A2EF2CADD003F57C3 /* libSDL2_ttf.a */; };
 		9F87790E2EF2CADF003F57C3 /* libSDL2_mixer.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F87790B2EF2CADD003F57C3 /* libSDL2_mixer.a */; };
 		9F8779132EF2CC73003F57C3 /* libSDL2_image.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8779122EF2CC73003F57C3 /* libSDL2_image.a */; };
 		9F87791E2EF2D500003F57C3 /* triggers.txt in Resources */ = {isa = PBXBuildFile; fileRef = 9F8778F12EF2C9F2003F57C3 /* triggers.txt */; };
 		9F87791F2EF2D600003F57C3 /* music in Resources */ = {isa = PBXBuildFile; fileRef = 9F8778EF2EF2C9DA003F57C3 /* music */; };
+		9FMAC0032EF2FFFE0000AAAC /* OpenGL.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9FMAC0012EF2FFFE0000AAAA /* OpenGL.framework */; platformFilter = maccatalyst; };
+		9FMAC0042EF2FFFE0000AAAD /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9FMAC0022EF2FFFE0000AAAB /* Cocoa.framework */; platformFilter = maccatalyst; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -63,6 +65,8 @@
 		9F8779172EF2CD90003F57C3 /* libSDL2_mixer.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libSDL2_mixer.a; sourceTree = "<group>"; };
 		9F87791B2EF2CE02003F57C3 /* ../Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = ../Info.plist; sourceTree = "<group>"; };
 		9F87791D2EF2D200003F57C3 /* DejaVuSans.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 9F87791C2EF2D200003F57C3 /* DejaVuSans.ttf */; };
+		9FMAC0012EF2FFFE0000AAAA /* OpenGL.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = OpenGL.framework; path = System/Library/Frameworks/OpenGL.framework; sourceTree = SDKROOT; };
+		9FMAC0022EF2FFFE0000AAAB /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -89,6 +93,8 @@
 				9F8778FA2EF2CA8A003F57C3 /* AVFoundation.framework in Frameworks */,
 				9F8778F82EF2CA85003F57C3 /* AudioToolbox.framework in Frameworks */,
 				9F8778F62EF2CA78003F57C3 /* OpenGLES.framework in Frameworks */,
+				9FMAC0032EF2FFFE0000AAAC /* OpenGL.framework in Frameworks */,
+				9FMAC0042EF2FFFE0000AAAD /* Cocoa.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -153,6 +159,8 @@
 				9F8778F92EF2CA8A003F57C3 /* AVFoundation.framework */,
 				9F8778F72EF2CA85003F57C3 /* AudioToolbox.framework */,
 				9F8778F52EF2CA78003F57C3 /* OpenGLES.framework */,
+				9FMAC0012EF2FFFE0000AAAA /* OpenGL.framework */,
+				9FMAC0022EF2FFFE0000AAAB /* Cocoa.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
