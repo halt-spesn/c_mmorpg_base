@@ -2936,7 +2936,7 @@ int main(int argc, char *argv[]) {
                      
                      if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_chat_toggle)) {
                         is_chat_open = !is_chat_open; 
-                        if(is_chat_open) { unread_chat_count = 0; chat_input_active = 0 } 
+                        if(is_chat_open) { unread_chat_count = 0; chat_input_active = 0; } 
                         else { chat_input_active = 0; SDL_StopTextInput(); }
                      } 
                      else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_settings_toggle)) {
