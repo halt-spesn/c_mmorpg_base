@@ -60,6 +60,7 @@
 		9F8779162EF2CD90003F57C3 /* libSDL2.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libSDL2.a; sourceTree = "<group>"; };
 		9F8779172EF2CD90003F57C3 /* libSDL2_mixer.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libSDL2_mixer.a; sourceTree = "<group>"; };
 		9F87791B2EF2CE02003F57C3 /* ../Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = ../Info.plist; sourceTree = "<group>"; };
+		9F87791D2EF2D200003F57C3 /* DejaVuSans.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 9F87791C2EF2D200003F57C3 /* DejaVuSans.ttf */; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -117,12 +118,14 @@
 		9F8778D02EF2C8F5003F57C3 /* mmotest */ = {
 			isa = PBXGroup;
 			children = (
+				9F87791C2EF2D200003F57C3 /* DejaVuSans.ttf */,
 				9F87791B2EF2CE02003F57C3 /* ../Info.plist */,
 				9F8778DD2EF2C8F8003F57C3 /* Assets.xcassets */,
 			);
 			path = mmotest;
 			sourceTree = "<group>";
 		};
+		9F87791C2EF2D200003F57C3 /* DejaVuSans.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = DejaVuSans.ttf; sourceTree = "<group>"; };
 		9F8778F42EF2CA78003F57C3 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
@@ -161,6 +164,7 @@
 			buildPhases = (
 				9F8778CA2EF2C8F5003F57C3 /* Sources */,
 				9F8778CB2EF2C8F5003F57C3 /* Frameworks */,
+				9F8778CC2EF2C8F5003F57C3 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -203,16 +207,18 @@
 		};
 /* End PBXProject section */
 
-/* Begin PBXSourcesBuildPhase section */
-		9F8778CA2EF2C8F5003F57C3 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
+/* Begin PBXResourcesBuildPhase section */
+		9F8778CC2EF2C8F5003F57C3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				9F8778ED2EF2C9C3003F57C3 /* client_sdl.c in Sources */,
+				9F8778DE2EF2C8F8003F57C3 /* Assets.xcassets in Resources */,
+				9F87791A2EF2CE02003F57C3 /* Info.plist in Resources */,
+				9F87791D2EF2D200003F57C3 /* DejaVuSans.ttf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-/* End PBXSourcesBuildPhase section */
+/* End PBXResourcesBuildPhasesection */
 
 /* Begin XCBuildConfiguration section */
 		9F8778E52EF2C8F8003F57C3 /* Debug */ = {
