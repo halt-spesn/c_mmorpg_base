@@ -298,8 +298,8 @@ Uint32 last_move_time = 0; // <--- MOVE HERE
 // Mobile Controls
 SDL_Rect dpad_rect = {20, 0, 150, 150}; // Y calculated dynamically
 float vjoy_dx = 0, vjoy_dy = 0;
-int touch_id_dpad = -1; // Track which finger is on the D-Pad
-int scroll_touch_id = -1;
+SDL_FingerID touch_id_dpad = -1; // Track which finger is on the D-Pad
+SDL_FingerID scroll_touch_id = -1;
 int scroll_last_y = 0;
 int joystick_active = 0;
 
@@ -2795,32 +2795,37 @@ int main(int argc, char *argv[]) {
                 int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
                 int tx = event.tfinger.x * w;
                 int ty = event.tfinger.y * h;
-                printf("[FINGERDOWN] tx=%d ty=%d w=%d h=%d fingerId=%lld\n", tx, ty, w, h, (long long)event.tfinger.fingerId);
+                printf("[FINGERDOWN] tx=%d ty=%d w=%d h=%d fingerId=%lld state=%d\n", tx, ty, w, h, (long long)event.tfinger.fingerId, client_state);
 
                 if (is_settings_open && SDL_PointInRect(&(SDL_Point){tx, ty}, &settings_view_port)) {
                     scroll_touch_id = event.tfinger.fingerId;
                     scroll_last_y = ty;
                     printf("[FINGERDOWN] Scroll touch started\n");
-                                    } else if (is_chat_open) {
-                    SDL_Rect chat_win = (SDL_Rect){10, h-240, 300, 190};
-                    SDL_Rect chat_input = (SDL_Rect){15, chat_win.y + chat_win.h - 24, 270, 24};
-                    if (SDL_PointInRect(&(SDL_Point){tx, ty}, &chat_input)) {
-                        chat_input_active = 1;
-                        SDL_StartTextInput();
-                    } else if (!SDL_PointInRect(&(SDL_Point){tx, ty}, &chat_win)) {
-                        chat_input_active = 0;
-                        if (active_field < 0) SDL_StopTextInput();
-                    }
+                                    } 
+                // Game-specific touch handling only in STATE_GAME
+                else if (client_state == STATE_GAME) {
+                    if (is_chat_open) {
+                        SDL_Rect chat_win = (SDL_Rect){10, h-240, 300, 190};
+                        SDL_Rect chat_input = (SDL_Rect){15, chat_win.y + chat_win.h - 24, 270, 24};
+                        if (SDL_PointInRect(&(SDL_Point){tx, ty}, &chat_input)) {
+                            chat_input_active = 1;
+                            SDL_StartTextInput();
+                        } else if (!SDL_PointInRect(&(SDL_Point){tx, ty}, &chat_win)) {
+                            chat_input_active = 0;
+                            if (active_field < 0) SDL_StopTextInput();
+                        }
                     } else if (touch_id_dpad == -1) {
-                    dpad_rect = (SDL_Rect){tx - 75, ty - 75, 150, 150};
-                    touch_id_dpad = event.tfinger.fingerId;
-                    vjoy_dx = 0; vjoy_dy = 0;;
-                    joystick_active = 1;
-                    printf("[FINGERDOWN] Joystick created at tx=%d ty=%d, fingerId=%lld\n", tx, ty, (long long)touch_id_dpad);
-                } else {
-                     // Treat other touches as Mouse Clicks for UI
-                    handle_game_click(tx, ty, 0, 0, w, h); // Adjust args as needed
-                    printf("[FINGERDOWN] Game click\n");
+                        // Create joystick only in game state
+                        dpad_rect = (SDL_Rect){tx - 75, ty - 75, 150, 150};
+                        touch_id_dpad = event.tfinger.fingerId;
+                        vjoy_dx = 0; vjoy_dy = 0;
+                        joystick_active = 1;
+                        printf("[FINGERDOWN] Joystick created at tx=%d ty=%d, fingerId=%lld\n", tx, ty, (long long)touch_id_dpad);
+                    } else {
+                        // Treat other touches as Mouse Clicks for UI
+                        handle_game_click(tx, ty, 0, 0, w, h); // Adjust args as needed
+                        printf("[FINGERDOWN] Game click\n");
+                    }
                 }
             }
             else if (event.type == SDL_FINGERMOTION) {
