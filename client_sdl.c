@@ -2677,6 +2677,11 @@ int main(int argc, char *argv[]) {
     #ifdef __APPLE__
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengl"); // Try OpenGL to avoid black decorations
     #endif
+    
+    // Disable touch-to-mouse event conversion so we get actual touch events on iOS
+    SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
+    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+    
     SDL_EventState(SDL_KEYDOWN, SDL_ENABLE);
     SDL_EventState(SDL_KEYUP, SDL_ENABLE);
     // Enable touch events for iOS
@@ -2814,37 +2819,28 @@ int main(int argc, char *argv[]) {
                         chat_input_active = 0;
                         if (active_field < 0) SDL_StopTextInput();
                     }
+                } else if (touch_id_dpad == -1) {
+                    // No joystick active yet, create one
+                    dpad_rect = (SDL_Rect){tx - 75, ty - 75, 150, 150};
+                    touch_id_dpad = event.tfinger.fingerId;
+                    vjoy_dx = 0; vjoy_dy = 0;
+                    joystick_active = 1;
                 } else {
-                    // Check if touch is on existing joystick or in UI area first
-                    int is_ui_touch = 0;
-                    
-                    // Check if touch is on UI buttons/areas (top portion of screen for settings, chat, etc.)
-                    if (ty < 100) is_ui_touch = 1; // Top bar with buttons
-                    if (tx > w - 100 && ty < 200) is_ui_touch = 1; // Right side buttons
-                    
-                    if (is_ui_touch || touch_id_dpad != -1) {
-                        // This is a UI touch or there's already a joystick, so handle as game click
-                        // Calculate proper camera position
-                        float px=0, py=0; 
-                        for(int i=0; i<MAX_CLIENTS; i++) {
-                            if(local_players[i].active && local_players[i].id == local_player_id) { 
-                                px=local_players[i].x; 
-                                py=local_players[i].y; 
-                                break;
-                            }
+                    // Joystick already exists, treat other touches as UI clicks
+                    // Calculate proper camera position
+                    float px=0, py=0; 
+                    for(int i=0; i<MAX_CLIENTS; i++) {
+                        if(local_players[i].active && local_players[i].id == local_player_id) { 
+                            px=local_players[i].x; 
+                            py=local_players[i].y; 
+                            break;
                         }
-                        int cam_x = (int)px - (w/2) + 16; 
-                        int cam_y = (int)py - (h/2) + 16;
-                        if (w > map_w) cam_x = -(w - map_w)/2; 
-                        if (h > map_h) cam_y = -(h - map_h)/2;
-                        handle_game_click(tx, ty, cam_x, cam_y, w, h);
-                    } else if (touch_id_dpad == -1) {
-                        // No joystick active and not a UI touch, create joystick here
-                        dpad_rect = (SDL_Rect){tx - 75, ty - 75, 150, 150};
-                        touch_id_dpad = event.tfinger.fingerId;
-                        vjoy_dx = 0; vjoy_dy = 0;
-                        joystick_active = 1;
                     }
+                    int cam_x = (int)px - (w/2) + 16; 
+                    int cam_y = (int)py - (h/2) + 16;
+                    if (w > map_w) cam_x = -(w - map_w)/2; 
+                    if (h > map_h) cam_y = -(h - map_h)/2;
+                    handle_game_click(tx, ty, cam_x, cam_y, w, h);
                 }
             }
             else if (event.type == SDL_FINGERMOTION) {
