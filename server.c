@@ -6,6 +6,9 @@
 #include <ws2tcpip.h>
 #include <windows.h>
 #include <direct.h>
+#include <io.h>
+#include <sys/stat.h>
+#include <errno.h>
 #define close closesocket
 #define mkdir(path, mode) _mkdir(path)
 #define strcasecmp _stricmp
@@ -14,13 +17,13 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <signal.h>
+#include <sys/stat.h>
+#include <errno.h>
 #endif
+#include <pthread.h> // Requires winpthreads on Windows (provided by MinGW)
 #include <sqlite3.h>
 #include <math.h>
 #include "common.h"
-#include <sys/stat.h>
-#include <errno.h>
-#include <pthread.h>
 #include <time.h>
 
 #ifdef _WIN32
@@ -921,10 +924,11 @@ int main(int argc, char *argv[]) {
 
     while (1) {
         socklen_t addrlen = sizeof(address);
-    if ((new_socket = accept(server_fd, (struct sockaddr *)&address, &addrlen)) == SOCKET_INVALID) { 
-        perror("Accept failed"); 
-        continue; 
-    }
+        new_socket = accept(server_fd, (struct sockaddr *)&address, &addrlen);
+        if (!SOCKET_IS_VALID(new_socket)) { 
+            perror("Accept failed"); 
+            continue; 
+        }
     
     pthread_mutex_lock(&state_mutex);
     int slot = -1;
