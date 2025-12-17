@@ -28,8 +28,10 @@
 #include <sys/types.h>
 
 // Handle OpenGL headers
-#ifdef __APPLE__
+#if defined(__IPHONEOS__) || defined(__ANDROID__)
 #include <SDL2/SDL_opengles2.h>
+#elif defined(__APPLE__)
+#include <SDL2/SDL_opengl.h>
 #elif defined(_WIN32)
 #include <SDL2/SDL_opengl.h>
 #else
