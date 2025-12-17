@@ -123,7 +123,7 @@ ClientState client_state = STATE_AUTH;
 #define MAX_INPUT_LEN 31
 char auth_username[MAX_INPUT_LEN+1] = "";
 char auth_password[MAX_INPUT_LEN+1] = "";
-int active_field = 0;
+int active_field = -1;
 int show_password = 0;
 char auth_message[128] = "Enter Credentials";
 
@@ -317,6 +317,25 @@ void get_path(char *out, const char *filename, int is_save_file) {
     #endif
 }
 
+void ensure_save_file(const char *filename, const char *asset_name) {
+    char path[256]; get_path(path, filename, 1);
+    FILE *fp = fopen(path, "r");
+    if (fp) { fclose(fp); return; }
+    fp = fopen(path, "w");
+    if (!fp) return;
+    if (asset_name) {
+        char asset_path[256]; get_path(asset_path, asset_name, 0);
+        FILE *af = fopen(asset_path, "r");
+        if (af) {
+            char buf[256];
+            size_t n;
+            while ((n = fread(buf, 1, sizeof(buf), af)) > 0) fwrite(buf, 1, n, fp);
+            fclose(af);
+        }
+    }
+    fclose(fp);
+}
+
 // --- Helpers ---
 int send_all(socket_t sockfd, const void *buf, size_t len) {
     size_t total = 0;
@@ -365,7 +384,7 @@ void load_servers() {
 
 void save_config() {
     char path[256]; get_path(path, "config.txt", 1); // 1 = Save File
-    FILE *fp = fopen(path, "r");
+    FILE *fp = fopen(path, "w");
     if (fp) {
         int r=255, g=255, b=255;
         for(int i=0; i<MAX_CLIENTS; i++) {
@@ -386,8 +405,20 @@ void save_config() {
 }
 
 void load_config() {
-    char path[256]; get_path(path, "config.txt", 0); // 1 = Save File
+    char path[256]; get_path(path, "config.txt", 1); // 1 = Save File
     FILE *fp = fopen(path, "r");
+    if (!fp) {
+        get_path(path, "configs.txt", 1);
+        fp = fopen(path, "r");
+    }
+    if (!fp) {
+        get_path(path, "config.txt", 0);
+        fp = fopen(path, "r");
+    }
+    if (!fp) {
+        get_path(path, "configs.txt", 0);
+        fp = fopen(path, "r");
+    }
     if (fp) {
         // Temp variables for flags
         int dbg=0, fps=0, crd=0, vol=64, unread=1;
@@ -2641,8 +2672,16 @@ int main(int argc, char *argv[]) {
     SDL_EventState(SDL_KEYUP, SDL_ENABLE);
     Uint32 win_flags = SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE;
 
+#ifdef __IPHONEOS__
+    SDL_DisplayMode dm;
+    int win_w = 800, win_h = 600;
+    if (SDL_GetCurrentDisplayMode(0, &dm) == 0) { win_w = dm.w; win_h = dm.h; }
+    win_flags |= SDL_WINDOW_FULLSCREEN;
+#else
+    int win_w = 800, win_h = 600;
+#endif
 
-    SDL_Window *window = SDL_CreateWindow("C MMO Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 800, 600, win_flags);
+    SDL_Window *window = SDL_CreateWindow("C MMO Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, win_w, win_h, win_flags);
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     global_renderer = renderer;
 
@@ -2660,6 +2699,9 @@ int main(int argc, char *argv[]) {
         SDL_FreeSurface(temp); 
     }
 
+    ensure_save_file("servers.txt", "servers.txt");
+    ensure_save_file("config.txt", "config.txt");
+    ensure_save_file("configs.txt", "config.txt");
     init_audio();
     load_servers();
     load_triggers();
@@ -2668,13 +2710,13 @@ int main(int argc, char *argv[]) {
 
     for(int i=0; i<MAX_CLIENTS; i++) { avatar_cache[i] = NULL; avatar_status[i] = 0; }
 
-    SDL_StartTextInput();
     int running = 1; SDL_Event event;
     int key_up=0, key_down=0, key_left=0, key_right=0;
     
     // State Tracking
     int last_active_field = -1;
     int was_chat_open = 0;
+    int text_input_enabled = SDL_IsTextInputActive();
     last_input_tick = SDL_GetTicks(); 
 
     while (running) {
@@ -2707,6 +2749,10 @@ int main(int argc, char *argv[]) {
             selection_len = 0;
             last_active_field = active_field;
         }
+
+        int should_text_input = (active_field >= 0) || is_chat_open;
+        if (should_text_input && !text_input_enabled) { SDL_StartTextInput(); text_input_enabled = 1; }
+        else if (!should_text_input && text_input_enabled) { SDL_StopTextInput(); text_input_enabled = 0; }
 
         SDL_PumpEvents(); // Ensure keyboard state stays fresh even when no events are queued
         while (SDL_PollEvent(&event)) {
