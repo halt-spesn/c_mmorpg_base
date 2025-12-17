@@ -28,7 +28,7 @@
 
 // Handle OpenGL headers
 #ifdef __APPLE__
-#include <SDL2/SDL_opengl.h>
+#include <SDL2/SDL_opengles_gl2.h>
 #elif defined(_WIN32)
 #include <SDL2/SDL_opengl.h>
 #else
