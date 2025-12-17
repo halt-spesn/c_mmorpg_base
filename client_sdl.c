@@ -2796,9 +2796,12 @@ int main(int argc, char *argv[]) {
                 int tx = event.tfinger.x * w;
                 int ty = event.tfinger.y * h;
                 
+                printf("[FINGERDOWN] tx=%d ty=%d w=%d h=%d fingerId=%lld\n", tx, ty, w, h, (long long)event.tfinger.fingerId);
+                
                 if (is_settings_open && SDL_PointInRect(&(SDL_Point){tx, ty}, &settings_view_port)) {
                     scroll_touch_id = event.tfinger.fingerId;
                     scroll_last_y = ty;
+                    printf("[FINGERDOWN] Scroll touch started\n");
                                     } else if (is_chat_open) {
                     SDL_Rect chat_win = (SDL_Rect){10, h-240, 300, 190};
                     SDL_Rect chat_input = (SDL_Rect){15, chat_win.y + chat_win.h - 24, 270, 24};
@@ -2814,9 +2817,11 @@ int main(int argc, char *argv[]) {
                     touch_id_dpad = event.tfinger.fingerId;
                     vjoy_dx = 0; vjoy_dy = 0;;
                     joystick_active = 1;
+                    printf("[FINGERDOWN] Joystick created at tx=%d ty=%d, fingerId=%lld\n", tx, ty, (long long)touch_id_dpad);
                 } else {
                     // Treat other touches as Mouse Clicks for UI
                     handle_game_click(tx, ty, 0, 0, w, h); // Adjust args as needed
+                    printf("[FINGERDOWN] Game click\n");
                 }
             }
             else if (event.type == SDL_FINGERMOTION) {
@@ -2830,6 +2835,7 @@ int main(int argc, char *argv[]) {
                     if (max_scroll < 0) max_scroll = 0;
                     if (settings_scroll_y > max_scroll) settings_scroll_y = max_scroll;
                     scroll_last_y = ty;
+                    printf("[FINGERMOTION] Scroll: delta=%d scroll_y=%d\n", delta, settings_scroll_y);
                 } else if (event.tfinger.fingerId == touch_id_dpad) {
                     int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
                     float cx = dpad_rect.x + dpad_rect.w/2;
@@ -2839,6 +2845,11 @@ int main(int argc, char *argv[]) {
                     // Clamp
                     if(vjoy_dx > 1.0f) vjoy_dx = 1.0f; if(vjoy_dx < -1.0f) vjoy_dx = -1.0f;
                     if(vjoy_dy > 1.0f) vjoy_dy = 1.0f; if(vjoy_dy < -1.0f) vjoy_dy = -1.0f;
+                    printf("[FINGERMOTION] Joystick: fingerId=%lld tx=%.2f ty=%.2f vjoy_dx=%.2f vjoy_dy=%.2f\n", 
+                           (long long)event.tfinger.fingerId, event.tfinger.x * w, event.tfinger.y * h, vjoy_dx, vjoy_dy);
+                } else {
+                    printf("[FINGERMOTION] Unknown finger: %lld (scroll=%lld, dpad=%lld)\n", 
+                           (long long)event.tfinger.fingerId, (long long)scroll_touch_id, (long long)touch_id_dpad);
                 }
             }
             else if (event.type == SDL_FINGERUP) {
