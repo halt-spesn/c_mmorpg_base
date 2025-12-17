@@ -298,6 +298,8 @@ Uint32 last_move_time = 0; // <--- MOVE HERE
 SDL_Rect dpad_rect = {20, 0, 150, 150}; // Y calculated dynamically
 float vjoy_dx = 0, vjoy_dy = 0;
 int touch_id_dpad = -1; // Track which finger is on the D-Pad
+int scroll_touch_id = -1;
+int scroll_last_y = 0;
 
 
 void get_path(char *out, const char *filename, int is_save_file) {
@@ -1974,8 +1976,8 @@ void render_documentation(SDL_Renderer *renderer, int w, int h) {
 
 void render_mobile_controls(SDL_Renderer *renderer, int h) {
     #if defined(__IPHONEOS__) || defined(__ANDROID__)
-    dpad_rect.y = h - 170; // Position bottom-left
-    
+    if (touch_id_dpad == -1) return;
+
     // Draw Base
     SDL_SetRenderDrawColor(renderer, 50, 50, 50, 100);
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
@@ -2792,25 +2794,30 @@ int main(int argc, char *argv[]) {
                 int tx = event.tfinger.x * w;
                 int ty = event.tfinger.y * h;
                 
-                // Check D-Pad
-                SDL_Rect hit = dpad_rect; 
-                // Expand hit area slightly for usability
-                hit.x -= 20; hit.w += 40; hit.y -= 20; hit.h += 40;
-                
-                if (touch_id_dpad == -1 && SDL_PointInRect(&(SDL_Point){tx, ty}, &hit)) {
+                if (is_settings_open && SDL_PointInRect(&(SDL_Point){tx, ty}, &settings_view_port)) {
+                    scroll_touch_id = event.tfinger.fingerId;
+                    scroll_last_y = ty;
+                } else if (touch_id_dpad == -1) {
+                    dpad_rect = (SDL_Rect){tx - 75, ty - 75, 150, 150};
                     touch_id_dpad = event.tfinger.fingerId;
-                    // Calculate initial vector
-                    float cx = dpad_rect.x + dpad_rect.w/2;
-                    float cy = dpad_rect.y + dpad_rect.h/2;
-                    vjoy_dx = (tx - cx) / 60.0f; 
-                    vjoy_dy = (ty - cy) / 60.0f;
+                    vjoy_dx = 0; vjoy_dy = 0;
                 } else {
                     // Treat other touches as Mouse Clicks for UI
                     handle_game_click(tx, ty, 0, 0, w, h); // Adjust args as needed
                 }
             }
             else if (event.type == SDL_FINGERMOTION) {
-                if (event.tfinger.fingerId == touch_id_dpad) {
+                if (event.tfinger.fingerId == scroll_touch_id) {
+                    int w, h; SDL_GetWindowSize(window, &w, &h);
+                    int ty = event.tfinger.y * h;
+                    int delta = scroll_last_y - ty;
+                    settings_scroll_y += delta;
+                    if (settings_scroll_y < 0) settings_scroll_y = 0;
+                    int max_scroll = settings_content_h - 600; 
+                    if (max_scroll < 0) max_scroll = 0;
+                    if (settings_scroll_y > max_scroll) settings_scroll_y = max_scroll;
+                    scroll_last_y = ty;
+                } else if (event.tfinger.fingerId == touch_id_dpad) {
                     int w, h; SDL_GetWindowSize(window, &w, &h);
                     float cx = dpad_rect.x + dpad_rect.w/2;
                     float cy = dpad_rect.y + dpad_rect.h/2;
@@ -2822,7 +2829,9 @@ int main(int argc, char *argv[]) {
                 }
             }
             else if (event.type == SDL_FINGERUP) {
-                if (event.tfinger.fingerId == touch_id_dpad) {
+                if (event.tfinger.fingerId == scroll_touch_id) {
+                    scroll_touch_id = -1;
+                } else if (event.tfinger.fingerId == touch_id_dpad) {
                     touch_id_dpad = -1;
                     vjoy_dx = 0; vjoy_dy = 0;
                 }
@@ -3027,6 +3036,8 @@ int main(int argc, char *argv[]) {
                 if (key_down || state[SDL_SCANCODE_S] || state[SDL_SCANCODE_DOWN]) dy = 1;
                 if (key_left || state[SDL_SCANCODE_A] || state[SDL_SCANCODE_LEFT]) dx = -1;
                 if (key_right || state[SDL_SCANCODE_D] || state[SDL_SCANCODE_RIGHT]) dx = 1;
+                if (vjoy_dx > 0.2f) dx = 1; else if (vjoy_dx < -0.2f) dx = -1;
+                if (vjoy_dy > 0.2f) dy = 1; else if (vjoy_dy < -0.2f) dy = -1;
                 
                 float my_x=0, my_y=0; 
                 for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) { my_x=local_players[i].x; my_y=local_players[i].y; }
