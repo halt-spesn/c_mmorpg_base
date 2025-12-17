@@ -2,10 +2,10 @@ client
 server
 mmorpg.db
 avatars/
-music/
 mmorpg.db-shm
 mmorpg.db-wal
 servers.txt
 config.txt
+configs.txt
 windows_release
 game_client.exe

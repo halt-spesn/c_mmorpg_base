@@ -682,7 +682,7 @@ void handle_text_edit(char *buffer, int max_len, SDL_Event *ev) {
 
 void save_servers() {
     char path[256]; get_path(path, "servers.txt", 1); // 1 = Save File
-    FILE *fp = fopen(path, "r");
+    FILE *fp = fopen(path, "w");
     if (!fp) return;
     for(int i=0; i<server_count; i++) {
         fprintf(fp, "%s %s %d\n", server_list[i].name, server_list[i].ip, server_list[i].port);
@@ -2681,7 +2681,7 @@ int main(int argc, char *argv[]) {
     SDL_DisplayMode dm;
     int win_w = 800, win_h = 600;
     if (SDL_GetCurrentDisplayMode(0, &dm) == 0) { win_w = dm.w; win_h = dm.h; }
-    win_flags |= SDL_WINDOW_FULLSCREEN;
+    win_flags |= SDL_WINDOW_FULLSCREEN | SDL_WINDOW_ALLOW_HIGHDPI;
     #else
     int win_w = 800, win_h = 600;
     #endif
@@ -2689,9 +2689,6 @@ int main(int argc, char *argv[]) {
 
     SDL_Window *window = SDL_CreateWindow("C MMO Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, win_w, win_h, win_flags);
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-    #ifdef __IPHONEOS__
-    SDL_RenderSetLogicalSize(renderer, 1136, 640);
-    #endif
     global_renderer = renderer;
 
     // 2. Load Assets
