@@ -1978,7 +1978,7 @@ void render_documentation(SDL_Renderer *renderer, int w, int h) {
 
 void render_mobile_controls(SDL_Renderer *renderer, int h) {
     #if defined(__IPHONEOS__) || defined(__ANDROID__)
-    if (!joystick_active) return;
+    if (!joystick_active || touch_id_dpad == -1) return;
     
     // Draw Base
     SDL_SetRenderDrawColor(renderer, 50, 50, 50, 100);
@@ -2792,7 +2792,7 @@ int main(int argc, char *argv[]) {
                 }
             }
             else if (event.type == SDL_FINGERDOWN) {
-                int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
+                int w, h; SDL_GetWindowSize(window, &w, &h);
                 int tx = event.tfinger.x * w;
                 int ty = event.tfinger.y * h;
                 
@@ -2821,7 +2821,7 @@ int main(int argc, char *argv[]) {
             }
             else if (event.type == SDL_FINGERMOTION) {
                 if (event.tfinger.fingerId == scroll_touch_id) {
-                    int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
+                    int w, h; SDL_GetWindowSize(window, &w, &h);
                     int ty = event.tfinger.y * h;
                     int delta = scroll_last_y - ty;
                     settings_scroll_y += delta;
@@ -2844,6 +2844,7 @@ int main(int argc, char *argv[]) {
             else if (event.type == SDL_FINGERUP) {
                 if (event.tfinger.fingerId == scroll_touch_id) {
                     scroll_touch_id = -1;
+                    scroll_last_y = 0;
                 } else if (event.tfinger.fingerId == touch_id_dpad) {
                     touch_id_dpad = -1;
                     vjoy_dx = 0; vjoy_dy = 0;
