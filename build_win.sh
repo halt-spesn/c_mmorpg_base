@@ -24,6 +24,8 @@ x86_64-w64-mingw32-gcc client_sdl.c -o windows_release/game_client.exe \
     -lmingw32 -lSDL2main -lSDL2 -lSDL2_image -lSDL2_ttf -lSDL2_mixer \
     -lws2_32 -lopengl32 -static-libgcc -static-libstdc++
 
+x86_64-w64-mingw32-gcc server.c -o windows_release/server.exe -lws2_32 -lsqlite3 -lm -lpthread
+
 # 3. Copy resources
 cp map.jpg windows_release/
 cp dungeon.png windows_release/  # or any other map
