@@ -49,7 +49,7 @@
 		9F8779152EF2CD90003F57C3 /* libSDL2_ttf.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libSDL2_ttf.a; sourceTree = "<group>"; };
 		9F8779162EF2CD90003F57C3 /* libSDL2.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libSDL2.a; sourceTree = "<group>"; };
 		9F8779172EF2CD90003F57C3 /* libSDL2_mixer.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libSDL2_mixer.a; sourceTree = "<group>"; };
-		9F87791B2EF2CE02003F57C3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		9F87791B2EF2CE02003F57C3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "../Info.plist"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -316,7 +316,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = BFN4KYPPGU;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = mmotest/Info.plist;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "MMO-test";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.games";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -359,7 +359,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = BFN4KYPPGU;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = mmotest/Info.plist;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "MMO-test";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.games";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
