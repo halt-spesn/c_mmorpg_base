@@ -294,6 +294,29 @@ int trigger_count = 0;
 Uint32 last_map_switch_time = 0;
 Uint32 last_move_time = 0; // <--- MOVE HERE
 
+// Mobile Controls
+SDL_Rect dpad_rect = {20, 0, 150, 150}; // Y calculated dynamically
+float vjoy_dx = 0, vjoy_dy = 0;
+int touch_id_dpad = -1; // Track which finger is on the D-Pad
+
+
+void get_path(char *out, const char *filename, int is_save_file) {
+    #if defined(__IPHONEOS__) || defined(__ANDROID__)
+        if (is_save_file) {
+            // Writeable folder (Documents/Library)
+            char *pref = SDL_GetPrefPath("MyOrg", "C_MMO_Client");
+            if (pref) { snprintf(out, 256, "%s%s", pref, filename); SDL_free(pref); }
+        } else {
+            // Read-only Asset folder (Bundle)
+            char *base = SDL_GetBasePath();
+            if (base) { snprintf(out, 256, "%s%s", base, filename); SDL_free(base); }
+        }
+    #else
+        // Desktop: Just use the filename
+        strcpy(out, filename);
+    #endif
+}
+
 // --- Helpers ---
 int send_all(socket_t sockfd, const void *buf, size_t len) {
     size_t total = 0;
@@ -329,7 +352,8 @@ int recv_total(socket_t sockfd, void *buf, size_t len) {
 }
 
 void load_servers() {
-    FILE *fp = fopen("servers.txt", "r");
+    char path[256]; get_path(path, "servers.txt", 1); // 1 = Save File
+    FILE *fp = fopen(path, "r");
     if (!fp) return;
     server_count = 0;
     while (fscanf(fp, "%s %s %d", server_list[server_count].name, server_list[server_count].ip, &server_list[server_count].port) == 3) {
@@ -340,7 +364,8 @@ void load_servers() {
 }
 
 void save_config() {
-    FILE *fp = fopen("config.txt", "w");
+    char path[256]; get_path(path, "config.txt", 1); // 1 = Save File
+    FILE *fp = fopen(path, "r");
     if (fp) {
         int r=255, g=255, b=255;
         for(int i=0; i<MAX_CLIENTS; i++) {
@@ -361,7 +386,8 @@ void save_config() {
 }
 
 void load_config() {
-    FILE *fp = fopen("config.txt", "r");
+    char path[256]; get_path(path, "config.txt", 0); // 1 = Save File
+    FILE *fp = fopen(path, "r");
     if (fp) {
         // Temp variables for flags
         int dbg=0, fps=0, crd=0, vol=64, unread=1;
@@ -392,7 +418,8 @@ void load_config() {
 }
 
 void load_triggers() {
-    FILE *fp = fopen("triggers.txt", "r");
+    char path[256]; get_path(path, "triggers.txt", 0); // 1 = Save File
+    FILE *fp = fopen(path, "r");
     if (!fp) { 
         printf("ERROR: Could not open triggers.txt (Make sure it is in the game folder)\n"); 
         return; 
@@ -425,7 +452,8 @@ void switch_map(const char* new_map, int x, int y) {
     
     // 2. Load New Texture
     if (tex_map) SDL_DestroyTexture(tex_map);
-    SDL_Surface *temp = IMG_Load(current_map_file);
+    char path[256]; get_path(path, current_map_file, 0); // 0 = Asset
+    SDL_Surface *temp = IMG_Load(path);
     if (temp) {
         tex_map = SDL_CreateTextureFromSurface(global_renderer, temp); // Need global renderer or pass it
         map_w = temp->w; map_h = temp->h;
@@ -622,7 +650,8 @@ void handle_text_edit(char *buffer, int max_len, SDL_Event *ev) {
 }
 
 void save_servers() {
-    FILE *fp = fopen("servers.txt", "w");
+    char path[256]; get_path(path, "servers.txt", 1); // 1 = Save File
+    FILE *fp = fopen(path, "r");
     if (!fp) return;
     for(int i=0; i<server_count; i++) {
         fprintf(fp, "%s %s %d\n", server_list[i].name, server_list[i].ip, server_list[i].port);
@@ -1911,6 +1940,29 @@ void render_documentation(SDL_Renderer *renderer, int w, int h) {
 
 }
 
+
+void render_mobile_controls(SDL_Renderer *renderer, int h) {
+    #if defined(__IPHONEOS__) || defined(__ANDROID__)
+    dpad_rect.y = h - 170; // Position bottom-left
+    
+    // Draw Base
+    SDL_SetRenderDrawColor(renderer, 50, 50, 50, 100);
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    SDL_RenderFillRect(renderer, &dpad_rect);
+    
+    // Draw Knob
+    int center_x = dpad_rect.x + (dpad_rect.w / 2);
+    int center_y = dpad_rect.y + (dpad_rect.h / 2);
+    int knob_x = center_x + (vjoy_dx * 40) - 20;
+    int knob_y = center_y + (vjoy_dy * 40) - 20;
+    
+    SDL_Rect knob = {knob_x, knob_y, 40, 40};
+    SDL_SetRenderDrawColor(renderer, 200, 200, 200, 150);
+    SDL_RenderFillRect(renderer, &knob);
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+    #endif
+}
+
 void render_game(SDL_Renderer *renderer) {
     int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
     float px=0, py=0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { px=local_players[i].x; py=local_players[i].y; }
@@ -1994,6 +2046,7 @@ void render_game(SDL_Renderer *renderer) {
     render_my_warnings(renderer, w, h);
     render_debug_overlay(renderer, w);
     render_hud(renderer, h);
+    render_mobile_controls(renderer, w);
 
     // 4. Draw HUD Buttons
     btn_chat_toggle = (SDL_Rect){10, h-40, 100, 30};
@@ -2680,6 +2733,46 @@ int main(int argc, char *argv[]) {
                     int max_scroll = settings_content_h - 600; 
                     if (max_scroll < 0) max_scroll = 0;
                     if (settings_scroll_y > max_scroll) settings_scroll_y = max_scroll;
+                }
+            }
+            else if (event.type == SDL_FINGERDOWN) {
+                int w, h; SDL_GetWindowSize(window, &w, &h);
+                int tx = event.tfinger.x * w;
+                int ty = event.tfinger.y * h;
+                
+                // Check D-Pad
+                SDL_Rect hit = dpad_rect; 
+                // Expand hit area slightly for usability
+                hit.x -= 20; hit.w += 40; hit.y -= 20; hit.h += 40;
+                
+                if (touch_id_dpad == -1 && SDL_PointInRect(&(SDL_Point){tx, ty}, &hit)) {
+                    touch_id_dpad = event.tfinger.fingerId;
+                    // Calculate initial vector
+                    float cx = dpad_rect.x + dpad_rect.w/2;
+                    float cy = dpad_rect.y + dpad_rect.h/2;
+                    vjoy_dx = (tx - cx) / 60.0f; 
+                    vjoy_dy = (ty - cy) / 60.0f;
+                } else {
+                    // Treat other touches as Mouse Clicks for UI
+                    handle_game_click(tx, ty, 0, 0, w, h); // Adjust args as needed
+                }
+            }
+            else if (event.type == SDL_FINGERMOTION) {
+                if (event.tfinger.fingerId == touch_id_dpad) {
+                    int w, h; SDL_GetWindowSize(window, &w, &h);
+                    float cx = dpad_rect.x + dpad_rect.w/2;
+                    float cy = dpad_rect.y + dpad_rect.h/2;
+                    vjoy_dx = (event.tfinger.x * w - cx) / 60.0f;
+                    vjoy_dy = (event.tfinger.y * h - cy) / 60.0f;
+                    // Clamp
+                    if(vjoy_dx > 1.0f) vjoy_dx = 1.0f; if(vjoy_dx < -1.0f) vjoy_dx = -1.0f;
+                    if(vjoy_dy > 1.0f) vjoy_dy = 1.0f; if(vjoy_dy < -1.0f) vjoy_dy = -1.0f;
+                }
+            }
+            else if (event.type == SDL_FINGERUP) {
+                if (event.tfinger.fingerId == touch_id_dpad) {
+                    touch_id_dpad = -1;
+                    vjoy_dx = 0; vjoy_dy = 0;
                 }
             }
             
