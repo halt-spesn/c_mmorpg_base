@@ -7,6 +7,7 @@ clang server.c -o server -lsqlite3 -lpthread
 # We use sdl2-config to automatically find the include paths and flags
 clang client_sdl.c -o client \
     $(sdl2-config --cflags --libs) \
-    -lSDL2_image -lSDL2_ttf -lSDL2_mixer
+    -lSDL2_image -lSDL2_ttf -lSDL2_mixer \
+    -framework OpenGL
 
 echo "Build complete."
