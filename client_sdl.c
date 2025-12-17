@@ -2679,6 +2679,10 @@ int main(int argc, char *argv[]) {
     #endif
     SDL_EventState(SDL_KEYDOWN, SDL_ENABLE);
     SDL_EventState(SDL_KEYUP, SDL_ENABLE);
+    // Enable touch events for iOS
+    SDL_EventState(SDL_FINGERDOWN, SDL_ENABLE);
+    SDL_EventState(SDL_FINGERUP, SDL_ENABLE);
+    SDL_EventState(SDL_FINGERMOTION, SDL_ENABLE);
     Uint32 win_flags = SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE;
 
     #ifdef __IPHONEOS__
@@ -2767,7 +2771,8 @@ int main(int argc, char *argv[]) {
         SDL_PumpEvents(); // Ensure keyboard state stays fresh even when no events are queued
         while (SDL_PollEvent(&event)) {
             // Auto-AFK Reset
-            if (event.type == SDL_KEYDOWN || event.type == SDL_MOUSEBUTTONDOWN || event.type == SDL_MOUSEMOTION) {
+            if (event.type == SDL_KEYDOWN || event.type == SDL_MOUSEBUTTONDOWN || event.type == SDL_MOUSEMOTION ||
+                event.type == SDL_FINGERDOWN || event.type == SDL_FINGERMOTION) {
                 last_input_tick = SDL_GetTicks();
                 if (is_auto_afk && is_connected) {
                     Packet pkt; pkt.type = PACKET_STATUS_CHANGE; pkt.new_status = STATUS_ONLINE; send_packet(&pkt);
@@ -2792,14 +2797,14 @@ int main(int argc, char *argv[]) {
                 }
             }
             else if (event.type == SDL_FINGERDOWN) {
-                int w, h; SDL_GetWindowSize(window, &w, &h);
+                int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
                 int tx = event.tfinger.x * w;
                 int ty = event.tfinger.y * h;
                 
                 if (is_settings_open && SDL_PointInRect(&(SDL_Point){tx, ty}, &settings_view_port)) {
                     scroll_touch_id = event.tfinger.fingerId;
                     scroll_last_y = ty;
-                                    } else if (is_chat_open) {
+                } else if (is_chat_open) {
                     SDL_Rect chat_win = (SDL_Rect){10, h-240, 300, 190};
                     SDL_Rect chat_input = (SDL_Rect){15, chat_win.y + chat_win.h - 24, 270, 24};
                     if (SDL_PointInRect(&(SDL_Point){tx, ty}, &chat_input)) {
@@ -2809,19 +2814,42 @@ int main(int argc, char *argv[]) {
                         chat_input_active = 0;
                         if (active_field < 0) SDL_StopTextInput();
                     }
-                } else if (touch_id_dpad == -1) {
-                    dpad_rect = (SDL_Rect){tx - 75, ty - 75, 150, 150};
-                    touch_id_dpad = event.tfinger.fingerId;
-                    vjoy_dx = 0; vjoy_dy = 0;;
-                    joystick_active = 1;
                 } else {
-                    // Treat other touches as Mouse Clicks for UI
-                    handle_game_click(tx, ty, 0, 0, w, h); // Adjust args as needed
+                    // Check if touch is on existing joystick or in UI area first
+                    int is_ui_touch = 0;
+                    
+                    // Check if touch is on UI buttons/areas (top portion of screen for settings, chat, etc.)
+                    if (ty < 100) is_ui_touch = 1; // Top bar with buttons
+                    if (tx > w - 100 && ty < 200) is_ui_touch = 1; // Right side buttons
+                    
+                    if (is_ui_touch || touch_id_dpad != -1) {
+                        // This is a UI touch or there's already a joystick, so handle as game click
+                        // Calculate proper camera position
+                        float px=0, py=0; 
+                        for(int i=0; i<MAX_CLIENTS; i++) {
+                            if(local_players[i].active && local_players[i].id == local_player_id) { 
+                                px=local_players[i].x; 
+                                py=local_players[i].y; 
+                                break;
+                            }
+                        }
+                        int cam_x = (int)px - (w/2) + 16; 
+                        int cam_y = (int)py - (h/2) + 16;
+                        if (w > map_w) cam_x = -(w - map_w)/2; 
+                        if (h > map_h) cam_y = -(h - map_h)/2;
+                        handle_game_click(tx, ty, cam_x, cam_y, w, h);
+                    } else if (touch_id_dpad == -1) {
+                        // No joystick active and not a UI touch, create joystick here
+                        dpad_rect = (SDL_Rect){tx - 75, ty - 75, 150, 150};
+                        touch_id_dpad = event.tfinger.fingerId;
+                        vjoy_dx = 0; vjoy_dy = 0;
+                        joystick_active = 1;
+                    }
                 }
             }
             else if (event.type == SDL_FINGERMOTION) {
                 if (event.tfinger.fingerId == scroll_touch_id) {
-                    int w, h; SDL_GetWindowSize(window, &w, &h);
+                    int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
                     int ty = event.tfinger.y * h;
                     int delta = scroll_last_y - ty;
                     settings_scroll_y += delta;
