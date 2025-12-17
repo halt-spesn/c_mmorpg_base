@@ -2927,34 +2927,64 @@ int main(int argc, char *argv[]) {
                 else if (show_friend_list) {
                     friend_list_scroll -= scroll_amount;
                     if (friend_list_scroll < 0) friend_list_scroll = 0;
+                    // Max scroll based on friend count (30px per friend + 85px header)
+                    int content_height = 85 + (friend_count * 30);
+                    int visible_height = 400 - 80; // Window height minus header
+                    int max_scroll = content_height - visible_height;
+                    if (max_scroll < 0) max_scroll = 0;
+                    if (friend_list_scroll > max_scroll) friend_list_scroll = max_scroll;
                 }
                 else if (is_inbox_open) {
                     inbox_scroll -= scroll_amount;
                     if (inbox_scroll < 0) inbox_scroll = 0;
+                    // Max scroll based on inbox count (55px per request + 40px header)
+                    int content_height = 40 + (inbox_count * 55);
+                    int visible_height = 300 - 35; // Window height minus header
+                    int max_scroll = content_height - visible_height;
+                    if (max_scroll < 0) max_scroll = 0;
+                    if (inbox_scroll > max_scroll) inbox_scroll = max_scroll;
                 }
                 else if (show_contributors) {
                     contributors_scroll -= scroll_amount;
                     if (contributors_scroll < 0) contributors_scroll = 0;
-                    // Max scroll based on content height
-                    int max_scroll = 450 - 400; // Approx content minus visible area
+                    // Contributors window: 450px content height, 400px visible area
+                    // Content includes title (15px) + close btn area (30px) + ~9 text lines
+                    int content_height = 450;
+                    int visible_height = 400;
+                    int max_scroll = content_height - visible_height;
                     if (max_scroll < 0) max_scroll = 0;
                     if (contributors_scroll > max_scroll) contributors_scroll = max_scroll;
                 }
                 else if (show_documentation) {
                     documentation_scroll -= scroll_amount;
                     if (documentation_scroll < 0) documentation_scroll = 0;
-                    // Max scroll based on content height  
-                    int max_scroll = 500 - 450; // Approx content minus visible area
+                    // Documentation window: 500px content height, 450px visible area
+                    // Content includes title + close btn + ~12 text lines with sections
+                    int content_height = 500;
+                    int visible_height = 450;
+                    int max_scroll = content_height - visible_height;
                     if (max_scroll < 0) max_scroll = 0;
                     if (documentation_scroll > max_scroll) documentation_scroll = max_scroll;
                 }
                 else if (show_my_warnings) {
                     warnings_scroll -= scroll_amount;
                     if (warnings_scroll < 0) warnings_scroll = 0;
+                    // Max scroll based on actual warning count (45px per warning + 50px header)
+                    int content_height = 50 + (my_warning_count * 45);
+                    int visible_height = 400 - 45; // Window height minus header
+                    int max_scroll = content_height - visible_height;
+                    if (max_scroll < 0) max_scroll = 0;
+                    if (warnings_scroll > max_scroll) warnings_scroll = max_scroll;
                 }
                 else if (show_blocked_list) {
                     blocked_scroll -= scroll_amount;
                     if (blocked_scroll < 0) blocked_scroll = 0;
+                    // Max scroll based on actual blocked count (35px per entry + 50px header)
+                    int content_height = 50 + (blocked_count * 35);
+                    int visible_height = 400 - 45; // Window height minus header
+                    int max_scroll = content_height - visible_height;
+                    if (max_scroll < 0) max_scroll = 0;
+                    if (blocked_scroll > max_scroll) blocked_scroll = max_scroll;
                 }
             }
             else if (event.type == SDL_FINGERDOWN) {
@@ -3392,6 +3422,8 @@ int main(int argc, char *argv[]) {
     }
     
     if(tex_map) SDL_DestroyTexture(tex_map); if(tex_player) SDL_DestroyTexture(tex_player);
+    if(cached_contributors_tex) SDL_DestroyTexture(cached_contributors_tex);
+    if(cached_documentation_tex) SDL_DestroyTexture(cached_documentation_tex);
     if(bgm) Mix_FreeMusic(bgm); Mix_CloseAudio();
     if(sock > 0) close(sock); 
     TTF_CloseFont(font); TTF_Quit(); IMG_Quit();
