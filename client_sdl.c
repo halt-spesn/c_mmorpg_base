@@ -2842,7 +2842,7 @@ int main(int argc, char *argv[]) {
     #if defined(__APPLE__) && !defined(__IPHONEOS__)
     // Small delay to allow macOS to properly initialize window compositing
     SDL_Delay(100);
-    // Use software renderer for compatibility (see hint above)
+    // Use software renderer for compatibility with older hardware
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
     #else
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
