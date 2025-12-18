@@ -322,7 +322,7 @@ int joystick_active = 0;
 
 
 void get_path(char *out, const char *filename, int is_save_file) {
-    #if defined(__IPHONEOS__) || defined(__ANDROID__) || defined(__APPLE__)
+    #if defined(__IPHONEOS__) || defined(__ANDROID__) || (defined(__APPLE__) && !defined(__IPHONEOS__))
         if (is_save_file) {
             // Writeable folder (Documents/Library)
             char *pref = SDL_GetPrefPath("MyOrg", "C_MMO_Client");
