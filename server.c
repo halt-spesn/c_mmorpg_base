@@ -187,7 +187,7 @@ void load_triggers() {
     
     server_trigger_count = 0;
     while (server_trigger_count < 20 && 
-           fscanf(fp, "%s %d %d %d %d %s %d %d",
+           fscanf(fp, "%31s %d %d %d %d %31s %d %d",
                   server_triggers[server_trigger_count].src_map,
                   &server_triggers[server_trigger_count].rect_x,
                   &server_triggers[server_trigger_count].rect_y,

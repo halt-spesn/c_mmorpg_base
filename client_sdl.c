@@ -500,12 +500,14 @@ void receive_triggers_from_server(Packet *pkt) {
     printf("Client: Received %d triggers from server\n", trigger_count);
     
     for (int i = 0; i < trigger_count && i < 20; i++) {
-        strcpy(triggers[i].src_map, pkt->triggers[i].src_map);
+        strncpy(triggers[i].src_map, pkt->triggers[i].src_map, 31);
+        triggers[i].src_map[31] = '\0';
         triggers[i].rect.x = pkt->triggers[i].rect_x;
         triggers[i].rect.y = pkt->triggers[i].rect_y;
         triggers[i].rect.w = pkt->triggers[i].rect_w;
         triggers[i].rect.h = pkt->triggers[i].rect_h;
-        strcpy(triggers[i].target_map, pkt->triggers[i].target_map);
+        strncpy(triggers[i].target_map, pkt->triggers[i].target_map, 31);
+        triggers[i].target_map[31] = '\0';
         triggers[i].spawn_x = pkt->triggers[i].spawn_x;
         triggers[i].spawn_y = pkt->triggers[i].spawn_y;
         
@@ -1069,6 +1071,8 @@ void render_input_with_cursor(SDL_Renderer *renderer, SDL_Rect rect, char *buffe
     
     // Calculate scroll offset to keep cursor visible
     int available_width = rect.w - 10; // 5px padding on each side
+    // Note: static variable is shared across all input fields, but this is acceptable
+    // because only one field can be active at a time and it resets when inactive
     static int scroll_offset = 0;
     
     if (is_active) {
@@ -2413,6 +2417,7 @@ void render_game(SDL_Renderer *renderer) {
         }
         
         // Calculate scroll offset for chat input
+        // Note: static variable is fine here as chat input is separate from other fields
         static int chat_scroll_offset = 0;
         if (chat_input_active) {
             if (cursor_x - chat_scroll_offset > available_width - 10) {
