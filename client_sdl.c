@@ -2823,7 +2823,7 @@ int main(int argc, char *argv[]) {
     int win_w = 800, win_h = 600;
     #endif
 
-    #ifdef __APPLE__
+    #if defined(__APPLE__) && !defined(__IPHONEOS__)
     // Fix black window decorations on macOS by using OpenGL renderer
     win_flags |= SDL_WINDOW_OPENGL;
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengl");
