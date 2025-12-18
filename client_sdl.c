@@ -281,6 +281,7 @@ int show_contributors = 0;
 
 // --- UI Scaling ---
 float ui_scale = 1.0f; // Default scale (range 0.5 to 2.0)
+float pending_ui_scale = 1.0f; // Scale value being dragged (applied on release)
 SDL_Rect slider_ui_scale;
 
 // --- Mobile Keyboard Handling ---
@@ -502,25 +503,10 @@ void load_config() {
             // Clamp to valid range
             if (ui_scale < 0.5f) ui_scale = 0.5f;
             if (ui_scale > 2.0f) ui_scale = 2.0f;
+            pending_ui_scale = ui_scale; // Initialize pending to match current
         }
         
         fclose(fp);
-    }
-}
-
-void reload_font_with_scale() {
-    if (font) {
-        TTF_CloseFont(font);
-        font = NULL;
-    }
-    int scaled_size = (int)(FONT_SIZE * ui_scale);
-    if (scaled_size < 8) scaled_size = 8;   // Minimum readable size
-    if (scaled_size > 48) scaled_size = 48; // Maximum reasonable size
-    font = TTF_OpenFont(FONT_PATH, scaled_size);
-    if (!font) {
-        printf("Failed to reload font with scale: %s\n", TTF_GetError());
-        // Fallback to default size
-        font = TTF_OpenFont(FONT_PATH, FONT_SIZE);
     }
 }
 
@@ -1557,9 +1543,8 @@ void process_slider_drag(int mx) {
 
     // Handle UI Scale specially (float, different range)
     if (active_slider == SLIDER_UI_SCALE) {
-        ui_scale = 0.5f + (pct * 1.5f); // Map 0.0-1.0 to 0.5-2.0
-        reload_font_with_scale(); // Update font size immediately
-        save_config();
+        pending_ui_scale = 0.5f + (pct * 1.5f); // Map 0.0-1.0 to 0.5-2.0
+        // Don't apply immediately - wait for mouse release to avoid jarring changes
         return;
     }
     
@@ -1748,12 +1733,14 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     y += 50;
 
     // -- UI Scale --
-    char scale_str[64]; snprintf(scale_str, 64, "UI Scale: %.1fx", ui_scale);
+    // Show pending scale if dragging, otherwise show current scale
+    float display_scale = (active_slider == SLIDER_UI_SCALE) ? pending_ui_scale : ui_scale;
+    char scale_str[64]; snprintf(scale_str, 64, "UI Scale: %.1fx", display_scale);
     render_text(renderer, scale_str, settings_win.x + 175, y, col_white, 1); 
     y += 25;
     
     slider_ui_scale = (SDL_Rect){start_x + 30, y, 240, 15};
-    float scale_pct = (ui_scale - 0.5f) / 1.5f; // Map 0.5-2.0 to 0.0-1.0
+    float scale_pct = (display_scale - 0.5f) / 1.5f; // Map 0.5-2.0 to 0.0-1.0
     render_fancy_slider(renderer, &slider_ui_scale, scale_pct, (SDL_Color){150, 150, 255, 255});
     
     render_text(renderer, "0.5x", slider_ui_scale.x - 25, slider_ui_scale.y + 2, col_white, 0);  
@@ -2345,25 +2332,37 @@ void render_game(SDL_Renderer *renderer) {
         }
     }
 
-    // 3. Draw UI Windows (Order matters!)
+    // 3. Apply UI scaling (affects all UI elements, not game world)
+    // Save the current render scale
+    float old_scale_x, old_scale_y;
+    SDL_RenderGetScale(renderer, &old_scale_x, &old_scale_y);
+    
+    // Apply UI scale to renderer
+    SDL_RenderSetScale(renderer, ui_scale, ui_scale);
+    
+    // Adjust width/height for scaled rendering
+    float scaled_w = w / ui_scale;
+    float scaled_h = h / ui_scale;
+    
+    // 4. Draw UI Windows (Order matters!)
     render_profile(renderer);
-    render_popup(renderer, w, h);
-    render_settings_menu(renderer, w, h);
-    render_blocked_list(renderer, w, h); 
-    render_friend_list(renderer, w, h);
-    render_inbox(renderer, w, h);           
-    render_add_friend_popup(renderer, w, h); 
-    render_contributors(renderer, w, h);
-    render_documentation(renderer, w, h);
-    render_role_list(renderer, w, h);
-    render_sanction_popup(renderer, w, h);
-    render_my_warnings(renderer, w, h);
-    render_debug_overlay(renderer, w);
-    render_hud(renderer, h);
-    render_mobile_controls(renderer, w);
+    render_popup(renderer, scaled_w, scaled_h);
+    render_settings_menu(renderer, scaled_w, scaled_h);
+    render_blocked_list(renderer, scaled_w, scaled_h); 
+    render_friend_list(renderer, scaled_w, scaled_h);
+    render_inbox(renderer, scaled_w, scaled_h);           
+    render_add_friend_popup(renderer, scaled_w, scaled_h); 
+    render_contributors(renderer, scaled_w, scaled_h);
+    render_documentation(renderer, scaled_w, scaled_h);
+    render_role_list(renderer, scaled_w, scaled_h);
+    render_sanction_popup(renderer, scaled_w, scaled_h);
+    render_my_warnings(renderer, scaled_w, scaled_h);
+    render_debug_overlay(renderer, scaled_w);
+    render_hud(renderer, scaled_h);
+    render_mobile_controls(renderer, scaled_w);
 
-    // 4. Draw HUD Buttons
-    btn_chat_toggle = (SDL_Rect){10, h-40, 100, 30};
+    // 5. Draw HUD Buttons
+    btn_chat_toggle = (SDL_Rect){10, scaled_h-40, 100, 30};
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_chat_toggle);
     render_text(renderer, is_chat_open ? "Close" : "Chat", btn_chat_toggle.x+50, btn_chat_toggle.y+5, col_white, 1);
     // --- NEW: Unread Badge ---
@@ -2379,22 +2378,22 @@ void render_game(SDL_Renderer *renderer) {
         render_text(renderer, num, badge.x + 10, badge.y + 2, col_white, 1);
     }
 
-    btn_view_friends = (SDL_Rect){120, h-40, 100, 30};
+    btn_view_friends = (SDL_Rect){120, scaled_h-40, 100, 30};
     SDL_SetRenderDrawColor(renderer, 0, 100, 0, 255); SDL_RenderFillRect(renderer, &btn_view_friends);
     render_text(renderer, "Friends", btn_view_friends.x+50, btn_view_friends.y+5, col_white, 1);
 
-    btn_settings_toggle = (SDL_Rect){230, h-40, 100, 30};
+    btn_settings_toggle = (SDL_Rect){230, scaled_h-40, 100, 30};
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_settings_toggle);
     render_text(renderer, "Settings", btn_settings_toggle.x+50, btn_settings_toggle.y+5, col_white, 1);
 
- // 5. Draw Chat Overlay
+ // 6. Draw Chat Overlay
     if(is_chat_open) {
         // Calculate chat window position with mobile keyboard shift
-        int chat_y = h-240;
+        int chat_y = scaled_h-240;
         #if defined(__ANDROID__) || defined(__IPHONEOS__)
         // Shift chat window up when keyboard is active
         if (chat_input_active && keyboard_height > 0) {
-            chat_window_shift = keyboard_height;
+            chat_window_shift = keyboard_height / ui_scale;  // Scale the keyboard shift
             chat_y -= chat_window_shift;
             // Ensure chat doesn't go off-screen
             if (chat_y < 50) chat_y = 50;
@@ -2405,9 +2404,9 @@ void render_game(SDL_Renderer *renderer) {
         
         SDL_Rect win = {10, chat_y, 300, 190};
         
-        // Set text input hint for mobile keyboard positioning
+        // Set text input hint for mobile keyboard positioning (needs screen coordinates, not scaled)
         #if defined(__ANDROID__) || defined(__IPHONEOS__)
-        SDL_Rect input_hint = {15, win.y + win.h - 24, 270, 24};
+        SDL_Rect input_hint = {(int)(15 * ui_scale), (int)((win.y + win.h - 24) * ui_scale), (int)(270 * ui_scale), (int)(24 * ui_scale)};
         SDL_SetTextInputRect(&input_hint);
         #endif
         
@@ -2536,6 +2535,10 @@ void render_game(SDL_Renderer *renderer) {
         SDL_RenderSetClipRect(renderer, NULL);
         // ---------------------------------
     }
+    
+    // Restore original render scale
+    SDL_RenderSetScale(renderer, old_scale_x, old_scale_y);
+    
     SDL_RenderPresent(renderer);
 }
 
@@ -3076,12 +3079,6 @@ int main(int argc, char *argv[]) {
     load_servers();
     load_triggers();
     load_config(); // Initial load
-    
-    // Apply UI scale to font after loading config
-    if (ui_scale != 1.0f) {
-        reload_font_with_scale();
-    }
-    
     sock = -1;
 
     for(int i=0; i<MAX_CLIENTS; i++) { avatar_cache[i] = NULL; avatar_status[i] = 0; }
@@ -3223,9 +3220,10 @@ int main(int argc, char *argv[]) {
             }
             else if (event.type == SDL_FINGERDOWN) {
                 int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
-                int tx = event.tfinger.x * w;
-                int ty = event.tfinger.y * h;
-                printf("[FINGERDOWN] tx=%d ty=%d w=%d h=%d fingerId=%lld state=%d\n", tx, ty, w, h, (long long)event.tfinger.fingerId, client_state);
+                // Convert touch coordinates to UI space
+                int tx = (int)((event.tfinger.x * w) / ui_scale);
+                int ty = (int)((event.tfinger.y * h) / ui_scale);
+                printf("[FINGERDOWN] tx=%d ty=%d w=%d h=%d fingerId=%lld state=%d ui_scale=%.2f\n", tx, ty, w, h, (long long)event.tfinger.fingerId, client_state, ui_scale);
 
                 if (is_settings_open && SDL_PointInRect(&(SDL_Point){tx, ty}, &settings_view_port)) {
                     scroll_touch_id = event.tfinger.fingerId;
@@ -3234,8 +3232,10 @@ int main(int argc, char *argv[]) {
                                     } 
                 // Game-specific touch handling only in STATE_GAME
                 else if (client_state == STATE_GAME) {
+                    // Use scaled height for UI coordinate calculations
+                    int scaled_h = (int)(h / ui_scale);
                     if (is_chat_open) {
-                        SDL_Rect chat_win = (SDL_Rect){10, h-240, 300, 190};
+                        SDL_Rect chat_win = (SDL_Rect){10, scaled_h-240, 300, 190};
                         SDL_Rect chat_input = (SDL_Rect){15, chat_win.y + chat_win.h - 24, 270, 24};
                         if (SDL_PointInRect(&(SDL_Point){tx, ty}, &chat_input)) {
                             chat_input_active = 1;
@@ -3259,8 +3259,8 @@ int main(int argc, char *argv[]) {
                         joystick_active = 1;
                         printf("[FINGERDOWN] Joystick created at tx=%d ty=%d, fingerId=%lld\n", tx, ty, (long long)touch_id_dpad);
                     } else {
-                        // Treat other touches as Mouse Clicks for UI
-                        handle_game_click(tx, ty, 0, 0, w, h); // Adjust args as needed
+                        // Treat other touches as Mouse Clicks for UI (use scaled coordinates)
+                        handle_game_click(tx, ty, 0, 0, (int)(w / ui_scale), (int)(h / ui_scale)); 
                         printf("[FINGERDOWN] Game click\n");
                     }
                 }
@@ -3268,7 +3268,7 @@ int main(int argc, char *argv[]) {
             else if (event.type == SDL_FINGERMOTION) {
                 if (event.tfinger.fingerId == scroll_touch_id) {
                     int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
-                    int ty = event.tfinger.y * h;
+                    int ty = (int)((event.tfinger.y * h) / ui_scale);
                     int delta = scroll_last_y - ty;
                     settings_scroll_y += delta;
                     if (settings_scroll_y < 0) settings_scroll_y = 0;
@@ -3307,10 +3307,16 @@ int main(int argc, char *argv[]) {
             // --- Mouse Drag Handling ---
             else if (event.type == SDL_MOUSEBUTTONUP) {
                 is_dragging = 0;
+                // Apply pending UI scale change on release
+                if (active_slider == SLIDER_UI_SCALE && pending_ui_scale != ui_scale) {
+                    ui_scale = pending_ui_scale;
+                    save_config();
+                }
                 active_slider = SLIDER_NONE;
             }
             else if (event.type == SDL_MOUSEMOTION) {
-                int mx = event.motion.x * scale_x;
+                // Convert mouse coordinates to UI space
+                int mx = (int)((event.motion.x * scale_x) / ui_scale);
                 if (is_dragging) {
                     char *target = NULL;
                     if (is_chat_open) target = input_buffer;
@@ -3385,7 +3391,9 @@ int main(int argc, char *argv[]) {
                 }
                 if (event.type == SDL_MOUSEBUTTONDOWN) {
                     active_field = -1; selection_len = 0; selection_start = 0;
-                     int mx = event.button.x * scale_x; int my = event.button.y * scale_y;
+                     // Convert mouse coordinates to UI space (accounting for window scaling and UI scaling)
+                     int mx = (int)((event.button.x * scale_x) / ui_scale); 
+                     int my = (int)((event.button.y * scale_y) / ui_scale);
                      
                      if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_chat_toggle)) {
                         is_chat_open = !is_chat_open; 
@@ -3440,7 +3448,8 @@ int main(int argc, char *argv[]) {
                          float px=0, py=0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { px=local_players[i].x; py=local_players[i].y; }
                          int cam_x = (int)px - (screen_w/2) + 16; int cam_y = (int)py - (screen_h/2) + 16;
                         if (screen_w > map_w) cam_x = -(screen_w - map_w)/2; if (screen_h > map_h) cam_y = -(screen_h - map_h)/2;
-                        handle_game_click(mx, my, cam_x, cam_y, screen_w, screen_h);
+                        // Pass scaled dimensions to match scaled mouse coordinates
+                        handle_game_click(mx, my, cam_x, cam_y, (int)(screen_w / ui_scale), (int)(screen_h / ui_scale));
                      }
                 }
                 
