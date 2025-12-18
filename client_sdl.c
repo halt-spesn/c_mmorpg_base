@@ -35,7 +35,7 @@
 #include <SDL2/SDL_opengl.h>
 #ifndef __IPHONEOS__
 // Cocoa/AppKit headers for macOS window manipulation
-#import <Cocoa/Cocoa.h>
+#include <Cocoa/Cocoa.h>
 #endif
 #elif defined(_WIN32)
 #include <SDL2/SDL_opengl.h>
@@ -2859,7 +2859,7 @@ int main(int argc, char *argv[]) {
     // Transparent titlebars cause black decorations on some macOS configurations
     SDL_SysWMinfo info;
     SDL_VERSION(&info.version);
-    if (SDL_GetWindowWMInfo(window, &info)) {
+    if (SDL_GetWindowWMInfo(window, &info) && info.info.cocoa.window) {
         NSWindow *nswin = info.info.cocoa.window;
         nswin.titlebarAppearsTransparent = NO;
         nswin.titleVisibility = NSWindowTitleVisible;
