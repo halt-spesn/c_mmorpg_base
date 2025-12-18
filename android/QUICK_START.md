@@ -74,8 +74,8 @@ This will check for missing dependencies and guide you through setup.
 ## Troubleshooting
 
 **SDL2 not found?**
-- Ensure `.so` files are in `jniLibs/[arch]/libSDL2.so`, etc.
-- Check architecture matches your device (arm64-v8a is most common)
+- Ensure `.so` files are in `jniLibs/arm64-v8a/libSDL2.so`, etc.
+- This project only supports ARM64 (arm64-v8a) architecture
 
 **SDLActivity not found?**
 - Copy SDL2 Java files to `java/org/libsdl/app/`
@@ -118,13 +118,13 @@ Required in `android/app/src/main/assets/`:
 
 ## Required Libraries
 
-Must be in `android/app/src/main/jniLibs/[arch]/`:
+Must be in `android/app/src/main/jniLibs/arm64-v8a/`:
 - [ ] libSDL2.so
 - [ ] libSDL2_image.so
 - [ ] libSDL2_ttf.so
 - [ ] libSDL2_mixer.so
 
-Where `[arch]` is: armeabi-v7a, arm64-v8a, x86, x86_64
+**Note:** Only ARM64 (arm64-v8a) architecture is supported.
 
 ## Required Java Files
 

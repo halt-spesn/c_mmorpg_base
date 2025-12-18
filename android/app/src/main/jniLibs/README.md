@@ -2,28 +2,15 @@
 
 This directory should contain the SDL2 prebuilt libraries for Android, or you should build them yourself.
 
+**Note:** This project only supports ARM64 (arm64-v8a) architecture.
+
 ## Required Libraries
 
-Place the following `.so` files in the appropriate architecture subdirectories:
+Place the following `.so` files in the arm64-v8a directory:
 
 ```
 jniLibs/
-├── armeabi-v7a/
-│   ├── libSDL2.so
-│   ├── libSDL2_image.so
-│   ├── libSDL2_ttf.so
-│   └── libSDL2_mixer.so
-├── arm64-v8a/
-│   ├── libSDL2.so
-│   ├── libSDL2_image.so
-│   ├── libSDL2_ttf.so
-│   └── libSDL2_mixer.so
-├── x86/
-│   ├── libSDL2.so
-│   ├── libSDL2_image.so
-│   ├── libSDL2_ttf.so
-│   └── libSDL2_mixer.so
-└── x86_64/
+└── arm64-v8a/
     ├── libSDL2.so
     ├── libSDL2_image.so
     ├── libSDL2_ttf.so
@@ -96,6 +83,6 @@ These Java files include:
 
 ## Notes
 
-- Make sure to build for all architectures you want to support
+- Only ARM64 (arm64-v8a) architecture is supported by this project
 - The libraries should be built with Android NDK version compatible with your project
 - You may need to adjust CMakeLists.txt if using a different SDL2 build system

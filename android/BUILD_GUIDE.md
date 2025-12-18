@@ -69,11 +69,7 @@ After building, locate the `.so` files in:
 SDL2/build-android/libs/[architecture]/libSDL2.so
 ```
 
-Where `[architecture]` is one of:
-- `armeabi-v7a` (32-bit ARM)
-- `arm64-v8a` (64-bit ARM)
-- `x86` (32-bit x86)
-- `x86_64` (64-bit x86)
+**Note:** This project only supports ARM64 (arm64-v8a) architecture.
 
 ## Step 2: Copy SDL2 Libraries to Project
 
@@ -82,17 +78,14 @@ Copy the built `.so` files to the project:
 ```bash
 cd c_mmorpg_base/android/app/src/main/jniLibs
 
-# Create architecture directories if they don't exist
-mkdir -p armeabi-v7a arm64-v8a x86 x86_64
+# Create ARM64 architecture directory if it doesn't exist
+mkdir -p arm64-v8a
 
-# Copy libraries for each architecture
-# Example for arm64-v8a:
+# Copy libraries for ARM64
 cp /path/to/SDL2/build-android/libs/arm64-v8a/libSDL2.so arm64-v8a/
 cp /path/to/SDL2_image/build-android/libs/arm64-v8a/libSDL2_image.so arm64-v8a/
 cp /path/to/SDL2_ttf/build-android/libs/arm64-v8a/libSDL2_ttf.so arm64-v8a/
 cp /path/to/SDL2_mixer/build-android/libs/arm64-v8a/libSDL2_mixer.so arm64-v8a/
-
-# Repeat for other architectures
 ```
 
 ## Step 3: Copy SDL2 Java Files
@@ -241,11 +234,11 @@ ls -la
 
 ## Advanced Configuration
 
-### Building for Specific Architecture
+### Architecture Support
 
-To build only for ARM64 (reduces APK size):
+This project is configured to build only for ARM64 (arm64-v8a) architecture, which covers the vast majority of modern Android devices.
 
-Edit `app/build.gradle`:
+The configuration in `app/build.gradle` is already set:
 ```gradle
 ndk {
     abiFilters 'arm64-v8a'  // Only ARM64
@@ -278,19 +271,20 @@ android {
 }
 ```
 
-### Optimizing APK Size
+## Optimizing APK Size
 
-1. Use only required architectures
-2. Enable ProGuard/R8 minification
-3. Use APK splits for architecture-specific APKs
-4. Compress assets (JPG instead of PNG for large images)
+The project is already optimized for ARM64 only. Additional optimizations:
+
+1. Enable ProGuard/R8 minification
+2. Use APK splits if supporting multiple architectures in the future
+3. Compress assets (JPG instead of PNG for large images)
 
 ## Building a Complete Distribution
 
 For a production release:
 
 1. Replace placeholder assets with final graphics
-2. Test on multiple devices (ARM, ARM64, x86)
+2. Test on ARM64 devices
 3. Sign APK with release keystore
 4. Run lint checks: `./gradlew lint`
 5. Generate release APK: `./gradlew assembleRelease`

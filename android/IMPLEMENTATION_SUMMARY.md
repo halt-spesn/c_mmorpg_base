@@ -77,11 +77,8 @@ The existing `client_sdl.c` already supports Android through the `get_path()` fu
 - Landscape orientation for gaming
 
 ### Build Targets
-Supports all major Android architectures:
-- armeabi-v7a (32-bit ARM)
-- arm64-v8a (64-bit ARM) - Most common for modern devices
-- x86 (32-bit Intel)
-- x86_64 (64-bit Intel)
+Supports ARM64 architecture only:
+- arm64-v8a (64-bit ARM) - Standard for modern Android devices
 
 ## What Users Need to Provide
 
@@ -185,7 +182,7 @@ This ensures dependencies are loaded before the main library.
 ### Device Testing
 - Test on physical devices (emulators can have issues with OpenGL/audio)
 - Test on different Android versions (5.0, 10.0, 13.0+)
-- Test on different architectures (ARM32, ARM64)
+- Test on ARM64 devices (vast majority of modern Android devices)
 - Test with different screen sizes and orientations
 
 ### Functionality Testing

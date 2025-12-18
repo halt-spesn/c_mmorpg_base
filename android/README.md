@@ -23,8 +23,8 @@ You can build these libraries using the official SDL2 Android build system:
 1. Download SDL2 source from https://www.libsdl.org/
 2. Download SDL2_image, SDL2_ttf, and SDL2_mixer sources
 3. Follow the Android build instructions for each library
-4. Copy the built `.so` files to `android/app/src/main/jniLibs/[arch]/`
-   - Where [arch] is: armeabi-v7a, arm64-v8a, x86, x86_64
+4. Copy the built `.so` files to `android/app/src/main/jniLibs/arm64-v8a/`
+   - Only ARM64 (arm64-v8a) architecture is supported
 
 Alternatively, you can use SDL2 prebuilt libraries or build scripts available in the SDL2 repositories.
 
@@ -134,10 +134,11 @@ On Android 10+, the app uses scoped storage and doesn't need external storage pe
 ## Troubleshooting
 
 ### SDL2 Libraries Not Found
-Make sure you've built and placed the SDL2 `.so` files in the correct directories:
-- `android/app/src/main/jniLibs/armeabi-v7a/libSDL2.so`
+Make sure you've built and placed the SDL2 `.so` files in:
 - `android/app/src/main/jniLibs/arm64-v8a/libSDL2.so`
-- etc.
+- `android/app/src/main/jniLibs/arm64-v8a/libSDL2_image.so`
+- `android/app/src/main/jniLibs/arm64-v8a/libSDL2_ttf.so`
+- `android/app/src/main/jniLibs/arm64-v8a/libSDL2_mixer.so`
 
 ### Assets Not Loading
 Check that all required assets are in `android/app/src/main/assets/`:
@@ -161,4 +162,4 @@ The MainActivity extends `org.libsdl.app.SDLActivity`, which requires SDL2's Jav
 - The game runs in landscape orientation by default
 - Fullscreen mode is enabled for immersive gameplay
 - Hardware acceleration is enabled for better performance
-- The app supports all major Android architectures (ARM, ARM64, x86, x86_64)
+- The app supports ARM64 (arm64-v8a) architecture only
