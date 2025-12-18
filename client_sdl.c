@@ -808,6 +808,17 @@ void play_next_track() {
 
 void init_audio() {
     if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) return;
+    
+    #ifdef __ANDROID__
+    // On Android, we can't use opendir on assets, so manually list known music files
+    // This could be improved with JNI calls to AssetManager, but for now use direct listing
+    const char* known_music[] = {"1.mp3", NULL};  // Add more music files here as needed
+    for (int i = 0; known_music[i] != NULL; i++) {
+        if (music_count < 20) {
+            strncpy(music_playlist[music_count++], known_music[i], 63);
+        }
+    }
+    #else
     DIR *d; struct dirent *dir;
     char music_dir_path[256];
     get_path(music_dir_path, "music", 0);
@@ -820,6 +831,7 @@ void init_audio() {
         }
         closedir(d);
     }
+    #endif
     Mix_VolumeMusic(music_volume);
 }
 
