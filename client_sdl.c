@@ -3313,6 +3313,21 @@ int main(int argc, char *argv[]) {
                          if (SDL_PointInRect(&(SDL_Point){mx, my}, &chat_input)) {
                              chat_input_active = 1;
                              SDL_StartTextInput();
+                             // Setup cursor position and selection for mouse drag
+                             int prefix_w = 0, ph; char prefix[64];
+                             if (chat_target_id != -1) {
+                                 char *name = "Unknown"; 
+                                 for(int i=0; i<MAX_CLIENTS; i++) 
+                                     if(local_players[i].id == chat_target_id) name = local_players[i].username;
+                                 snprintf(prefix, 64, "To %s: ", name);
+                             } else { strcpy(prefix, "> "); }
+                             TTF_SizeText(font, prefix, &prefix_w, &ph);
+                             active_input_rect = chat_input; 
+                             active_input_rect.x += (5 + prefix_w);
+                             cursor_pos = get_cursor_pos_from_click(input_buffer, mx, active_input_rect.x);
+                             selection_start = cursor_pos; 
+                             selection_len = 0; 
+                             is_dragging = 1;
                          } else if (!SDL_PointInRect(&(SDL_Point){mx, my}, &chat_win)) {
                              chat_input_active = 0;
                              if (active_field < 0) SDL_StopTextInput();
