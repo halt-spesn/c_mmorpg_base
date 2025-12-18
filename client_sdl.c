@@ -1,3 +1,4 @@
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -2793,10 +2794,6 @@ int main(int argc, char *argv[]) {
     #ifdef SDL_HINT_WINDOWS_RAWKEYBOARD
     SDL_SetHint(SDL_HINT_WINDOWS_RAWKEYBOARD, "1");
     #endif
-    #if defined(__APPLE__) && !defined(__IPHONEOS__)
-    // Set render driver hint before SDL_Init to fix black window decorations on macOS
-    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
-    #endif
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) return 1;
     if (TTF_Init() == -1) return 1;
     if (!(IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG) & (IMG_INIT_PNG | IMG_INIT_JPG))) printf("IMG Init Error: %s\n", IMG_GetError());
@@ -2818,6 +2815,11 @@ int main(int argc, char *argv[]) {
     }
     font = TTF_OpenFont(FONT_PATH, FONT_SIZE);
     if (!font) { printf("Font missing: %s\n", FONT_PATH); return 1; }
+    #if defined(__APPLE__) && !defined(__IPHONEOS__)
+    // Additional hints for macOS window decoration rendering
+    SDL_SetHint(SDL_HINT_VIDEO_MAC_FULLSCREEN_SPACES, "0");
+    SDL_SetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, "0");
+    #endif
     SDL_EventState(SDL_KEYDOWN, SDL_ENABLE);
     SDL_EventState(SDL_KEYUP, SDL_ENABLE);
     Uint32 win_flags = SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE;
@@ -2829,10 +2831,24 @@ int main(int argc, char *argv[]) {
     win_flags |= SDL_WINDOW_FULLSCREEN | SDL_WINDOW_ALLOW_HIGHDPI;
     #else
     int win_w = 800, win_h = 600;
+    #if defined(__APPLE__) && !defined(__IPHONEOS__)
+    // Add HIGHDPI flag on macOS to help with window decoration rendering
+    win_flags |= SDL_WINDOW_ALLOW_HIGHDPI;
+    #endif
     #endif
 
     SDL_Window *window = SDL_CreateWindow("C MMO Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, win_w, win_h, win_flags);
+    if (!window) { printf("Window creation failed: %s\n", SDL_GetError()); return 1; }
+    
+    #if defined(__APPLE__) && !defined(__IPHONEOS__)
+    // Small delay to allow macOS to properly initialize window compositing
+    SDL_Delay(100);
+    // Use software renderer for compatibility with older hardware
+    SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
+    #else
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    #endif
+    if (!renderer) { printf("Renderer creation failed: %s\n", SDL_GetError()); return 1; }
     global_renderer = renderer;
 
     // 2. Load Assets
