@@ -42,6 +42,10 @@ socket_t client_sockets[MAX_CLIENTS];
 sqlite3 *db;
 int next_player_id = 100;
 
+// Triggers data
+TriggerData server_triggers[20];
+int server_trigger_count = 0;
+
 pthread_mutex_t state_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // --- Prototypes ---
@@ -173,8 +177,59 @@ void save_player_location(const char *user, float x, float y) {
     char sql[256]; snprintf(sql, 256, "UPDATE users SET X=%f, Y=%f WHERE USERNAME='%s';", x, y, user); sqlite3_exec(db, sql, 0, 0, NULL);
 }
 
+void load_triggers() {
+    FILE *fp = fopen("triggers.txt", "r");
+    if (!fp) {
+        printf("WARNING: Could not open triggers.txt on server. No triggers loaded.\n");
+        server_trigger_count = 0;
+        return;
+    }
+    
+    server_trigger_count = 0;
+    while (server_trigger_count < 20 && 
+           fscanf(fp, "%31s %d %d %d %d %31s %d %d",
+                  server_triggers[server_trigger_count].src_map,
+                  &server_triggers[server_trigger_count].rect_x,
+                  &server_triggers[server_trigger_count].rect_y,
+                  &server_triggers[server_trigger_count].rect_w,
+                  &server_triggers[server_trigger_count].rect_h,
+                  server_triggers[server_trigger_count].target_map,
+                  &server_triggers[server_trigger_count].spawn_x,
+                  &server_triggers[server_trigger_count].spawn_y) == 8) {
+        // Ensure null termination (defensive programming)
+        server_triggers[server_trigger_count].src_map[31] = '\0';
+        server_triggers[server_trigger_count].target_map[31] = '\0';
+        
+        printf("Server: Loaded Trigger %d: %s [%d,%d %dx%d] -> %s\n",
+               server_trigger_count,
+               server_triggers[server_trigger_count].src_map,
+               server_triggers[server_trigger_count].rect_x,
+               server_triggers[server_trigger_count].rect_y,
+               server_triggers[server_trigger_count].rect_w,
+               server_triggers[server_trigger_count].rect_h,
+               server_triggers[server_trigger_count].target_map);
+        server_trigger_count++;
+    }
+    printf("Server: Total Triggers Loaded: %d\n", server_trigger_count);
+    fclose(fp);
+}
+
+void send_triggers_to_client(int client_index) {
+    Packet pkt;
+    memset(&pkt, 0, sizeof(Packet));
+    pkt.type = PACKET_TRIGGERS_DATA;
+    pkt.trigger_count = server_trigger_count;
+    
+    for (int i = 0; i < server_trigger_count; i++) {
+        pkt.triggers[i] = server_triggers[i];
+    }
+    
+    send(client_sockets[client_index], &pkt, sizeof(Packet), 0);
+    printf("Sent %d triggers to client %d\n", server_trigger_count, client_index);
+}
+
 void init_game() {
-    init_db(); init_storage();
+    init_db(); init_storage(); load_triggers();
     for (int i = 0; i < MAX_CLIENTS; i++) { client_sockets[i] = SOCKET_INVALID; players[i].active = 0; players[i].id = -1; }
 }
 
@@ -453,6 +508,9 @@ void handle_client_message(int index, Packet *pkt) {
                     
                     response.player_id = players[index].id;
                     send_all(client_sockets[index], &response, sizeof(Packet), 0);
+                    
+                    // Send triggers to client after successful login
+                    send_triggers_to_client(index);
                     
                     broadcast_friend_update(); 
                     send_pending_requests(index); 
