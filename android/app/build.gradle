@@ -1,0 +1,56 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.mmo.client'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.mmo.client"
+        minSdk 21
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+        
+        externalNativeBuild {
+            cmake {
+                arguments "-DANDROID_STL=c++_shared"
+                cppFlags "-std=c++11"
+            }
+        }
+        
+        ndk {
+            abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    
+    externalNativeBuild {
+        cmake {
+            path file('CMakeLists.txt')
+            version '3.22.1'
+        }
+    }
+    
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    
+    sourceSets {
+        main {
+            assets.srcDirs = ['src/main/assets']
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+}
