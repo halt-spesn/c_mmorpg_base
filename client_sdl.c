@@ -2794,8 +2794,8 @@ int main(int argc, char *argv[]) {
     SDL_SetHint(SDL_HINT_WINDOWS_RAWKEYBOARD, "1");
     #endif
     #if defined(__APPLE__) && !defined(__IPHONEOS__)
-    // Fix black window decorations on macOS by allowing SDL to choose best renderer
-    // On older macOS/Hackintosh systems, forcing a specific renderer can cause issues
+    // Use software renderer on macOS for compatibility with older hardware
+    // Fixes black window decorations on systems without Metal support (e.g., Hackintosh, pre-2012 Macs)
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "software");
     SDL_SetHint(SDL_HINT_RENDER_VSYNC, "0");
     #endif
@@ -2835,7 +2835,7 @@ int main(int argc, char *argv[]) {
 
     SDL_Window *window = SDL_CreateWindow("C MMO Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, win_w, win_h, win_flags);
     #if defined(__APPLE__) && !defined(__IPHONEOS__)
-    // On older macOS hardware, use software renderer to avoid black window decorations
+    // Use software renderer for compatibility (see hint above)
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
     #else
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
