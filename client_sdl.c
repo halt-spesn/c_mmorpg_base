@@ -508,6 +508,22 @@ void load_config() {
     }
 }
 
+void reload_font_with_scale() {
+    if (font) {
+        TTF_CloseFont(font);
+        font = NULL;
+    }
+    int scaled_size = (int)(FONT_SIZE * ui_scale);
+    if (scaled_size < 8) scaled_size = 8;   // Minimum readable size
+    if (scaled_size > 48) scaled_size = 48; // Maximum reasonable size
+    font = TTF_OpenFont(FONT_PATH, scaled_size);
+    if (!font) {
+        printf("Failed to reload font with scale: %s\n", TTF_GetError());
+        // Fallback to default size
+        font = TTF_OpenFont(FONT_PATH, FONT_SIZE);
+    }
+}
+
 void load_triggers() {
     // Triggers are now loaded from the server, not from file
     // This function kept for compatibility but does nothing
@@ -1542,6 +1558,7 @@ void process_slider_drag(int mx) {
     // Handle UI Scale specially (float, different range)
     if (active_slider == SLIDER_UI_SCALE) {
         ui_scale = 0.5f + (pct * 1.5f); // Map 0.0-1.0 to 0.5-2.0
+        reload_font_with_scale(); // Update font size immediately
         save_config();
         return;
     }
@@ -3059,6 +3076,12 @@ int main(int argc, char *argv[]) {
     load_servers();
     load_triggers();
     load_config(); // Initial load
+    
+    // Apply UI scale to font after loading config
+    if (ui_scale != 1.0f) {
+        reload_font_with_scale();
+    }
+    
     sock = -1;
 
     for(int i=0; i<MAX_CLIENTS; i++) { avatar_cache[i] = NULL; avatar_status[i] = 0; }
