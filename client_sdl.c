@@ -2845,8 +2845,6 @@ int main(int argc, char *argv[]) {
     SDL_Delay(100);
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     if (!renderer) { printf("Renderer creation failed: %s\n", SDL_GetError()); return 1; }
-
-        #if defined(__APPLE__) && !defined(__IPHONEOS__)
     // Force window decoration refresh on macOS by hiding and showing the window
     // This works around a compositing bug where decorations don't initially render
     SDL_HideWindow(window);
