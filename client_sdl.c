@@ -25,6 +25,7 @@
 #include <SDL2/SDL_ttf.h>
 #include <SDL2/SDL_image.h>
 #include <SDL2/SDL_mixer.h>
+#include <SDL2/SDL_syswm.h>
 #include <sys/types.h>
 
 // Handle OpenGL headers
@@ -32,6 +33,10 @@
 #include <SDL2/SDL_opengles2.h>
 #elif defined(__APPLE__)
 #include <SDL2/SDL_opengl.h>
+#ifndef __IPHONEOS__
+// Cocoa/AppKit headers for macOS window manipulation
+#import <Cocoa/Cocoa.h>
+#endif
 #elif defined(_WIN32)
 #include <SDL2/SDL_opengl.h>
 #else
@@ -2850,12 +2855,17 @@ int main(int argc, char *argv[]) {
     if (!renderer) { printf("Renderer creation failed: %s\n", SDL_GetError()); return 1; }
     
     #if defined(__APPLE__) && !defined(__IPHONEOS__)
-    // Force window decoration refresh on macOS by hiding and showing the window
-    // This works around a compositing bug where decorations don't initially render
-    SDL_HideWindow(window);
-    SDL_Delay(10);
-    SDL_ShowWindow(window);
-    SDL_RaiseWindow(window);
+    // Fix black window decorations on macOS by forcing non-transparent titlebar
+    // Transparent titlebars cause black decorations on some macOS configurations
+    SDL_SysWMinfo info;
+    SDL_VERSION(&info.version);
+    if (SDL_GetWindowWMInfo(window, &info)) {
+        NSWindow *nswin = info.info.cocoa.window;
+        nswin.titlebarAppearsTransparent = NO;
+        nswin.titleVisibility = NSWindowTitleVisible;
+        nswin.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+        nswin.tabbingMode = NSWindowTabbingModeDisallowed;
+    }
     #endif
     
     global_renderer = renderer;
