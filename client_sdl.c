@@ -55,6 +55,9 @@ typedef long NSInteger;
 #else
 typedef int NSInteger;
 #endif
+// NSWindow constants
+#define NSWindowTitleVisible 0
+#define NSWindowTabbingModeDisallowed 2
 #endif
 
 // --- Config ---
@@ -2877,16 +2880,16 @@ int main(int argc, char *argv[]) {
         // setTitlebarAppearsTransparent:NO
         ((void (*)(void*, SEL, BOOL))objc_msgSend)(nswin, sel_getUid("setTitlebarAppearsTransparent:"), NO);
         
-        // setTitleVisibility:NSWindowTitleVisible (value is 0)
-        ((void (*)(void*, SEL, NSInteger))objc_msgSend)(nswin, sel_getUid("setTitleVisibility:"), 0);
+        // setTitleVisibility:NSWindowTitleVisible
+        ((void (*)(void*, SEL, NSInteger))objc_msgSend)(nswin, sel_getUid("setTitleVisibility:"), NSWindowTitleVisible);
         
-        // setAppearance:[NSAppearance appearanceNamed:NSAppearanceNameAqua]
+        // setAppearance:[NSAppearance appearanceNamed:@"NSAppearanceNameAqua"]
         void *appearanceClass = objc_getClass("NSAppearance");
         void *aquaAppearance = ((void* (*)(void*, SEL, void*))objc_msgSend)(appearanceClass, sel_getUid("appearanceNamed:"), CFSTR("NSAppearanceNameAqua"));
         ((void (*)(void*, SEL, void*))objc_msgSend)(nswin, sel_getUid("setAppearance:"), aquaAppearance);
         
-        // setTabbingMode:NSWindowTabbingModeDisallowed (value is 2)
-        ((void (*)(void*, SEL, NSInteger))objc_msgSend)(nswin, sel_getUid("setTabbingMode:"), 2);
+        // setTabbingMode:NSWindowTabbingModeDisallowed
+        ((void (*)(void*, SEL, NSInteger))objc_msgSend)(nswin, sel_getUid("setTabbingMode:"), NSWindowTabbingModeDisallowed);
     }
     #endif
     
