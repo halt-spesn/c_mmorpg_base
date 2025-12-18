@@ -489,30 +489,32 @@ void load_config() {
 }
 
 void load_triggers() {
-    char path[256]; get_path(path, "triggers.txt", 0); // 1 = Save File
-    FILE *fp = fopen(path, "r");
-    if (!fp) { 
-        printf("ERROR: Could not open triggers.txt (Make sure it is in the game folder)\n"); 
-        return; 
-    }
-    
+    // Triggers are now loaded from the server, not from file
+    // This function kept for compatibility but does nothing
     trigger_count = 0;
-    while (trigger_count < 20 && fscanf(fp, "%s %d %d %d %d %s %d %d", 
-           triggers[trigger_count].src_map, 
-           &triggers[trigger_count].rect.x, &triggers[trigger_count].rect.y, 
-           &triggers[trigger_count].rect.w, &triggers[trigger_count].rect.h,
-           triggers[trigger_count].target_map,
-           &triggers[trigger_count].spawn_x, &triggers[trigger_count].spawn_y) == 8) {
-        printf("Loaded Trigger %d: %s [%d,%d %dx%d] -> %s\n", 
-            trigger_count,
-            triggers[trigger_count].src_map,
-            triggers[trigger_count].rect.x, triggers[trigger_count].rect.y,
-            triggers[trigger_count].rect.w, triggers[trigger_count].rect.h,
-            triggers[trigger_count].target_map);
-        trigger_count++;
+    printf("Client: Waiting to receive triggers from server...\n");
+}
+
+void receive_triggers_from_server(Packet *pkt) {
+    trigger_count = pkt->trigger_count;
+    printf("Client: Received %d triggers from server\n", trigger_count);
+    
+    for (int i = 0; i < trigger_count && i < 20; i++) {
+        strcpy(triggers[i].src_map, pkt->triggers[i].src_map);
+        triggers[i].rect.x = pkt->triggers[i].rect_x;
+        triggers[i].rect.y = pkt->triggers[i].rect_y;
+        triggers[i].rect.w = pkt->triggers[i].rect_w;
+        triggers[i].rect.h = pkt->triggers[i].rect_h;
+        strcpy(triggers[i].target_map, pkt->triggers[i].target_map);
+        triggers[i].spawn_x = pkt->triggers[i].spawn_x;
+        triggers[i].spawn_y = pkt->triggers[i].spawn_y;
+        
+        printf("Client: Loaded Trigger %d: %s [%d,%d %dx%d] -> %s\n",
+               i, triggers[i].src_map,
+               triggers[i].rect.x, triggers[i].rect.y,
+               triggers[i].rect.w, triggers[i].rect.h,
+               triggers[i].target_map);
     }
-    printf("Total Triggers Loaded: %d\n", trigger_count);
-    fclose(fp);
 }
 
 void switch_map(const char* new_map, int x, int y) {
@@ -1050,7 +1052,50 @@ void render_input_with_cursor(SDL_Renderer *renderer, SDL_Rect rect, char *buffe
         strcpy(display, buffer);
     }
 
-    // --- NEW: Render Selection Highlight ---
+    // Calculate text dimensions
+    int text_width = 0, text_height = 0;
+    if (strlen(display) > 0) {
+        TTF_SizeText(font, display, &text_width, &text_height);
+    }
+    
+    // Calculate cursor position width
+    char temp_to_cursor[256];
+    strncpy(temp_to_cursor, display, cursor_pos);
+    temp_to_cursor[cursor_pos] = 0;
+    int cursor_x = 0;
+    if (cursor_pos > 0) {
+        TTF_SizeText(font, temp_to_cursor, &cursor_x, &text_height);
+    }
+    
+    // Calculate scroll offset to keep cursor visible
+    int available_width = rect.w - 10; // 5px padding on each side
+    static int scroll_offset = 0;
+    
+    if (is_active) {
+        // Ensure cursor is visible
+        if (cursor_x - scroll_offset > available_width - 10) {
+            // Cursor is too far right, scroll right
+            scroll_offset = cursor_x - available_width + 10;
+        } else if (cursor_x < scroll_offset) {
+            // Cursor is too far left, scroll left
+            scroll_offset = cursor_x;
+        }
+    } else {
+        scroll_offset = 0; // Reset when not active
+    }
+    
+    // Clamp scroll offset
+    if (scroll_offset < 0) scroll_offset = 0;
+    if (text_width - scroll_offset < available_width) {
+        scroll_offset = text_width - available_width;
+        if (scroll_offset < 0) scroll_offset = 0;
+    }
+
+    // Set clipping rectangle to prevent text overflow
+    SDL_Rect clip_rect = {rect.x + 2, rect.y + 2, rect.w - 4, rect.h - 4};
+    SDL_RenderSetClipRect(renderer, &clip_rect);
+
+    // --- Render Selection Highlight ---
     if (is_active && selection_len != 0) {
         int start = selection_start;
         int len = selection_len;
@@ -1066,8 +1111,8 @@ void render_input_with_cursor(SDL_Renderer *renderer, SDL_Rect rect, char *buffe
         char temp_sel[256]; strncpy(temp_sel, display + start, len); temp_sel[len] = 0;
         int w_sel = 0; if (len > 0) TTF_SizeText(font, temp_sel, &w_sel, &h);
 
-        // Draw Blue Box behind text
-        SDL_Rect sel_rect = {rect.x + 5 + w_start, rect.y + 4, w_sel, 20};
+        // Draw Blue Box behind text (with scroll offset applied)
+        SDL_Rect sel_rect = {rect.x + 5 + w_start - scroll_offset, rect.y + 4, w_sel, 20};
         SDL_SetRenderDrawColor(renderer, 0, 100, 255, 128); // Semi-transparent blue
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
         SDL_RenderFillRect(renderer, &sel_rect);
@@ -1075,19 +1120,20 @@ void render_input_with_cursor(SDL_Renderer *renderer, SDL_Rect rect, char *buffe
     }
     // ----------------------------------------
 
-    // 3. Render Text (Raw)
-    render_raw_text(renderer, display, rect.x + 5, rect.y + 2, col_white, 0);
+    // 3. Render Text (Raw) with scroll offset
+    render_raw_text(renderer, display, rect.x + 5 - scroll_offset, rect.y + 2, col_white, 0);
 
     // 4. Render Cursor
     if (is_active) {
-        char temp[256]; strncpy(temp, display, cursor_pos); temp[cursor_pos] = 0;
-        int w = 0, h = 0; if (strlen(temp) > 0) TTF_SizeText(font, temp, &w, &h);
-        
         if ((SDL_GetTicks() / 500) % 2 == 0) {
             SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-            SDL_RenderDrawLine(renderer, rect.x + 5 + w, rect.y + 4, rect.x + 5 + w, rect.y + 20);
+            int cursor_render_x = rect.x + 5 + cursor_x - scroll_offset;
+            SDL_RenderDrawLine(renderer, cursor_render_x, rect.y + 4, cursor_render_x, rect.y + 20);
         }
     }
+    
+    // Remove clipping
+    SDL_RenderSetClipRect(renderer, NULL);
 }
 
 void add_chat_message(Packet *pkt) {
@@ -2326,10 +2372,10 @@ void render_game(SDL_Renderer *renderer) {
             if (len > 0) TTF_SizeText(font, text_sel, &w_sel, &h);
 
             // Draw Blue Box
-            // render_x is 15 (defined in previous code block usually)
             int render_x = 15; 
             int render_y = win.y + win.h - 20;
             
+            // Note: scroll offset will be applied when rendering, so calculate without it
             SDL_Rect sel_rect = {render_x + w_before, render_y + 2, w_sel, 20};
             
             // Clip to chat window width so it doesn't spill out
@@ -2343,44 +2389,55 @@ void render_game(SDL_Renderer *renderer) {
             }
         }
 
-        // 3. Render Text (Simple scrolling check)
+        // 3. Render Text with proper clipping and scrolling
         int w, h;
         TTF_SizeText(font, full_str, &w, &h);
         int render_x = 15;
         int render_y = win.y+win.h-20;
-
-        if (w <= 270) {
-            render_raw_text(renderer, full_str, render_x, render_y, input_col, 0);
-        } else {
-            // If too long, just show the end (simplification for now)
-            int len = strlen(full_str);
-            for(int i=0; i<len; i++) {
-                const char* sub = &full_str[i];
-                int sub_w;
-                TTF_SizeText(font, sub, &sub_w, &h);
-                if (sub_w <= 270) {
-                    render_raw_text(renderer, sub, render_x, render_y, input_col, 0);
-                    break;
-                }
-            }
+        int available_width = 270;
+        
+        // Set clipping to chat input area
+        SDL_Rect clip_chat = {10, win.y + win.h - 30, 300, 30};
+        SDL_RenderSetClipRect(renderer, &clip_chat);
+        
+        // Calculate cursor position in the full string
+        int prefix_len = strlen(prefix);
+        int cursor_pos_in_full = prefix_len + cursor_pos;
+        
+        char temp_to_cursor[256];
+        strncpy(temp_to_cursor, full_str, cursor_pos_in_full);
+        temp_to_cursor[cursor_pos_in_full] = 0;
+        int cursor_x = 0;
+        if (cursor_pos_in_full > 0) {
+            TTF_SizeText(font, temp_to_cursor, &cursor_x, &h);
         }
+        
+        // Calculate scroll offset for chat input
+        static int chat_scroll_offset = 0;
+        if (chat_input_active) {
+            if (cursor_x - chat_scroll_offset > available_width - 10) {
+                chat_scroll_offset = cursor_x - available_width + 10;
+            } else if (cursor_x < chat_scroll_offset) {
+                chat_scroll_offset = cursor_x;
+            }
+        } else {
+            chat_scroll_offset = 0;
+        }
+        
+        if (chat_scroll_offset < 0) chat_scroll_offset = 0;
+        
+        // Render text with scroll offset
+        render_raw_text(renderer, full_str, render_x - chat_scroll_offset, render_y, input_col, 0);
 
         // 4. Render Blinking Cursor
-        // We calculate width of (Prefix + InputBuffer UP TO cursor_pos)
-        char cursor_sub[256];
-        snprintf(cursor_sub, 256, "%s", prefix);
-        strncat(cursor_sub, input_buffer, cursor_pos); // Append only up to cursor
-        
-        int cw, ch;
-        TTF_SizeText(font, cursor_sub, &cw, &ch);
-        
-        // Only draw if within bounds (simple check)
-        if (cw <= 270) {
-            if ((SDL_GetTicks() / 500) % 2 == 0) {
-                SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-                SDL_RenderDrawLine(renderer, render_x + cw, render_y + 2, render_x + cw, render_y + 14);
-            }
+        if ((SDL_GetTicks() / 500) % 2 == 0) {
+            SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+            int cursor_render_x = render_x + cursor_x - chat_scroll_offset;
+            SDL_RenderDrawLine(renderer, cursor_render_x, render_y + 2, cursor_render_x, render_y + 14);
         }
+        
+        // Remove clipping
+        SDL_RenderSetClipRect(renderer, NULL);
         // ---------------------------------
     }
     SDL_RenderPresent(renderer);
@@ -3286,6 +3343,7 @@ int main(int argc, char *argv[]) {
                                 cursor_pos = 0;
                             }
                             is_chat_open = 0;
+                            chat_target_id = -1;  // Reset private message mode after sending
                             chat_input_active = 0;
                             SDL_StopTextInput();
                         }
@@ -3486,6 +3544,9 @@ int main(int argc, char *argv[]) {
                                 if (surf) { if (avatar_cache[target_idx]) SDL_DestroyTexture(avatar_cache[target_idx]); avatar_cache[target_idx] = SDL_CreateTextureFromSurface(renderer, surf); avatar_status[target_idx] = 2; SDL_FreeSurface(surf); }
                             }
                         }
+                    }
+                    if (pkt.type == PACKET_TRIGGERS_DATA) {
+                        receive_triggers_from_server(&pkt);
                     }
                 }    
             }

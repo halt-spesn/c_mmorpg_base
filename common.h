@@ -30,7 +30,7 @@ typedef enum {
     PACKET_CHANGE_NICK_REQUEST, PACKET_CHANGE_NICK_RESPONSE,
     PACKET_ROLE_LIST_REQUEST, PACKET_ROLE_LIST_RESPONSE,
     PACKET_SANCTION_REQUEST, PACKET_WARNINGS_REQUEST, PACKET_WARNINGS_RESPONSE,
-    PACKET_KICK, PACKET_MAP_CHANGE
+    PACKET_KICK, PACKET_MAP_CHANGE, PACKET_TRIGGERS_DATA
 } PacketType;
 
 typedef enum {
@@ -40,6 +40,17 @@ typedef enum {
 
 // --- FORCE 1-BYTE PACKING ---
 #pragma pack(push, 1)
+
+typedef struct {
+    char src_map[32];
+    int32_t rect_x;
+    int32_t rect_y;
+    int32_t rect_w;
+    int32_t rect_h;
+    char target_map[32];
+    int32_t spawn_x;
+    int32_t spawn_y;
+} TriggerData;
 
 typedef struct {
     int32_t id;
@@ -92,6 +103,8 @@ typedef struct {
         char reason[64];
         char date[32];
     } warnings[20];
+    int32_t trigger_count;
+    TriggerData triggers[20];
 } Packet;
 
 #pragma pack(pop)
