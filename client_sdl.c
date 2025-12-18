@@ -1271,57 +1271,57 @@ void render_hud(SDL_Renderer *renderer, int screen_h) {
     int screen_w; SDL_GetRendererOutputSize(renderer, &screen_w, NULL);
 
     // INBOX BUTTON (Top Right)
-    btn_inbox = (SDL_Rect){screen_w - 50, 10, 40, 40};
+    btn_inbox = scale_rect(screen_w - scale_ui(50), scale_ui(10), 40, 40);
     SDL_SetRenderDrawColor(renderer, 50, 50, 50, 255); SDL_RenderFillRect(renderer, &btn_inbox);
     SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255); SDL_RenderDrawRect(renderer, &btn_inbox);
-    render_text(renderer, "[M]", btn_inbox.x+8, btn_inbox.y+10, col_white, 0);
+    render_text(renderer, "[M]", btn_inbox.x+btn_inbox.w/2-scale_ui(8), btn_inbox.y+btn_inbox.h/2-scale_ui(7), col_white, 0);
 
     if (inbox_count > 0) {
-        SDL_Rect badge = {btn_inbox.x+25, btn_inbox.y-5, 20, 20};
+        SDL_Rect badge = scale_rect(btn_inbox.x+scale_ui(25), btn_inbox.y-scale_ui(5), 20, 20);
         SDL_SetRenderDrawColor(renderer, 200, 0, 0, 255); SDL_RenderFillRect(renderer, &badge);
         char num[4]; sprintf(num, "%d", inbox_count);
-        render_text(renderer, num, badge.x+6, badge.y+2, col_white, 0);
+        render_text(renderer, num, badge.x+badge.w/2-scale_ui(3), badge.y+badge.h/2-scale_ui(7), col_white, 0);
     }
 }
 
 void render_inbox(SDL_Renderer *renderer, int w, int h) {
     if (!is_inbox_open) return;
     
-    SDL_Rect win = {w - 320, 60, 300, 300};
+    SDL_Rect win = scale_rect(w - scale_ui(320), scale_ui(60), 300, 300);
     SDL_SetRenderDrawColor(renderer, 30, 30, 40, 255); SDL_RenderFillRect(renderer, &win);
     SDL_SetRenderDrawColor(renderer, 100, 100, 255, 255); SDL_RenderDrawRect(renderer, &win);
-    render_text(renderer, "Pending Requests", win.x + 80, win.y + 10, col_yellow, 0);
+    render_text(renderer, "Pending Requests", win.x + win.w/2-scale_ui(40), win.y + scale_ui(10), col_yellow, 0);
 
     if (inbox_count == 0) {
-        render_text(renderer, "No new requests.", win.x + 80, win.y + 40, col_white, 0);
+        render_text(renderer, "No new requests.", win.x + win.w/2-scale_ui(40), win.y + scale_ui(40), col_white, 0);
         return;
     }
     
     // Set up clipping for scrollable area
-    SDL_Rect clip_rect = {win.x, win.y + 35, win.w, win.h - 35};
+    SDL_Rect clip_rect = {win.x, win.y + scale_ui(35), win.w, win.h - scale_ui(35)};
     SDL_RenderSetClipRect(renderer, &clip_rect);
 
-    int y = win.y + 40 - inbox_scroll; // Apply scroll offset
+    int y = win.y + scale_ui(40) - inbox_scroll; // Apply scroll offset
     for(int i=0; i<inbox_count; i++) {
         // Only render if within visible area
-        if (y + 55 > win.y + 35 && y < win.y + win.h) {
-            SDL_Rect row = {win.x+10, y, 280, 50};
+        if (y + scale_ui(55) > win.y + scale_ui(35) && y < win.y + win.h) {
+            SDL_Rect row = scale_rect(win.x+scale_ui(10), y, 280, 50);
             SDL_SetRenderDrawColor(renderer, 50, 50, 60, 255); SDL_RenderFillRect(renderer, &row);
             
             char label[64]; snprintf(label, 64, "%s (ID: %d)", inbox[i].name, inbox[i].id);
-            render_text(renderer, label, row.x+5, row.y+5, col_white, 0);
+            render_text(renderer, label, row.x+scale_ui(5), row.y+scale_ui(5), col_white, 0);
 
             // Accept
-            SDL_Rect btn_acc = {row.x+160, row.y+25, 50, 20};
+            SDL_Rect btn_acc = scale_rect(row.x+scale_ui(160), row.y+scale_ui(25), 50, 20);
             SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_acc);
-            render_text(renderer, "Yes", btn_acc.x+10, btn_acc.y+2, col_white, 0);
+            render_text(renderer, "Yes", btn_acc.x+btn_acc.w/2-scale_ui(10), btn_acc.y+btn_acc.h/2-scale_ui(7), col_white, 0);
 
             // Deny
-            SDL_Rect btn_deny = {row.x+220, row.y+25, 50, 20};
+            SDL_Rect btn_deny = scale_rect(row.x+scale_ui(220), row.y+scale_ui(25), 50, 20);
             SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_deny);
-            render_text(renderer, "No", btn_deny.x+15, btn_deny.y+2, col_white, 0);
+            render_text(renderer, "No", btn_deny.x+btn_deny.w/2-scale_ui(8), btn_deny.y+btn_deny.h/2-scale_ui(7), col_white, 0);
         }
-        y += 55;
+        y += scale_ui(55);
     }
     
     // Reset clipping
@@ -1331,35 +1331,35 @@ void render_inbox(SDL_Renderer *renderer, int w, int h) {
 void render_add_friend_popup(SDL_Renderer *renderer, int w, int h) {
     if (!show_add_friend_popup) return;
     
-    SDL_Rect pop = {w/2 - 150, h/2 - 100, 300, 200};
+    SDL_Rect pop = scale_rect(w/2 - scale_ui(150), h/2 - scale_ui(100), 300, 200);
     SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255); SDL_RenderFillRect(renderer, &pop);
     SDL_SetRenderDrawColor(renderer, 0, 200, 0, 255); SDL_RenderDrawRect(renderer, &pop);
     
-    render_text(renderer, "Add Friend by ID", pop.x+80, pop.y+10, col_green, 0);
+    render_text(renderer, "Add Friend by ID", pop.x+pop.w/2-scale_ui(40), pop.y+scale_ui(10), col_green, 0);
     
     // --- NEW: Status Message ---
     // If message starts with "Error", render in Red, otherwise Yellow
     SDL_Color status_col = (strncmp(friend_popup_msg, "Error", 5) == 0) ? col_red : col_yellow;
-    render_text(renderer, friend_popup_msg, pop.x+150, pop.y+35, status_col, 1); // 1 = Centered
+    render_text(renderer, friend_popup_msg, pop.x+pop.w/2, pop.y+scale_ui(35), status_col, 1); // 1 = Centered
     // ---------------------------
     
-    SDL_Rect input_rect = {pop.x+50, pop.y+60, 200, 30};
+    SDL_Rect input_rect = scale_rect(pop.x+scale_ui(50), pop.y+scale_ui(60), 200, 30);
     render_input_with_cursor(renderer, input_rect, input_friend_id, active_field == 20, 0);
 
-    SDL_Rect btn_ok = {pop.x+50, pop.y+130, 80, 30};
+    SDL_Rect btn_ok = scale_rect(pop.x+scale_ui(50), pop.y+scale_ui(130), 80, 30);
     SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_ok);
-    render_text(renderer, "Add", btn_ok.x+25, btn_ok.y+5, col_white, 0);
+    render_text(renderer, "Add", btn_ok.x+btn_ok.w/2-scale_ui(10), btn_ok.y+btn_ok.h/2-scale_ui(7), col_white, 0);
 
-    SDL_Rect btn_cancel = {pop.x+170, pop.y+130, 80, 30};
+    SDL_Rect btn_cancel = scale_rect(pop.x+scale_ui(170), pop.y+scale_ui(130), 80, 30);
     SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_cancel);
-    render_text(renderer, "Cancel", btn_cancel.x+15, btn_cancel.y+5, col_white, 0);
+    render_text(renderer, "Cancel", btn_cancel.x+btn_cancel.w/2-scale_ui(18), btn_cancel.y+btn_cancel.h/2-scale_ui(7), col_white, 0);
 }
 
 
 void render_sanction_popup(SDL_Renderer *renderer, int w, int h) {
     if (!show_sanction_popup) return;
 
-    SDL_Rect win = {w/2 - 150, h/2 - 150, 300, 300};
+    SDL_Rect win = scale_rect(w/2 - scale_ui(150), h/2 - scale_ui(150), 300, 300);
     SDL_SetRenderDrawColor(renderer, 40, 0, 0, 255); SDL_RenderFillRect(renderer, &win);
     SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); SDL_RenderDrawRect(renderer, &win);
 
@@ -1849,7 +1849,7 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
 void render_friend_list(SDL_Renderer *renderer, int w, int h) {
     if (!show_friend_list) return;
 
-    int max_text_w = 200; 
+    int max_text_w = scale_ui(200); 
     for(int i=0; i<friend_count; i++) {
         char temp_str[128];
         if (my_friends[i].is_online) snprintf(temp_str, 128, "%s (Online)", my_friends[i].username);
@@ -1858,44 +1858,44 @@ void render_friend_list(SDL_Renderer *renderer, int w, int h) {
         if (fw > max_text_w) max_text_w = fw;
     }
 
-    int win_w = max_text_w + 110; if (win_w < 300) win_w = 300; 
-    friend_list_win = (SDL_Rect){w/2 - (win_w/2), h/2 - 200, win_w, 400};
+    int win_w = max_text_w + scale_ui(110); if (win_w < scale_ui(300)) win_w = scale_ui(300); 
+    friend_list_win = scale_rect(w/2 - (win_w/2), h/2 - scale_ui(200), win_w, 400);
 
     SDL_SetRenderDrawColor(renderer, 20, 20, 20, 255); SDL_RenderFillRect(renderer, &friend_list_win);
     SDL_SetRenderDrawColor(renderer, 0, 200, 0, 255); SDL_RenderDrawRect(renderer, &friend_list_win);
     
     int title_w, title_h; TTF_SizeText(font, "Friends List", &title_w, &title_h);
-    render_text(renderer, "Friends List", friend_list_win.x + (win_w/2) - (title_w/2), friend_list_win.y + 10, col_green, 0);
+    render_text(renderer, "Friends List", friend_list_win.x + (win_w/2) - (title_w/2), friend_list_win.y + scale_ui(10), col_green, 0);
 
     // --- CLOSE BUTTON GLOBAL UPDATE ---
-    btn_friend_close_rect = (SDL_Rect){friend_list_win.x + win_w - 40, friend_list_win.y + 5, 30, 30};
+    btn_friend_close_rect = scale_rect(friend_list_win.x + win_w - scale_ui(40), friend_list_win.y + scale_ui(5), 30, 30);
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_friend_close_rect);
-    render_text(renderer, "X", btn_friend_close_rect.x + 10, btn_friend_close_rect.y + 5, col_white, 1);
+    render_text(renderer, "X", btn_friend_close_rect.x + btn_friend_close_rect.w/2-scale_ui(5), btn_friend_close_rect.y + btn_friend_close_rect.h/2-scale_ui(7), col_white, 1);
     // ----------------------------------
 
-    btn_friend_add_id_rect = (SDL_Rect){friend_list_win.x + 20, friend_list_win.y + 45, 100, 30};
+    btn_friend_add_id_rect = scale_rect(friend_list_win.x + scale_ui(20), friend_list_win.y + scale_ui(45), 100, 30);
     SDL_SetRenderDrawColor(renderer, 50, 50, 150, 255); SDL_RenderFillRect(renderer, &btn_friend_add_id_rect);
-    render_text(renderer, "+ ID", btn_friend_add_id_rect.x+30, btn_friend_add_id_rect.y+5, col_white, 0);
+    render_text(renderer, "+ ID", btn_friend_add_id_rect.x+btn_friend_add_id_rect.w/2-scale_ui(12), btn_friend_add_id_rect.y+btn_friend_add_id_rect.h/2-scale_ui(7), col_white, 0);
 
     // Set up clipping for scrollable area
-    SDL_Rect clip_rect = {friend_list_win.x, friend_list_win.y + 80, friend_list_win.w, friend_list_win.h - 80};
+    SDL_Rect clip_rect = {friend_list_win.x, friend_list_win.y + scale_ui(80), friend_list_win.w, friend_list_win.h - scale_ui(80)};
     SDL_RenderSetClipRect(renderer, &clip_rect);
     
-    int y_off = 85 - friend_list_scroll; // Apply scroll offset
+    int y_off = scale_ui(85) - friend_list_scroll; // Apply scroll offset
     for(int i=0; i<friend_count; i++) {
         // Only render if within visible area
-        if (y_off + 30 > 80 && y_off < friend_list_win.h) {
+        if (y_off + scale_ui(30) > scale_ui(80) && y_off < friend_list_win.h) {
             char display[128];
             SDL_Color text_col = col_white;
             if (my_friends[i].is_online) { snprintf(display, 128, "%s (Online)", my_friends[i].username); text_col = col_green; } 
             else { snprintf(display, 128, "%s (Last: %s)", my_friends[i].username, my_friends[i].last_login); text_col = (SDL_Color){150, 150, 150, 255}; }
-            render_text(renderer, display, friend_list_win.x + 20, friend_list_win.y + y_off, text_col, 0);
+            render_text(renderer, display, friend_list_win.x + scale_ui(20), friend_list_win.y + y_off, text_col, 0);
 
-            SDL_Rect btn_del = {friend_list_win.x + win_w - 50, friend_list_win.y + y_off, 40, 20};
+            SDL_Rect btn_del = scale_rect(friend_list_win.x + win_w - scale_ui(50), friend_list_win.y + y_off, 40, 20);
             SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_del);
-            render_text(renderer, "Del", btn_del.x+8, btn_del.y+2, col_white, 0);
+            render_text(renderer, "Del", btn_del.x+btn_del.w/2-scale_ui(8), btn_del.y+btn_del.h/2-scale_ui(7), col_white, 0);
         }
-        y_off += 30;
+        y_off += scale_ui(30);
     }
     
     // Reset clipping
