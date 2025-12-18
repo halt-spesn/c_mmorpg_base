@@ -8,5 +8,12 @@ to build on linux, install SDL2(_image, _mixer, _ttf), sqlite3, and run make.
 
 
 to build windows version on linux, install mingw, and mingw versions of stuff above.
-macos/ios can be built using xcode
-android port is available in the android/ directory - see android/README.md for build instructions
+
+
+macos/ios can be built using xcode(arm64 ios/x86_64 mac os)
+
+
+android port is available in the android/ directory - open project in android stuio and build apk(arm64 only supported architecture)
+
+
+port can be assigned to server with a -p flag on launch
