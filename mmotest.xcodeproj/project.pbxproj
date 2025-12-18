@@ -13,8 +13,8 @@
 		9F3ABCF62EF2FD930036A5E8 /* MobileCoreServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F3ABCF52EF2FD930036A5E8 /* MobileCoreServices.framework */; platformFilter = ios; };
 		9F3ABCF82EF2FDBD0036A5E8 /* CoreHaptics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F3ABCF72EF2FDBD0036A5E8 /* CoreHaptics.framework */; };
 		9F3ABCFA2EF2FEA30036A5E8 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F3ABCF92EF2FEA20036A5E8 /* Foundation.framework */; };
-		9F3ABCFB2EF3000A0036A5E9 /* ForceFeedback.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F3ABCFC2EF3000A0036A5EA /* ForceFeedback.framework */; platformFilter = maccatalyst; };
-		9F3ABCFD2EF3000B0036A5EB /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F3ABCFE2EF3000B0036A5EC /* IOKit.framework */; platformFilter = maccatalyst; };
+		9F3ABCFB2EF3000A0036A5E9 /* ForceFeedback.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F3ABCFC2EF3000A0036A5EA /* ForceFeedback.framework */; settings = {ATTRIBUTES = (Weak, ); }; platformFilters = (macos, ); };
+		9F3ABCFD2EF3000B0036A5EB /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F3ABCFE2EF3000B0036A5EC /* IOKit.framework */; platformFilters = (macos, ); };
 		9F8778ED2EF2C9C3003F57C3 /* client_sdl.c in Sources */ = {isa = PBXBuildFile; fileRef = 9F8778EC2EF2C9C2003F57C3 /* client_sdl.c */; };
 		9F8778F62EF2CA78003F57C3 /* OpenGLES.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8778F52EF2CA78003F57C3 /* OpenGLES.framework */; platformFilter = ios; };
 		9F8778F82EF2CA85003F57C3 /* AudioToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8778F72EF2CA85003F57C3 /* AudioToolbox.framework */; };
@@ -33,11 +33,11 @@
 		9F8779142EF2CD00003F57C3 /* DejaVuSans.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 9F8778F32EF2C9FF003F57C3 /* DejaVuSans.ttf */; };
 		9F87791E2EF2D500003F57C3 /* triggers.txt in Resources */ = {isa = PBXBuildFile; fileRef = 9F8778F12EF2C9F2003F57C3 /* triggers.txt */; };
 		9F87791F2EF2D600003F57C3 /* music in Resources */ = {isa = PBXBuildFile; fileRef = 9F8778EF2EF2C9DA003F57C3 /* music */; };
-		9FMAC0032EF2FFFE0000AAAC /* OpenGL.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9FMAC0012EF2FFFE0000AAAA /* OpenGL.framework */; platformFilter = maccatalyst; };
-		9FMAC0042EF2FFFE0000AAAD /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9FMAC0022EF2FFFE0000AAAB /* Cocoa.framework */; platformFilter = maccatalyst; };
-		9FMAC0052EF3001A0000AAAE /* Carbon.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9FMAC0062EF3001A0000AAAF /* Carbon.framework */; platformFilter = maccatalyst; };
-		9FMAC0072EF3001B0000AAB0 /* CoreServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9FMAC0082EF3001B0000AAB1 /* CoreServices.framework */; platformFilter = maccatalyst; };
-		9FMAC0092EF3001C0000AAB2 /* ApplicationServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9FMAC000A2EF3001C0000AAB3 /* ApplicationServices.framework */; platformFilter = maccatalyst; };
+		9FMAC0032EF2FFFE0000AAAC /* OpenGL.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9FMAC0012EF2FFFE0000AAAA /* OpenGL.framework */; platformFilters = (macos, ); };
+		9FMAC0042EF2FFFE0000AAAD /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9FMAC0022EF2FFFE0000AAAB /* Cocoa.framework */; platformFilters = (macos, ); };
+		9FMAC0052EF3001A0000AAAE /* Carbon.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9FMAC0062EF3001A0000AAAF /* Carbon.framework */; platformFilters = (macos, ); };
+		9FMAC0072EF3001B0000AAB0 /* CoreServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9FMAC0082EF3001B0000AAB1 /* CoreServices.framework */; platformFilters = (macos, ); };
+		9FMAC0092EF3001C0000AAB2 /* ApplicationServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9FMAC000A2EF3001C0000AAB3 /* ApplicationServices.framework */; platformFilters = (macos, ); };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
