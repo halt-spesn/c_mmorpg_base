@@ -1239,7 +1239,7 @@ void add_chat_message(Packet *pkt) {
     }
 }
 
-void render_hud(SDL_Renderer *renderer, int screen_h) {
+void render_hud(SDL_Renderer *renderer, int screen_w, int screen_h) {
     int y = 10; char buf[64];
     if (show_fps) {
         snprintf(buf, 64, "FPS: %d", current_fps);
@@ -1254,9 +1254,8 @@ void render_hud(SDL_Renderer *renderer, int screen_h) {
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 150); SDL_RenderFillRect(renderer, &bg);
         render_text(renderer, buf, 12, y, col_white, 0);
     }
-    int screen_w; SDL_GetRendererOutputSize(renderer, &screen_w, NULL);
 
-    // INBOX BUTTON (Top Right)
+    // INBOX BUTTON (Top Right) - use passed scaled width, not SDL_GetRendererOutputSize
     btn_inbox = (SDL_Rect){screen_w - 50, 10, 40, 40};
     SDL_SetRenderDrawColor(renderer, 50, 50, 50, 255); SDL_RenderFillRect(renderer, &btn_inbox);
     SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255); SDL_RenderDrawRect(renderer, &btn_inbox);
@@ -2358,7 +2357,7 @@ void render_game(SDL_Renderer *renderer) {
     render_sanction_popup(renderer, scaled_w, scaled_h);
     render_my_warnings(renderer, scaled_w, scaled_h);
     render_debug_overlay(renderer, scaled_w);
-    render_hud(renderer, scaled_h);
+    render_hud(renderer, scaled_w, scaled_h);
     render_mobile_controls(renderer, scaled_w);
 
     // 5. Draw HUD Buttons
