@@ -2843,12 +2843,18 @@ int main(int argc, char *argv[]) {
     #if defined(__APPLE__) && !defined(__IPHONEOS__)
     // Small delay to allow macOS to properly initialize window compositing
     SDL_Delay(100);
-    // Use software renderer for compatibility with older hardware
-    SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
-    #else
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-    #endif
     if (!renderer) { printf("Renderer creation failed: %s\n", SDL_GetError()); return 1; }
+
+        #if defined(__APPLE__) && !defined(__IPHONEOS__)
+    // Force window decoration refresh on macOS by hiding and showing the window
+    // This works around a compositing bug where decorations don't initially render
+    SDL_HideWindow(window);
+    SDL_Delay(10);
+    SDL_ShowWindow(window);
+    SDL_RaiseWindow(window);
+    #endif
+
     global_renderer = renderer;
 
     // 2. Load Assets
