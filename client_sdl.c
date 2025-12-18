@@ -35,8 +35,10 @@
 #elif defined(__APPLE__)
 #include <SDL2/SDL_opengl.h>
 #ifndef __IPHONEOS__
-// Cocoa/AppKit headers for macOS window manipulation
-#include <Cocoa/Cocoa.h>
+// Objective-C runtime for macOS window manipulation
+#include <objc/runtime.h>
+#include <objc/message.h>
+#include <CoreFoundation/CoreFoundation.h>
 #endif
 #elif defined(_WIN32)
 #include <SDL2/SDL_opengl.h>
@@ -46,6 +48,15 @@
 
 #include "common.h"
 #include <dirent.h> // MinGW usually provides this, but visual studio does not. MinGW is fine.
+
+// Define NSInteger for macOS Objective-C runtime calls
+#if defined(__APPLE__) && !defined(__IPHONEOS__)
+#if defined(__LP64__) && __LP64__
+typedef long NSInteger;
+#else
+typedef int NSInteger;
+#endif
+#endif
 
 // --- Config ---
 #define PLAYER_WIDTH 32
@@ -2861,11 +2872,22 @@ int main(int argc, char *argv[]) {
     SDL_SysWMinfo info;
     SDL_VERSION(&info.version);
     if (SDL_GetWindowWMInfo(window, &info) && info.info.cocoa.window) {
-        NSWindow *nswin = info.info.cocoa.window;
-        nswin.titlebarAppearsTransparent = NO;
-        nswin.titleVisibility = NSWindowTitleVisible;
-        nswin.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
-        nswin.tabbingMode = NSWindowTabbingModeDisallowed;
+        void *nswin = info.info.cocoa.window;
+        
+        // Use objc_msgSend to set window properties in C-compatible way
+        // setTitlebarAppearsTransparent:NO
+        ((void (*)(void*, SEL, BOOL))objc_msgSend)(nswin, sel_getUid("setTitlebarAppearsTransparent:"), NO);
+        
+        // setTitleVisibility:NSWindowTitleVisible (value is 0)
+        ((void (*)(void*, SEL, NSInteger))objc_msgSend)(nswin, sel_getUid("setTitleVisibility:"), 0);
+        
+        // setAppearance:[NSAppearance appearanceNamed:NSAppearanceNameAqua]
+        void *appearanceClass = objc_getClass("NSAppearance");
+        void *aquaAppearance = ((void* (*)(void*, SEL, void*))objc_msgSend)(appearanceClass, sel_getUid("appearanceNamed:"), CFSTR("NSAppearanceNameAqua"));
+        ((void (*)(void*, SEL, void*))objc_msgSend)(nswin, sel_getUid("setAppearance:"), aquaAppearance);
+        
+        // setTabbingMode:NSWindowTabbingModeDisallowed (value is 2)
+        ((void (*)(void*, SEL, NSInteger))objc_msgSend)(nswin, sel_getUid("setTabbingMode:"), 2);
     }
     #endif
     
