@@ -2890,6 +2890,12 @@ int main(int argc, char *argv[]) {
         
         // setTabbingMode:NSWindowTabbingModeDisallowed
         ((void (*)(void*, SEL, NSInteger))objc_msgSend)(nswin, sel_getUid("setTabbingMode:"), NSWindowTabbingModeDisallowed);
+        
+        // Force window to redraw its frame by calling display (invalidates window shadow and frame)
+        ((void (*)(void*, SEL))objc_msgSend)(nswin, sel_getUid("display"));
+        
+        // Also invalidate the window's shadow which forces full window refresh
+        ((void (*)(void*, SEL))objc_msgSend)(nswin, sel_getUid("invalidateShadow"));
     }
     #endif
     
