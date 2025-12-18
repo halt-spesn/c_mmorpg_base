@@ -5,8 +5,11 @@ project(c_mmo_client C)
 # Set C standard
 set(CMAKE_C_STANDARD 11)
 
-# Include directories for SDL2 headers
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/main/cpp/include)
+# Include directories for SDL2 headers and project root (for common.h)
+include_directories(
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/main/cpp/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../..
+)
 
 # Add the main client source file
 add_library(client SHARED
