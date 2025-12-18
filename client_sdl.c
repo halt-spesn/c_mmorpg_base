@@ -322,13 +322,13 @@ int joystick_active = 0;
 
 
 void get_path(char *out, const char *filename, int is_save_file) {
-    #if defined(__IPHONEOS__) || defined(__ANDROID__)
+    #if defined(__IPHONEOS__) || defined(__ANDROID__) || defined(__APPLE__)
         if (is_save_file) {
             // Writeable folder (Documents/Library)
             char *pref = SDL_GetPrefPath("MyOrg", "C_MMO_Client");
             if (pref) { snprintf(out, 256, "%s%s", pref, filename); SDL_free(pref); }
         } else {
-            // Read-only Asset folder (Bundle)
+            // Read-only Asset folder (Bundle/Resources)
             char *base = SDL_GetBasePath();
             if (base) { snprintf(out, 256, "%s%s", base, filename); SDL_free(base); }
         }
@@ -2810,9 +2810,6 @@ int main(int argc, char *argv[]) {
     }
     font = TTF_OpenFont(FONT_PATH, FONT_SIZE);
     if (!font) { printf("Font missing: %s\n", FONT_PATH); return 1; }
-    #ifdef __APPLE__
-    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengl"); // Try OpenGL to avoid black decorations
-    #endif
     SDL_EventState(SDL_KEYDOWN, SDL_ENABLE);
     SDL_EventState(SDL_KEYUP, SDL_ENABLE);
     Uint32 win_flags = SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE;
@@ -2826,6 +2823,11 @@ int main(int argc, char *argv[]) {
     int win_w = 800, win_h = 600;
     #endif
 
+    #ifdef __APPLE__
+    // Fix black window decorations on macOS by using OpenGL renderer
+    win_flags |= SDL_WINDOW_OPENGL;
+    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengl");
+    #endif
 
     SDL_Window *window = SDL_CreateWindow("C MMO Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, win_w, win_h, win_flags);
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
