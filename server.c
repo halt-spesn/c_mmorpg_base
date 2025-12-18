@@ -196,6 +196,10 @@ void load_triggers() {
                   server_triggers[server_trigger_count].target_map,
                   &server_triggers[server_trigger_count].spawn_x,
                   &server_triggers[server_trigger_count].spawn_y) == 8) {
+        // Ensure null termination (defensive programming)
+        server_triggers[server_trigger_count].src_map[31] = '\0';
+        server_triggers[server_trigger_count].target_map[31] = '\0';
+        
         printf("Server: Loaded Trigger %d: %s [%d,%d %dx%d] -> %s\n",
                server_trigger_count,
                server_triggers[server_trigger_count].src_map,

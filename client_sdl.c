@@ -500,14 +500,14 @@ void receive_triggers_from_server(Packet *pkt) {
     printf("Client: Received %d triggers from server\n", trigger_count);
     
     for (int i = 0; i < trigger_count && i < 20; i++) {
-        strncpy(triggers[i].src_map, pkt->triggers[i].src_map, 31);
-        triggers[i].src_map[31] = '\0';
+        strncpy(triggers[i].src_map, pkt->triggers[i].src_map, sizeof(triggers[i].src_map) - 1);
+        triggers[i].src_map[sizeof(triggers[i].src_map) - 1] = '\0';
         triggers[i].rect.x = pkt->triggers[i].rect_x;
         triggers[i].rect.y = pkt->triggers[i].rect_y;
         triggers[i].rect.w = pkt->triggers[i].rect_w;
         triggers[i].rect.h = pkt->triggers[i].rect_h;
-        strncpy(triggers[i].target_map, pkt->triggers[i].target_map, 31);
-        triggers[i].target_map[31] = '\0';
+        strncpy(triggers[i].target_map, pkt->triggers[i].target_map, sizeof(triggers[i].target_map) - 1);
+        triggers[i].target_map[sizeof(triggers[i].target_map) - 1] = '\0';
         triggers[i].spawn_x = pkt->triggers[i].spawn_x;
         triggers[i].spawn_y = pkt->triggers[i].spawn_y;
         
