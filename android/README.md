@@ -163,3 +163,19 @@ The MainActivity extends `org.libsdl.app.SDLActivity`, which requires SDL2's Jav
 - Fullscreen mode is enabled for immersive gameplay
 - Hardware acceleration is enabled for better performance
 - The app supports ARM64 (arm64-v8a) architecture only
+
+## Mobile-Friendly Features
+
+The game includes several features specifically designed for mobile devices:
+
+### UI Scaling
+- Access the UI Scale slider in the Settings menu (gear icon)
+- Adjust scale from 0.5x to 2.0x to make UI elements more readable on small screens
+- The scale primarily affects font size for better text readability
+- Settings are saved automatically and persist across app restarts
+
+### Chat Window Keyboard Handling
+- When opening the chat window, tap the input field to bring up the keyboard
+- The chat window automatically shifts upward to prevent the keyboard from covering it
+- The keyboard positioning is optimized for mobile devices
+- Chat closes normally with the close button or by sending a message
