@@ -278,6 +278,16 @@ int show_nick_pass = 0;      // Toggle for Nickname Menu
 SDL_Rect btn_show_nick_pass; // Button rect for Nickname Menu
 
 int show_contributors = 0;
+
+// --- UI Scaling ---
+float ui_scale = 1.0f; // Default scale (range 0.5 to 2.0)
+SDL_Rect slider_ui_scale;
+
+// --- Mobile Keyboard Handling ---
+#if defined(__ANDROID__) || defined(__IPHONEOS__)
+int keyboard_height = 0; // Estimated keyboard height (updated when keyboard shows)
+int chat_window_shift = 0; // Amount to shift chat window up
+#endif
 int show_documentation = 0;
 SDL_Rect btn_contributors_rect;
 SDL_Rect btn_documentation_rect;
@@ -310,7 +320,7 @@ int warnings_scroll = 0; // Scroll offset for warnings window
 SDL_Rect btn_sanction_open; // In Profile
 SDL_Rect btn_my_warnings;   // In Settings
 
-enum { SLIDER_NONE, SLIDER_R, SLIDER_G, SLIDER_B, SLIDER_R2, SLIDER_G2, SLIDER_B2, SLIDER_VOL, SLIDER_AFK };
+enum { SLIDER_NONE, SLIDER_R, SLIDER_G, SLIDER_B, SLIDER_R2, SLIDER_G2, SLIDER_B2, SLIDER_VOL, SLIDER_AFK, SLIDER_UI_SCALE };
 int active_slider = SLIDER_NONE;
 
 // --- Color Sliders ---
@@ -432,13 +442,14 @@ void save_config() {
                 r = local_players[i].r; g = local_players[i].g; b = local_players[i].b;
             }
         }
-        // Format: R G B R2 G2 B2 AFK_MIN DEBUG FPS COORDS VOL UNREAD
-        fprintf(fp, "%d %d %d %d %d %d %d %d %d %d %d %d\n", 
+        // Format: R G B R2 G2 B2 AFK_MIN DEBUG FPS COORDS VOL UNREAD UI_SCALE
+        fprintf(fp, "%d %d %d %d %d %d %d %d %d %d %d %d %.2f\n", 
             r, g, b, 
             my_r2, my_g2, my_b2, 
             afk_timeout_minutes,
             show_debug_info, show_fps, show_coords, music_volume,
-            show_unread_counter // <--- Added this
+            show_unread_counter,
+            ui_scale
         );
         fclose(fp);
     }
@@ -462,12 +473,13 @@ void load_config() {
     if (fp) {
         // Temp variables for flags
         int dbg=0, fps=0, crd=0, vol=64, unread=1;
+        float scale=1.0f;
         
-        int count = fscanf(fp, "%d %d %d %d %d %d %d %d %d %d %d %d", 
+        int count = fscanf(fp, "%d %d %d %d %d %d %d %d %d %d %d %d %f", 
             &saved_r, &saved_g, &saved_b, 
             &my_r2, &my_g2, &my_b2, 
             &afk_timeout_minutes,
-            &dbg, &fps, &crd, &vol, &unread // <--- Added this
+            &dbg, &fps, &crd, &vol, &unread, &scale
         );
         
         // Only apply if we successfully read at least the old version (11) or new (12)
@@ -484,7 +496,31 @@ void load_config() {
             show_unread_counter = unread;
         }
         
+        // Apply UI scale if present
+        if (count >= 13) {
+            ui_scale = scale;
+            // Clamp to valid range
+            if (ui_scale < 0.5f) ui_scale = 0.5f;
+            if (ui_scale > 2.0f) ui_scale = 2.0f;
+        }
+        
         fclose(fp);
+    }
+}
+
+void reload_font_with_scale() {
+    if (font) {
+        TTF_CloseFont(font);
+        font = NULL;
+    }
+    int scaled_size = (int)(FONT_SIZE * ui_scale);
+    if (scaled_size < 8) scaled_size = 8;   // Minimum readable size
+    if (scaled_size > 48) scaled_size = 48; // Maximum reasonable size
+    font = TTF_OpenFont(FONT_PATH, scaled_size);
+    if (!font) {
+        printf("Failed to reload font with scale: %s\n", TTF_GetError());
+        // Fallback to default size
+        font = TTF_OpenFont(FONT_PATH, FONT_SIZE);
     }
 }
 
@@ -808,17 +844,6 @@ void play_next_track() {
 
 void init_audio() {
     if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) return;
-    
-    #ifdef __ANDROID__
-    // On Android, we can't use opendir on assets, so manually list known music files
-    // This could be improved with JNI calls to AssetManager, but for now use direct listing
-    const char* known_music[] = {"1.mp3", NULL};  // Add more music files here as needed
-    for (int i = 0; known_music[i] != NULL; i++) {
-        if (music_count < 20) {
-            strncpy(music_playlist[music_count++], known_music[i], 63);
-        }
-    }
-    #else
     DIR *d; struct dirent *dir;
     char music_dir_path[256];
     get_path(music_dir_path, "music", 0);
@@ -831,7 +856,6 @@ void init_audio() {
         }
         closedir(d);
     }
-    #endif
     Mix_VolumeMusic(music_volume);
 }
 
@@ -857,6 +881,16 @@ SDL_Color get_status_color(int status) {
 }
 
 // --- Rich Text Helpers ---
+
+// Helper function to scale an integer value based on UI scale
+int scale_ui(int value) {
+    return (int)(value * ui_scale);
+}
+
+// Helper function to scale a rectangle
+SDL_Rect scale_rect(int x, int y, int w, int h) {
+    return (SDL_Rect){scale_ui(x), scale_ui(y), scale_ui(w), scale_ui(h)};
+}
 
 // Returns color for codes ^1 through ^9
 SDL_Color get_color_from_code(char code) {
@@ -1512,13 +1546,24 @@ void process_slider_drag(int mx) {
         
         case SLIDER_VOL: r = &slider_volume; val_ptr = &music_volume; max_val = 128; break;
         case SLIDER_AFK: r = &slider_afk;    val_ptr = &afk_timeout_minutes; max_val = 10; break;
+        case SLIDER_UI_SCALE: r = &slider_ui_scale; break; // Special handling below
     }
 
-    if (!r || !val_ptr) return;
-
+    if (!r) return;
+    
     // Calculate Value
     float pct = (float)(mx - r->x) / (float)r->w;
     if (pct < 0.0f) pct = 0.0f; else if (pct > 1.0f) pct = 1.0f;
+
+    // Handle UI Scale specially (float, different range)
+    if (active_slider == SLIDER_UI_SCALE) {
+        ui_scale = 0.5f + (pct * 1.5f); // Map 0.0-1.0 to 0.5-2.0
+        reload_font_with_scale(); // Update font size immediately
+        save_config();
+        return;
+    }
+    
+    if (!val_ptr) return;
 
     if (active_slider == SLIDER_AFK) *val_ptr = 2 + (int)(pct * 8.0f + 0.5f);
     else *val_ptr = (int)(pct * max_val);
@@ -1702,6 +1747,19 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     render_text(renderer, "10m", slider_afk.x + 245, slider_afk.y + 2, col_white, 0); 
     y += 50;
 
+    // -- UI Scale --
+    char scale_str[64]; snprintf(scale_str, 64, "UI Scale: %.1fx", ui_scale);
+    render_text(renderer, scale_str, settings_win.x + 175, y, col_white, 1); 
+    y += 25;
+    
+    slider_ui_scale = (SDL_Rect){start_x + 30, y, 240, 15};
+    float scale_pct = (ui_scale - 0.5f) / 1.5f; // Map 0.5-2.0 to 0.0-1.0
+    render_fancy_slider(renderer, &slider_ui_scale, scale_pct, (SDL_Color){150, 150, 255, 255});
+    
+    render_text(renderer, "0.5x", slider_ui_scale.x - 25, slider_ui_scale.y + 2, col_white, 0);  
+    render_text(renderer, "2.0x", slider_ui_scale.x + 245, slider_ui_scale.y + 2, col_white, 0); 
+    y += 50;
+
    // -- Disconnect --
     btn_disconnect_rect = (SDL_Rect){start_x, y, 300, 30};
     SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_disconnect_rect);
@@ -1735,27 +1793,9 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
 
     y += 45; // <--- FIX: Added gap so text doesn't overlap button
 
-    // --- Avatar Upload Section ---
-    #if defined(__ANDROID__) || defined(__IPHONEOS__)
-    // Mobile: Explain file access limitation
-    render_text(renderer, "Avatar Upload:", settings_win.x + 175, y, col_yellow, 1); y += 25;
-    render_text(renderer, "On mobile, use file manager to", settings_win.x + 175, y, col_white, 1); y += 20;
-    render_text(renderer, "share image to this app", settings_win.x + 175, y, col_white, 1); y += 20;
-    render_text(renderer, "Image must be <16KB", settings_win.x + 175, y, col_yellow, 1); y += 30;
-    #else
-    // Desktop: Show drag & drop instructions with button option
-    render_text(renderer, "Avatar Upload (<16KB):", settings_win.x + 175, y, col_yellow, 1); y += 25;
-    render_text(renderer, "Drag & Drop Image here", settings_win.x + 175, y, col_white, 1); y += 25;
-    
-    // Add a button as visual indicator
-    SDL_Rect btn_avatar_area = {settings_win.x + 75, y, 200, 40};
-    SDL_SetRenderDrawColor(renderer, 60, 60, 80, 255);
-    SDL_RenderFillRect(renderer, &btn_avatar_area);
-    SDL_SetRenderDrawColor(renderer, 100, 150, 255, 255);
-    SDL_RenderDrawRect(renderer, &btn_avatar_area);
-    render_text(renderer, "Drop Image Here", btn_avatar_area.x + 100, btn_avatar_area.y + 12, col_cyan, 1);
-    y += 50;
-    #endif
+    // --- Footer Text ---
+    render_text(renderer, "Drag & Drop Image here", settings_win.x + 175, y, col_yellow, 1); y += 20;
+    render_text(renderer, "to upload Avatar (<16KB)", settings_win.x + 175, y, col_yellow, 1); y += 30;
 
     // CALCULATE CONTENT HEIGHT
     settings_content_h = y - settings_win.y + settings_scroll_y;
@@ -2349,7 +2389,28 @@ void render_game(SDL_Renderer *renderer) {
 
  // 5. Draw Chat Overlay
     if(is_chat_open) {
-        SDL_Rect win = {10, h-240, 300, 190};
+        // Calculate chat window position with mobile keyboard shift
+        int chat_y = h-240;
+        #if defined(__ANDROID__) || defined(__IPHONEOS__)
+        // Shift chat window up when keyboard is active
+        if (chat_input_active && keyboard_height > 0) {
+            chat_window_shift = keyboard_height;
+            chat_y -= chat_window_shift;
+            // Ensure chat doesn't go off-screen
+            if (chat_y < 50) chat_y = 50;
+        } else {
+            chat_window_shift = 0;
+        }
+        #endif
+        
+        SDL_Rect win = {10, chat_y, 300, 190};
+        
+        // Set text input hint for mobile keyboard positioning
+        #if defined(__ANDROID__) || defined(__IPHONEOS__)
+        SDL_Rect input_hint = {15, win.y + win.h - 24, 270, 24};
+        SDL_SetTextInputRect(&input_hint);
+        #endif
+        
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
         SDL_SetRenderDrawColor(renderer, 0,0,0,200); SDL_RenderFillRect(renderer, &win);
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
@@ -2733,6 +2794,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             
             CHECK_SLIDER(slider_volume, SLIDER_VOL);
             CHECK_SLIDER(slider_afk, SLIDER_AFK);
+            CHECK_SLIDER(slider_ui_scale, SLIDER_UI_SCALE);
 
             // Bottom Buttons
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_disconnect_rect)) {
@@ -3014,6 +3076,12 @@ int main(int argc, char *argv[]) {
     load_servers();
     load_triggers();
     load_config(); // Initial load
+    
+    // Apply UI scale to font after loading config
+    if (ui_scale != 1.0f) {
+        reload_font_with_scale();
+    }
+    
     sock = -1;
 
     for(int i=0; i<MAX_CLIENTS; i++) { avatar_cache[i] = NULL; avatar_status[i] = 0; }
@@ -3172,9 +3240,16 @@ int main(int argc, char *argv[]) {
                         if (SDL_PointInRect(&(SDL_Point){tx, ty}, &chat_input)) {
                             chat_input_active = 1;
                             SDL_StartTextInput();
+                            #if defined(__ANDROID__) || defined(__IPHONEOS__)
+                            // Estimate keyboard height as 40% of screen height on mobile
+                            keyboard_height = h * 0.4;
+                            #endif
                         } else if (!SDL_PointInRect(&(SDL_Point){tx, ty}, &chat_win)) {
                             chat_input_active = 0;
                             if (active_field < 0) SDL_StopTextInput();
+                            #if defined(__ANDROID__) || defined(__IPHONEOS__)
+                            keyboard_height = 0;
+                            #endif
                         }
                     } else if (touch_id_dpad == -1) {
                         // Create joystick only in game state
@@ -3315,7 +3390,13 @@ int main(int argc, char *argv[]) {
                      if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_chat_toggle)) {
                         is_chat_open = !is_chat_open; 
                         if(is_chat_open) { unread_chat_count = 0; chat_input_active = 0; } 
-                        else { chat_input_active = 0; SDL_StopTextInput(); }
+                        else { 
+                            chat_input_active = 0; 
+                            SDL_StopTextInput();
+                            #if defined(__ANDROID__) || defined(__IPHONEOS__)
+                            keyboard_height = 0;
+                            #endif
+                        }
                      } 
                      else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_settings_toggle)) {
                         is_settings_open = !is_settings_open;
@@ -3343,24 +3424,16 @@ int main(int argc, char *argv[]) {
                          if (SDL_PointInRect(&(SDL_Point){mx, my}, &chat_input)) {
                              chat_input_active = 1;
                              SDL_StartTextInput();
-                             // Setup cursor position and selection for mouse drag
-                             int prefix_w = 0, ph; char prefix[64];
-                             if (chat_target_id != -1) {
-                                 char *name = "Unknown"; 
-                                 for(int i=0; i<MAX_CLIENTS; i++) 
-                                     if(local_players[i].id == chat_target_id) name = local_players[i].username;
-                                 snprintf(prefix, 64, "To %s: ", name);
-                             } else { strcpy(prefix, "> "); }
-                             TTF_SizeText(font, prefix, &prefix_w, &ph);
-                             active_input_rect = chat_input; 
-                             active_input_rect.x += (5 + prefix_w);
-                             cursor_pos = get_cursor_pos_from_click(input_buffer, mx, active_input_rect.x);
-                             selection_start = cursor_pos; 
-                             selection_len = 0; 
-                             is_dragging = 1;
+                             #if defined(__ANDROID__) || defined(__IPHONEOS__)
+                             // Estimate keyboard height as 40% of screen height on mobile
+                             keyboard_height = screen_h * 0.4;
+                             #endif
                          } else if (!SDL_PointInRect(&(SDL_Point){mx, my}, &chat_win)) {
                              chat_input_active = 0;
                              if (active_field < 0) SDL_StopTextInput();
+                             #if defined(__ANDROID__) || defined(__IPHONEOS__)
+                             keyboard_height = 0;
+                             #endif
                          }
                      }
                      else {
@@ -3396,12 +3469,18 @@ int main(int argc, char *argv[]) {
                             chat_target_id = -1;  // Reset private message mode after sending
                             chat_input_active = 0;
                             SDL_StopTextInput();
+                            #if defined(__ANDROID__) || defined(__IPHONEOS__)
+                            keyboard_height = 0;
+                            #endif
                         }
                         else if(event.key.keysym.sym == SDLK_ESCAPE) { 
                             is_chat_open = 0; 
                             chat_target_id = -1;
                             chat_input_active = 0;
-                            SDL_StopTextInput(); 
+                            SDL_StopTextInput();
+                            #if defined(__ANDROID__) || defined(__IPHONEOS__)
+                            keyboard_height = 0;
+                            #endif
                         }
                     }
                 }
