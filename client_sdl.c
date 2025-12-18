@@ -1735,9 +1735,27 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
 
     y += 45; // <--- FIX: Added gap so text doesn't overlap button
 
-    // --- Footer Text ---
-    render_text(renderer, "Drag & Drop Image here", settings_win.x + 175, y, col_yellow, 1); y += 20;
-    render_text(renderer, "to upload Avatar (<16KB)", settings_win.x + 175, y, col_yellow, 1); y += 30;
+    // --- Avatar Upload Section ---
+    #if defined(__ANDROID__) || defined(__IPHONEOS__)
+    // Mobile: Explain file access limitation
+    render_text(renderer, "Avatar Upload:", settings_win.x + 175, y, col_yellow, 1); y += 25;
+    render_text(renderer, "On mobile, use file manager to", settings_win.x + 175, y, col_white, 1); y += 20;
+    render_text(renderer, "share image to this app", settings_win.x + 175, y, col_white, 1); y += 20;
+    render_text(renderer, "Image must be <16KB", settings_win.x + 175, y, col_yellow, 1); y += 30;
+    #else
+    // Desktop: Show drag & drop instructions with button option
+    render_text(renderer, "Avatar Upload (<16KB):", settings_win.x + 175, y, col_yellow, 1); y += 25;
+    render_text(renderer, "Drag & Drop Image here", settings_win.x + 175, y, col_white, 1); y += 25;
+    
+    // Add a button as visual indicator
+    SDL_Rect btn_avatar_area = {settings_win.x + 75, y, 200, 40};
+    SDL_SetRenderDrawColor(renderer, 60, 60, 80, 255);
+    SDL_RenderFillRect(renderer, &btn_avatar_area);
+    SDL_SetRenderDrawColor(renderer, 100, 150, 255, 255);
+    SDL_RenderDrawRect(renderer, &btn_avatar_area);
+    render_text(renderer, "Drop Image Here", btn_avatar_area.x + 100, btn_avatar_area.y + 12, col_cyan, 1);
+    y += 50;
+    #endif
 
     // CALCULATE CONTENT HEIGHT
     settings_content_h = y - settings_win.y + settings_scroll_y;
