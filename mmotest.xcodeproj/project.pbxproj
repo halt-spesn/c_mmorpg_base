@@ -1,3 +1,4 @@
+
 // !$*UTF8*$!
 {
 	archiveVersion = 1;
@@ -23,10 +24,14 @@
 		9F8779042EF2CAAC003F57C3 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8779032EF2CAAC003F57C3 /* Metal.framework */; };
 		9F8779062EF2CAB7003F57C3 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8779052EF2CAB7003F57C3 /* QuartzCore.framework */; };
 		9F8779082EF2CABF003F57C3 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8779072EF2CABF003F57C3 /* UIKit.framework */; platformFilter = ios; };
-		9F87790C2EF2CADD003F57C3 /* libSDL2.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8779092EF2CADD003F57C3 /* libSDL2.a */; };
-		9F87790D2EF2CADE003F57C3 /* libSDL2_ttf.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F87790A2EF2CADD003F57C3 /* libSDL2_ttf.a */; };
-		9F87790E2EF2CADF003F57C3 /* libSDL2_mixer.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F87790B2EF2CADD003F57C3 /* libSDL2_mixer.a */; };
-		9F8779132EF2CC73003F57C3 /* libSDL2_image.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8779122EF2CC73003F57C3 /* libSDL2_image.a */; };
+		9F87790C2EF2CADD003F57C3 /* libSDL2.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8779092EF2CADD003F57C3 /* libSDL2.a */; platformFilter = ios; };
+		9F87790D2EF2CADE003F57C3 /* libSDL2_ttf.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F87790A2EF2CADD003F57C3 /* libSDL2_ttf.a */; platformFilter = ios; };
+		9F87790E2EF2CADF003F57C3 /* libSDL2_mixer.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F87790B2EF2CADD003F57C3 /* libSDL2_mixer.a */; platformFilter = ios; };
+		9F8779132EF2CC73003F57C3 /* libSDL2_image.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8779122EF2CC73003F57C3 /* libSDL2_image.a */; platformFilter = ios; };
+		9F8779192EF2CE00003F57C3 /* libSDL2.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8779162EF2CD90003F57C3 /* libSDL2.a */; platformFilter = maccatalyst; };
+		9F87791A2EF2CE01003F57C3 /* libSDL2_ttf.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8779152EF2CD90003F57C3 /* libSDL2_ttf.a */; platformFilter = maccatalyst; };
+		9F87791D2EF2CE04003F57C3 /* libSDL2_mixer.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8779172EF2CD90003F57C3 /* libSDL2_mixer.a */; platformFilter = maccatalyst; };
+		9F8779202EF2CE05003F57C3 /* libSDL2_image.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8779182EF2CD90003F57C3 /* libSDL2_image.a */; platformFilter = maccatalyst; };
 		9F8779142EF2CD00003F57C3 /* DejaVuSans.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 9F8778F32EF2C9FF003F57C3 /* DejaVuSans.ttf */; };
 		9F87791E2EF2D500003F57C3 /* triggers.txt in Resources */ = {isa = PBXBuildFile; fileRef = 9F8778F12EF2C9F2003F57C3 /* triggers.txt */; };
 		9F87791F2EF2D600003F57C3 /* music in Resources */ = {isa = PBXBuildFile; fileRef = 9F8778EF2EF2C9DA003F57C3 /* music */; };
@@ -85,6 +90,10 @@
 				9F87790C2EF2CADD003F57C3 /* libSDL2.a in Frameworks */,
 				9F87790D2EF2CADE003F57C3 /* libSDL2_ttf.a in Frameworks */,
 				9F87790E2EF2CADF003F57C3 /* libSDL2_mixer.a in Frameworks */,
+				9F8779202EF2CE05003F57C3 /* libSDL2_image.a in Frameworks */,
+				9F8779192EF2CE00003F57C3 /* libSDL2.a in Frameworks */,
+				9F87791A2EF2CE01003F57C3 /* libSDL2_ttf.a in Frameworks */,
+				9F87791D2EF2CE04003F57C3 /* libSDL2_mixer.a in Frameworks */,
 				9F8779082EF2CABF003F57C3 /* UIKit.framework in Frameworks */,
 				9F8779062EF2CAB7003F57C3 /* QuartzCore.framework in Frameworks */,
 				9F8779042EF2CAAC003F57C3 /* Metal.framework in Frameworks */,
