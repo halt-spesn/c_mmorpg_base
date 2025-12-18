@@ -1595,7 +1595,7 @@ void render_fancy_slider(SDL_Renderer *renderer, SDL_Rect *rect, float pct, SDL_
     // SDL_SetRenderDrawColor(renderer, 50, 50, 50, 255); SDL_RenderDrawRect(renderer, rect);
 
     // 2. Draw Track (Thin line centered vertically)
-    int track_h = 4;
+    int track_h = scale_ui(4);
     int track_y = rect->y + (rect->h / 2) - (track_h / 2);
     SDL_Rect track = {rect->x, track_y, rect->w, track_h};
 
@@ -1608,16 +1608,16 @@ void render_fancy_slider(SDL_Renderer *renderer, SDL_Rect *rect, float pct, SDL_
     SDL_SetRenderDrawColor(renderer, fill_col.r, fill_col.g, fill_col.b, 255);
     SDL_RenderFillRect(renderer, &filled);
 
-    // 3. Draw Knob (Centered)
-    int knob_w = 12;
-    int knob_h = 20;
+    // 3. Draw Knob (Centered and scaled)
+    int knob_w = scale_ui(12);
+    int knob_h = scale_ui(20);
     int knob_x = rect->x + (int)(rect->w * pct) - (knob_w / 2);
     int knob_y = rect->y + (rect->h / 2) - (knob_h / 2);
 
     SDL_Rect knob = {knob_x, knob_y, knob_w, knob_h};
 
     // Knob Shadow
-    SDL_Rect shadow = knob; shadow.x += 1; shadow.y += 1;
+    SDL_Rect shadow = knob; shadow.x += scale_ui(1); shadow.y += scale_ui(1);
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 100);
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
     SDL_RenderFillRect(renderer, &shadow);
@@ -1635,167 +1635,167 @@ void render_fancy_slider(SDL_Renderer *renderer, SDL_Rect *rect, float pct, SDL_
 void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     if (!is_settings_open) return;
     
-    // 1. Setup Main Window (Fixed Size)
-    int win_h = 600;
-    settings_win = (SDL_Rect){screen_w/2 - 175, screen_h/2 - 300, 350, win_h}; 
+    // 1. Setup Main Window (Scaled Size)
+    int win_h = scale_ui(600);
+    settings_win = scale_rect(screen_w/2 - scale_ui(175), screen_h/2 - scale_ui(300), 350, win_h); 
     
     SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255); SDL_RenderFillRect(renderer, &settings_win);
     SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255); SDL_RenderDrawRect(renderer, &settings_win);
-    render_text(renderer, "Settings", settings_win.x + 175, settings_win.y + 10, col_white, 1);
+    render_text(renderer, "Settings", settings_win.x + settings_win.w/2, settings_win.y + scale_ui(10), col_white, 1);
 
     // 2. Setup Clipping Region (Content Area)
-    settings_view_port = (SDL_Rect){settings_win.x + 10, settings_win.y + 40, settings_win.w - 20, settings_win.h - 50};
+    settings_view_port = (SDL_Rect){settings_win.x + scale_ui(10), settings_win.y + scale_ui(40), settings_win.w - scale_ui(20), settings_win.h - scale_ui(50)};
     SDL_RenderSetClipRect(renderer, &settings_view_port);
 
     // 3. Render Content (Offset by settings_scroll_y)
-    int start_x = settings_win.x + 20;
-    int y = settings_win.y + 50 - settings_scroll_y; // Apply Scroll
+    int start_x = settings_win.x + scale_ui(20);
+    int y = settings_win.y + scale_ui(50) - settings_scroll_y; // Apply Scroll
     
     // -- Toggles --
-    btn_toggle_debug = (SDL_Rect){start_x, y, 20, 20};
+    btn_toggle_debug = scale_rect(start_x, y, 20, 20);
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_debug);
-    if (show_debug_info) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c={btn_toggle_debug.x+4,btn_toggle_debug.y+4,12,12}; SDL_RenderFillRect(renderer,&c); }
-    render_text(renderer, "Show Debug Info", start_x + 30, y, col_white, 0); y += 40;
+    if (show_debug_info) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c=scale_rect(btn_toggle_debug.x+scale_ui(4),btn_toggle_debug.y+scale_ui(4),12,12); SDL_RenderFillRect(renderer,&c); }
+    render_text(renderer, "Show Debug Info", start_x + scale_ui(30), y, col_white, 0); y += scale_ui(40);
 
-    btn_toggle_fps = (SDL_Rect){start_x, y, 20, 20};
+    btn_toggle_fps = scale_rect(start_x, y, 20, 20);
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_fps);
-    if (show_fps) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c={btn_toggle_fps.x+4,btn_toggle_fps.y+4,12,12}; SDL_RenderFillRect(renderer,&c); }
-    render_text(renderer, "Show FPS", start_x + 30, y, col_white, 0); y += 40;
+    if (show_fps) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c=scale_rect(btn_toggle_fps.x+scale_ui(4),btn_toggle_fps.y+scale_ui(4),12,12); SDL_RenderFillRect(renderer,&c); }
+    render_text(renderer, "Show FPS", start_x + scale_ui(30), y, col_white, 0); y += scale_ui(40);
 
-    btn_toggle_coords = (SDL_Rect){start_x, y, 20, 20};
+    btn_toggle_coords = scale_rect(start_x, y, 20, 20);
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_coords);
-    if (show_coords) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c={btn_toggle_coords.x+4,btn_toggle_coords.y+4,12,12}; SDL_RenderFillRect(renderer,&c); }
-    render_text(renderer, "Show Coordinates", start_x + 30, y, col_white, 0); y += 40;
+    if (show_coords) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c=scale_rect(btn_toggle_coords.x+scale_ui(4),btn_toggle_coords.y+scale_ui(4),12,12); SDL_RenderFillRect(renderer,&c); }
+    render_text(renderer, "Show Coordinates", start_x + scale_ui(30), y, col_white, 0); y += scale_ui(40);
 
-    btn_toggle_unread = (SDL_Rect){start_x, y, 20, 20};
+    btn_toggle_unread = scale_rect(start_x, y, 20, 20);
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_unread);
-    if (show_unread_counter) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c={btn_toggle_unread.x+4,btn_toggle_unread.y+4,12,12}; SDL_RenderFillRect(renderer,&c); }
-    render_text(renderer, "Show Unread Counter", start_x + 30, y, col_white, 0); y += 40;
+    if (show_unread_counter) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c=scale_rect(btn_toggle_unread.x+scale_ui(4),btn_toggle_unread.y+scale_ui(4),12,12); SDL_RenderFillRect(renderer,&c); }
+    render_text(renderer, "Show Unread Counter", start_x + scale_ui(30), y, col_white, 0); y += scale_ui(40);
 
     // -- Buttons --
-    btn_view_blocked = (SDL_Rect){start_x, y, 300, 30};
+    btn_view_blocked = scale_rect(start_x, y, 300, 30);
     SDL_SetRenderDrawColor(renderer, 200, 50, 50, 255); SDL_RenderFillRect(renderer, &btn_view_blocked);
-    render_text(renderer, "Manage Blocked Players", btn_view_blocked.x + 150, btn_view_blocked.y + 5, col_white, 1);
-    y += 40;
+    render_text(renderer, "Manage Blocked Players", btn_view_blocked.x + btn_view_blocked.w/2, btn_view_blocked.y + btn_view_blocked.h/2-scale_ui(7), col_white, 1);
+    y += scale_ui(40);
 
     char id_str[32]; snprintf(id_str, 32, "My ID: %d", local_player_id);
-    render_text(renderer, id_str, settings_win.x + 175, y, (SDL_Color){150, 150, 255, 255}, 1);
-    y += 25;
+    render_text(renderer, id_str, settings_win.x + settings_win.w/2, y, (SDL_Color){150, 150, 255, 255}, 1);
+    y += scale_ui(25);
 
     int my_status = 0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) my_status = local_players[i].status;
-    btn_cycle_status = (SDL_Rect){start_x, y, 300, 30};
+    btn_cycle_status = scale_rect(start_x, y, 300, 30);
     SDL_SetRenderDrawColor(renderer, 50, 50, 100, 255); SDL_RenderFillRect(renderer, &btn_cycle_status);
     char status_str[64]; snprintf(status_str, 64, "Status: %s", status_names[my_status]);
-    render_text(renderer, status_str, btn_cycle_status.x + 150, btn_cycle_status.y + 5, get_status_color(my_status), 1);
-    y += 40;
+    render_text(renderer, status_str, btn_cycle_status.x + btn_cycle_status.w/2, btn_cycle_status.y + btn_cycle_status.h/2-scale_ui(7), get_status_color(my_status), 1);
+    y += scale_ui(40);
 
-    SDL_Rect btn_nick = {start_x, y, 300, 30};
+    SDL_Rect btn_nick = scale_rect(start_x, y, 300, 30);
     SDL_SetRenderDrawColor(renderer, 100, 50, 150, 255); SDL_RenderFillRect(renderer, &btn_nick);
-    render_text(renderer, "Change Nickname", btn_nick.x + 150, btn_nick.y + 5, col_white, 1);
-    y += 40;
+    render_text(renderer, "Change Nickname", btn_nick.x + btn_nick.w/2, btn_nick.y + btn_nick.h/2-scale_ui(7), col_white, 1);
+    y += scale_ui(40);
  
     
 
-    render_text(renderer, "Name Color (Start)", settings_win.x + 175, y, (SDL_Color){my_r, my_g, my_b, 255}, 1); 
-    y += 25; // Header Gap
+    render_text(renderer, "Name Color (Start)", settings_win.x + settings_win.w/2, y, (SDL_Color){my_r, my_g, my_b, 255}, 1); 
+    y += scale_ui(25); // Header Gap
     
-    slider_r = (SDL_Rect){start_x + 30, y, 240, 15};
+    slider_r = scale_rect(start_x + scale_ui(30), y, 240, 15);
     render_fancy_slider(renderer, &slider_r, my_r/255.0f, (SDL_Color){255, 50, 50, 255}); 
-    y += 40; // Increased spacing
+    y += scale_ui(40); // Increased spacing
 
-    slider_g = (SDL_Rect){start_x + 30, y, 240, 15};
+    slider_g = scale_rect(start_x + scale_ui(30), y, 240, 15);
     render_fancy_slider(renderer, &slider_g, my_g/255.0f, (SDL_Color){50, 255, 50, 255}); 
-    y += 40;
+    y += scale_ui(40);
 
-    slider_b = (SDL_Rect){start_x + 30, y, 240, 15};
+    slider_b = scale_rect(start_x + scale_ui(30), y, 240, 15);
     render_fancy_slider(renderer, &slider_b, my_b/255.0f, (SDL_Color){50, 50, 255, 255}); 
-    y += 50; // Extra gap before next section title
+    y += scale_ui(50); // Extra gap before next section title
 
     // -- Color Sliders 2 (End) --
-    render_text(renderer, "Name Color (End)", settings_win.x + 175, y, (SDL_Color){my_r2, my_g2, my_b2, 255}, 1); 
-    y += 25;
+    render_text(renderer, "Name Color (End)", settings_win.x + settings_win.w/2, y, (SDL_Color){my_r2, my_g2, my_b2, 255}, 1); 
+    y += scale_ui(25);
 
-    slider_r2 = (SDL_Rect){start_x + 30, y, 240, 15};
+    slider_r2 = scale_rect(start_x + scale_ui(30), y, 240, 15);
     render_fancy_slider(renderer, &slider_r2, my_r2/255.0f, (SDL_Color){255, 50, 50, 255}); 
-    y += 40;
+    y += scale_ui(40);
 
-    slider_g2 = (SDL_Rect){start_x + 30, y, 240, 15};
+    slider_g2 = scale_rect(start_x + scale_ui(30), y, 240, 15);
     render_fancy_slider(renderer, &slider_g2, my_g2/255.0f, (SDL_Color){50, 255, 50, 255}); 
-    y += 40;
+    y += scale_ui(40);
 
-    slider_b2 = (SDL_Rect){start_x + 30, y, 240, 15};
+    slider_b2 = scale_rect(start_x + scale_ui(30), y, 240, 15);
     render_fancy_slider(renderer, &slider_b2, my_b2/255.0f, (SDL_Color){50, 50, 255, 255}); 
-    y += 50; // Extra gap
+    y += scale_ui(50); // Extra gap
 
     // -- Volume --
-    render_text(renderer, "Music Volume", settings_win.x + 175, y, col_white, 1); 
-    y += 25;
-    slider_volume = (SDL_Rect){start_x + 30, y, 240, 15};
+    render_text(renderer, "Music Volume", settings_win.x + settings_win.w/2, y, col_white, 1); 
+    y += scale_ui(25);
+    slider_volume = scale_rect(start_x + scale_ui(30), y, 240, 15);
     render_fancy_slider(renderer, &slider_volume, music_volume/128.0f, (SDL_Color){0, 200, 255, 255}); 
-    y += 50;
+    y += scale_ui(50);
 
     // -- AFK --
     char afk_str[64]; snprintf(afk_str, 64, "Auto-AFK: %d min", afk_timeout_minutes);
-    render_text(renderer, afk_str, settings_win.x + 175, y, col_white, 1); 
-    y += 25;
+    render_text(renderer, afk_str, settings_win.x + settings_win.w/2, y, col_white, 1); 
+    y += scale_ui(25);
     
-    slider_afk = (SDL_Rect){start_x + 30, y, 240, 15};
+    slider_afk = scale_rect(start_x + scale_ui(30), y, 240, 15);
     float afk_pct = (afk_timeout_minutes - 2) / 8.0f;
     render_fancy_slider(renderer, &slider_afk, afk_pct, (SDL_Color){255, 165, 0, 255});
     
-    render_text(renderer, "2m", slider_afk.x - 20, slider_afk.y + 2, col_white, 0);  
-    render_text(renderer, "10m", slider_afk.x + 245, slider_afk.y + 2, col_white, 0); 
-    y += 50;
+    render_text(renderer, "2m", slider_afk.x - scale_ui(20), slider_afk.y + scale_ui(2), col_white, 0);  
+    render_text(renderer, "10m", slider_afk.x + slider_afk.w + scale_ui(5), slider_afk.y + scale_ui(2), col_white, 0); 
+    y += scale_ui(50);
 
     // -- UI Scale --
     char scale_str[64]; snprintf(scale_str, 64, "UI Scale: %.1fx", ui_scale);
-    render_text(renderer, scale_str, settings_win.x + 175, y, col_white, 1); 
-    y += 25;
+    render_text(renderer, scale_str, settings_win.x + settings_win.w/2, y, col_white, 1); 
+    y += scale_ui(25);
     
-    slider_ui_scale = (SDL_Rect){start_x + 30, y, 240, 15};
+    slider_ui_scale = scale_rect(start_x + scale_ui(30), y, 240, 15);
     float scale_pct = (ui_scale - 0.5f) / 1.5f; // Map 0.5-2.0 to 0.0-1.0
     render_fancy_slider(renderer, &slider_ui_scale, scale_pct, (SDL_Color){150, 150, 255, 255});
     
-    render_text(renderer, "0.5x", slider_ui_scale.x - 25, slider_ui_scale.y + 2, col_white, 0);  
-    render_text(renderer, "2.0x", slider_ui_scale.x + 245, slider_ui_scale.y + 2, col_white, 0); 
-    y += 50;
+    render_text(renderer, "0.5x", slider_ui_scale.x - scale_ui(25), slider_ui_scale.y + scale_ui(2), col_white, 0);  
+    render_text(renderer, "2.0x", slider_ui_scale.x + slider_ui_scale.w + scale_ui(5), slider_ui_scale.y + scale_ui(2), col_white, 0); 
+    y += scale_ui(50);
 
    // -- Disconnect --
-    btn_disconnect_rect = (SDL_Rect){start_x, y, 300, 30};
+    btn_disconnect_rect = scale_rect(start_x, y, 300, 30);
     SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_disconnect_rect);
-    render_text(renderer, "Disconnect / Logout", btn_disconnect_rect.x + 150, btn_disconnect_rect.y + 5, col_white, 1); 
-    y += 40;
+    render_text(renderer, "Disconnect / Logout", btn_disconnect_rect.x + btn_disconnect_rect.w/2, btn_disconnect_rect.y + btn_disconnect_rect.h/2-scale_ui(7), col_white, 1); 
+    y += scale_ui(40);
 
     // --- Docs / Staff / Credits Row ---
-    int btn_w = 95; 
+    int btn_w = scale_ui(95); 
     
     // 1. Docs
-    btn_documentation_rect = (SDL_Rect){start_x, y, btn_w, 30};
+    btn_documentation_rect = scale_rect(start_x, y, btn_w, 30);
     SDL_SetRenderDrawColor(renderer, 0, 100, 150, 255); SDL_RenderFillRect(renderer, &btn_documentation_rect);
-    render_text(renderer, "Docs", btn_documentation_rect.x + 47, btn_documentation_rect.y + 5, col_white, 1);
+    render_text(renderer, "Docs", btn_documentation_rect.x + btn_documentation_rect.w/2, btn_documentation_rect.y + btn_documentation_rect.h/2-scale_ui(7), col_white, 1);
 
     // 2. Staff
-    btn_staff_list_rect = (SDL_Rect){start_x + 100, y, btn_w, 30};
+    btn_staff_list_rect = scale_rect(start_x + scale_ui(100), y, btn_w, 30);
     SDL_SetRenderDrawColor(renderer, 150, 100, 0, 255); SDL_RenderFillRect(renderer, &btn_staff_list_rect);
-    render_text(renderer, "Staff", btn_staff_list_rect.x + 47, btn_staff_list_rect.y + 5, col_white, 1);
+    render_text(renderer, "Staff", btn_staff_list_rect.x + btn_staff_list_rect.w/2, btn_staff_list_rect.y + btn_staff_list_rect.h/2-scale_ui(7), col_white, 1);
 
     // 3. Credits
-    btn_contributors_rect = (SDL_Rect){start_x + 200, y, btn_w, 30};
+    btn_contributors_rect = scale_rect(start_x + scale_ui(200), y, btn_w, 30);
     SDL_SetRenderDrawColor(renderer, 0, 150, 100, 255); SDL_RenderFillRect(renderer, &btn_contributors_rect);
-    render_text(renderer, "Credits", btn_contributors_rect.x + 47, btn_contributors_rect.y + 5, col_white, 1);
+    render_text(renderer, "Credits", btn_contributors_rect.x + btn_contributors_rect.w/2, btn_contributors_rect.y + btn_contributors_rect.h/2-scale_ui(7), col_white, 1);
     
-    y += 40; // Move down for next row
+    y += scale_ui(40); // Move down for next row
 
     // --- My Warnings Button ---
-    btn_my_warnings = (SDL_Rect){start_x, y, 300, 30};
+    btn_my_warnings = scale_rect(start_x, y, 300, 30);
     SDL_SetRenderDrawColor(renderer, 200, 100, 0, 255); SDL_RenderFillRect(renderer, &btn_my_warnings);
-    render_text(renderer, "View My Warnings", btn_my_warnings.x + 150, btn_my_warnings.y + 5, col_white, 1);
+    render_text(renderer, "View My Warnings", btn_my_warnings.x + btn_my_warnings.w/2, btn_my_warnings.y + btn_my_warnings.h/2-scale_ui(7), col_white, 1);
 
-    y += 45; // <--- FIX: Added gap so text doesn't overlap button
+    y += scale_ui(45); // <--- FIX: Added gap so text doesn't overlap button
 
     // --- Footer Text ---
-    render_text(renderer, "Drag & Drop Image here", settings_win.x + 175, y, col_yellow, 1); y += 20;
-    render_text(renderer, "to upload Avatar (<16KB)", settings_win.x + 175, y, col_yellow, 1); y += 30;
+    render_text(renderer, "Drag & Drop Image here", settings_win.x + settings_win.w/2, y, col_yellow, 1); y += scale_ui(20);
+    render_text(renderer, "to upload Avatar (<16KB)", settings_win.x + settings_win.w/2, y, col_yellow, 1); y += scale_ui(30);
 
     // CALCULATE CONTENT HEIGHT
     settings_content_h = y - settings_win.y + settings_scroll_y;
@@ -2362,52 +2362,52 @@ void render_game(SDL_Renderer *renderer) {
     render_hud(renderer, h);
     render_mobile_controls(renderer, w);
 
-    // 4. Draw HUD Buttons
-    btn_chat_toggle = (SDL_Rect){10, h-40, 100, 30};
+    // 4. Draw HUD Buttons (with UI scaling)
+    btn_chat_toggle = scale_rect(10, h-scale_ui(40), 100, 30);
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_chat_toggle);
-    render_text(renderer, is_chat_open ? "Close" : "Chat", btn_chat_toggle.x+50, btn_chat_toggle.y+5, col_white, 1);
+    render_text(renderer, is_chat_open ? "Close" : "Chat", btn_chat_toggle.x+btn_chat_toggle.w/2, btn_chat_toggle.y+btn_chat_toggle.h/2-scale_ui(7), col_white, 1);
     // --- NEW: Unread Badge ---
     if (show_unread_counter && unread_chat_count > 0 && !is_chat_open) {
         // Draw Red Box
-        SDL_Rect badge = {btn_chat_toggle.x + 80, btn_chat_toggle.y - 10, 20, 20};
+        SDL_Rect badge = scale_rect(btn_chat_toggle.x + scale_ui(80), btn_chat_toggle.y - scale_ui(10), 20, 20);
         SDL_SetRenderDrawColor(renderer, 200, 0, 0, 255); 
         SDL_RenderFillRect(renderer, &badge);
         
         // Draw Number
         char num[8]; 
         snprintf(num, 8, "%d", unread_chat_count > 9 ? 9 : unread_chat_count); // Cap visual at 9
-        render_text(renderer, num, badge.x + 10, badge.y + 2, col_white, 1);
+        render_text(renderer, num, badge.x + badge.w/2, badge.y + badge.h/2-scale_ui(7), col_white, 1);
     }
 
-    btn_view_friends = (SDL_Rect){120, h-40, 100, 30};
+    btn_view_friends = scale_rect(120, h-scale_ui(40), 100, 30);
     SDL_SetRenderDrawColor(renderer, 0, 100, 0, 255); SDL_RenderFillRect(renderer, &btn_view_friends);
-    render_text(renderer, "Friends", btn_view_friends.x+50, btn_view_friends.y+5, col_white, 1);
+    render_text(renderer, "Friends", btn_view_friends.x+btn_view_friends.w/2, btn_view_friends.y+btn_view_friends.h/2-scale_ui(7), col_white, 1);
 
-    btn_settings_toggle = (SDL_Rect){230, h-40, 100, 30};
+    btn_settings_toggle = scale_rect(230, h-scale_ui(40), 100, 30);
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_settings_toggle);
-    render_text(renderer, "Settings", btn_settings_toggle.x+50, btn_settings_toggle.y+5, col_white, 1);
+    render_text(renderer, "Settings", btn_settings_toggle.x+btn_settings_toggle.w/2, btn_settings_toggle.y+btn_settings_toggle.h/2-scale_ui(7), col_white, 1);
 
- // 5. Draw Chat Overlay
+ // 5. Draw Chat Overlay (with UI scaling)
     if(is_chat_open) {
         // Calculate chat window position with mobile keyboard shift
-        int chat_y = h-240;
+        int chat_y = h-scale_ui(240);
         #if defined(__ANDROID__) || defined(__IPHONEOS__)
         // Shift chat window up when keyboard is active
         if (chat_input_active && keyboard_height > 0) {
             chat_window_shift = keyboard_height;
             chat_y -= chat_window_shift;
             // Ensure chat doesn't go off-screen
-            if (chat_y < 50) chat_y = 50;
+            if (chat_y < scale_ui(50)) chat_y = scale_ui(50);
         } else {
             chat_window_shift = 0;
         }
         #endif
         
-        SDL_Rect win = {10, chat_y, 300, 190};
+        SDL_Rect win = scale_rect(10, chat_y, 300, 190);
         
         // Set text input hint for mobile keyboard positioning
         #if defined(__ANDROID__) || defined(__IPHONEOS__)
-        SDL_Rect input_hint = {15, win.y + win.h - 24, 270, 24};
+        SDL_Rect input_hint = {scale_ui(15), win.y + win.h - scale_ui(24), scale_ui(270), scale_ui(24)};
         SDL_SetTextInputRect(&input_hint);
         #endif
         
@@ -2421,7 +2421,7 @@ void render_game(SDL_Renderer *renderer) {
         for(int i=0; i<CHAT_HISTORY; i++) {
             SDL_Color line_col = col_white;
             if (strncmp(chat_log[i], "To [", 4) == 0 || strncmp(chat_log[i], "From [", 6) == 0) line_col = col_magenta;
-            render_text(renderer, chat_log[i], 15, win.y+10+(i*15), line_col, 0);
+            render_text(renderer, chat_log[i], scale_ui(15), win.y+scale_ui(10)+(i*scale_ui(15)), line_col, 0);
         }
 
         SDL_RenderSetClipRect(renderer, NULL);
@@ -2467,14 +2467,14 @@ void render_game(SDL_Renderer *renderer) {
             if (len > 0) TTF_SizeText(font, text_sel, &w_sel, &h);
 
             // Draw Blue Box
-            int render_x = 15; 
-            int render_y = win.y + win.h - 20;
+            int render_x = scale_ui(15); 
+            int render_y = win.y + win.h - scale_ui(20);
             
             // Note: scroll offset will be applied when rendering, so calculate without it
-            SDL_Rect sel_rect = {render_x + w_before, render_y + 2, w_sel, 20};
+            SDL_Rect sel_rect = {render_x + w_before, render_y + scale_ui(2), w_sel, scale_ui(20)};
             
             // Clip to chat window width so it doesn't spill out
-            if (sel_rect.x + sel_rect.w > 285) sel_rect.w = 285 - sel_rect.x;
+            if (sel_rect.x + sel_rect.w > scale_ui(285)) sel_rect.w = scale_ui(285) - sel_rect.x;
 
             if (sel_rect.w > 0) {
                 SDL_SetRenderDrawColor(renderer, 0, 100, 255, 128);
@@ -2487,12 +2487,12 @@ void render_game(SDL_Renderer *renderer) {
         // 3. Render Text with proper clipping and scrolling
         int w, h;
         TTF_SizeText(font, full_str, &w, &h);
-        int render_x = 15;
-        int render_y = win.y+win.h-20;
-        int available_width = 270;
+        int render_x = scale_ui(15);
+        int render_y = win.y+win.h-scale_ui(20);
+        int available_width = scale_ui(270);
         
         // Set clipping to chat input area
-        SDL_Rect clip_chat = {10, win.y + win.h - 30, 300, 30};
+        SDL_Rect clip_chat = {scale_ui(10), win.y + win.h - scale_ui(30), scale_ui(300), scale_ui(30)};
         SDL_RenderSetClipRect(renderer, &clip_chat);
         
         // Calculate cursor position in the full string
@@ -2512,7 +2512,7 @@ void render_game(SDL_Renderer *renderer) {
         static int chat_scroll_offset = 0;
         if (chat_input_active) {
             if (cursor_x - chat_scroll_offset > available_width - 10) {
-                chat_scroll_offset = cursor_x - available_width + 10;
+                chat_scroll_offset = cursor_x - available_width + scale_ui(10);
             } else if (cursor_x < chat_scroll_offset) {
                 chat_scroll_offset = cursor_x;
             }
@@ -2529,7 +2529,7 @@ void render_game(SDL_Renderer *renderer) {
         if ((SDL_GetTicks() / 500) % 2 == 0) {
             SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
             int cursor_render_x = render_x + cursor_x - chat_scroll_offset;
-            SDL_RenderDrawLine(renderer, cursor_render_x, render_y + 2, cursor_render_x, render_y + 14);
+            SDL_RenderDrawLine(renderer, cursor_render_x, render_y + scale_ui(2), cursor_render_x, render_y + scale_ui(14));
         }
         
         // Remove clipping
