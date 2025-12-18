@@ -9,3 +9,12 @@ config.txt
 configs.txt
 windows_release
 game_client.exe
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/.idea/
+android/*.iml
+android/local.properties
+android/app/src/main/jniLibs/*/lib*.so
+android/app/src/main/java/org/libsdl/app/*.java
