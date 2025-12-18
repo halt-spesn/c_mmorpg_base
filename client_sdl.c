@@ -2856,11 +2856,15 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         }
     }
 
+    // Check for player clicks in game world (convert scaled UI coords back to game world coords)
+    int game_mx = (int)(mx * ui_scale);
+    int game_my = (int)(my * ui_scale);
+    
     int clicked = 0;
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (local_players[i].active) {
             SDL_Rect r = { (int)local_players[i].x - cam_x, (int)local_players[i].y - cam_y, PLAYER_WIDTH, PLAYER_HEIGHT };
-            if (SDL_PointInRect(&(SDL_Point){mx, my}, &r)) { selected_player_id = local_players[i].id; clicked = 1; }
+            if (SDL_PointInRect(&(SDL_Point){game_mx, game_my}, &r)) { selected_player_id = local_players[i].id; clicked = 1; }
         }
     }
     
