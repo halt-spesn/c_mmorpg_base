@@ -808,6 +808,17 @@ void play_next_track() {
 
 void init_audio() {
     if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) return;
+    
+    #ifdef __ANDROID__
+    // On Android, we can't use opendir on assets, so manually list known music files
+    // This could be improved with JNI calls to AssetManager, but for now use direct listing
+    const char* known_music[] = {"1.mp3", NULL};  // Add more music files here as needed
+    for (int i = 0; known_music[i] != NULL; i++) {
+        if (music_count < 20) {
+            strncpy(music_playlist[music_count++], known_music[i], 63);
+        }
+    }
+    #else
     DIR *d; struct dirent *dir;
     char music_dir_path[256];
     get_path(music_dir_path, "music", 0);
@@ -820,6 +831,7 @@ void init_audio() {
         }
         closedir(d);
     }
+    #endif
     Mix_VolumeMusic(music_volume);
 }
 
@@ -1723,9 +1735,27 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
 
     y += 45; // <--- FIX: Added gap so text doesn't overlap button
 
-    // --- Footer Text ---
-    render_text(renderer, "Drag & Drop Image here", settings_win.x + 175, y, col_yellow, 1); y += 20;
-    render_text(renderer, "to upload Avatar (<16KB)", settings_win.x + 175, y, col_yellow, 1); y += 30;
+    // --- Avatar Upload Section ---
+    #if defined(__ANDROID__) || defined(__IPHONEOS__)
+    // Mobile: Explain file access limitation
+    render_text(renderer, "Avatar Upload:", settings_win.x + 175, y, col_yellow, 1); y += 25;
+    render_text(renderer, "On mobile, use file manager to", settings_win.x + 175, y, col_white, 1); y += 20;
+    render_text(renderer, "share image to this app", settings_win.x + 175, y, col_white, 1); y += 20;
+    render_text(renderer, "Image must be <16KB", settings_win.x + 175, y, col_yellow, 1); y += 30;
+    #else
+    // Desktop: Show drag & drop instructions with button option
+    render_text(renderer, "Avatar Upload (<16KB):", settings_win.x + 175, y, col_yellow, 1); y += 25;
+    render_text(renderer, "Drag & Drop Image here", settings_win.x + 175, y, col_white, 1); y += 25;
+    
+    // Add a button as visual indicator
+    SDL_Rect btn_avatar_area = {settings_win.x + 75, y, 200, 40};
+    SDL_SetRenderDrawColor(renderer, 60, 60, 80, 255);
+    SDL_RenderFillRect(renderer, &btn_avatar_area);
+    SDL_SetRenderDrawColor(renderer, 100, 150, 255, 255);
+    SDL_RenderDrawRect(renderer, &btn_avatar_area);
+    render_text(renderer, "Drop Image Here", btn_avatar_area.x + 100, btn_avatar_area.y + 12, col_cyan, 1);
+    y += 50;
+    #endif
 
     // CALCULATE CONTENT HEIGHT
     settings_content_h = y - settings_win.y + settings_scroll_y;
@@ -3313,6 +3343,21 @@ int main(int argc, char *argv[]) {
                          if (SDL_PointInRect(&(SDL_Point){mx, my}, &chat_input)) {
                              chat_input_active = 1;
                              SDL_StartTextInput();
+                             // Setup cursor position and selection for mouse drag
+                             int prefix_w = 0, ph; char prefix[64];
+                             if (chat_target_id != -1) {
+                                 char *name = "Unknown"; 
+                                 for(int i=0; i<MAX_CLIENTS; i++) 
+                                     if(local_players[i].id == chat_target_id) name = local_players[i].username;
+                                 snprintf(prefix, 64, "To %s: ", name);
+                             } else { strcpy(prefix, "> "); }
+                             TTF_SizeText(font, prefix, &prefix_w, &ph);
+                             active_input_rect = chat_input; 
+                             active_input_rect.x += (5 + prefix_w);
+                             cursor_pos = get_cursor_pos_from_click(input_buffer, mx, active_input_rect.x);
+                             selection_start = cursor_pos; 
+                             selection_len = 0; 
+                             is_dragging = 1;
                          } else if (!SDL_PointInRect(&(SDL_Point){mx, my}, &chat_win)) {
                              chat_input_active = 0;
                              if (active_field < 0) SDL_StopTextInput();
