@@ -1904,16 +1904,17 @@ void render_friend_list(SDL_Renderer *renderer, int w, int h) {
 
 void render_popup(SDL_Renderer *renderer, int w, int h) {
     if (pending_friend_req_id == -1) return;
-    popup_win = (SDL_Rect){w/2-150, h/2-60, 300, 120};
+    popup_win = scale_rect(w/2-scale_ui(150), h/2-scale_ui(60), 300, 120);
     SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255); SDL_RenderFillRect(renderer, &popup_win);
     SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255); SDL_RenderDrawRect(renderer, &popup_win);
     char msg[64]; snprintf(msg, 64, "Friend Request from %s", pending_friend_name);
-    render_text(renderer, msg, popup_win.x + 150, popup_win.y + 20, col_yellow, 1);
-    SDL_Rect btn_accept = {popup_win.x + 20, popup_win.y + 70, 120, 30}; SDL_Rect btn_deny = {popup_win.x + 160, popup_win.y + 70, 120, 30};
+    render_text(renderer, msg, popup_win.x + popup_win.w/2, popup_win.y + scale_ui(20), col_yellow, 1);
+    SDL_Rect btn_accept = scale_rect(popup_win.x + scale_ui(20), popup_win.y + scale_ui(70), 120, 30); 
+    SDL_Rect btn_deny = scale_rect(popup_win.x + scale_ui(160), popup_win.y + scale_ui(70), 120, 30);
     SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_accept);
-    render_text(renderer, "Accept", btn_accept.x + 60, btn_accept.y + 5, col_white, 1);
+    render_text(renderer, "Accept", btn_accept.x + btn_accept.w/2, btn_accept.y + btn_accept.h/2-scale_ui(7), col_white, 1);
     SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_deny);
-    render_text(renderer, "Deny", btn_deny.x + 60, btn_deny.y + 5, col_white, 1);
+    render_text(renderer, "Deny", btn_deny.x + btn_deny.w/2, btn_deny.y + btn_deny.h/2-scale_ui(7), col_white, 1);
 }
 
 void render_profile(SDL_Renderer *renderer) {
@@ -1928,70 +1929,73 @@ void render_profile(SDL_Renderer *renderer) {
     if (!exists) { selected_player_id = -1; return; }
 
     int text_w = 0, text_h = 0; TTF_SizeText(font, name, &text_w, &text_h);
-    int required_w = 100 + text_w + 20; if (required_w < 200) required_w = 200;
+    int required_w = scale_ui(100) + text_w + scale_ui(20); if (required_w < scale_ui(200)) required_w = scale_ui(200);
 
     profile_win.w = required_w; 
-    profile_win.h = 280; // Base height
+    profile_win.h = scale_ui(280); // Base height
 
     // Check My Role to adjust height for Admin Button
     int my_role = 0; 
     for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) my_role = local_players[i].role;
-    if (my_role >= ROLE_ADMIN) profile_win.h = 330; // Taller for admin
+    if (my_role >= ROLE_ADMIN) profile_win.h = scale_ui(330); // Taller for admin
+
+    profile_win.x = scale_ui(10);
+    profile_win.y = scale_ui(10);
 
     SDL_SetRenderDrawColor(renderer, 30, 30, 50, 230); SDL_RenderFillRect(renderer, &profile_win);
     SDL_SetRenderDrawColor(renderer, 200, 200, 255, 255); SDL_RenderDrawRect(renderer, &profile_win);
     
     // Avatar
-    SDL_Rect avatar_rect = {profile_win.x + 20, profile_win.y + 20, 64, 64};
+    SDL_Rect avatar_rect = scale_rect(profile_win.x + scale_ui(20), profile_win.y + scale_ui(20), 64, 64);
     if (avatar_status[idx] == 0) { Packet req; req.type = PACKET_AVATAR_REQUEST; req.target_id = selected_player_id; send_packet(&req); avatar_status[idx] = 1; }
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_RenderFillRect(renderer, &avatar_rect);
     if (avatar_status[idx] == 2 && avatar_cache[idx]) SDL_RenderCopy(renderer, avatar_cache[idx], NULL, &avatar_rect);
-    else render_text(renderer, "?", avatar_rect.x + 25, avatar_rect.y + 20, col_white, 0);
+    else render_text(renderer, "?", avatar_rect.x + avatar_rect.w/2-scale_ui(8), avatar_rect.y + avatar_rect.h/2-scale_ui(10), col_white, 0);
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderDrawRect(renderer, &avatar_rect);
 
-    int text_x = profile_win.x + 100;
+    int text_x = profile_win.x + scale_ui(100);
 
     // Name & Role
-    render_text(renderer, name, text_x, profile_win.y + 15, col_white, 0);
+    render_text(renderer, name, text_x, profile_win.y + scale_ui(15), col_white, 0);
     if (role != 0) { 
         const char* r_name = get_role_name(role);
         int rw, rh; TTF_SizeText(font, r_name, &rw, &rh);
-        SDL_Rect role_box = {text_x, profile_win.y + 40, rw + 10, rh};
+        SDL_Rect role_box = {text_x, profile_win.y + scale_ui(40), rw + scale_ui(10), rh};
         SDL_Color rc = get_role_color(role);
         SDL_SetRenderDrawColor(renderer, rc.r, rc.g, rc.b, 255); SDL_RenderFillRect(renderer, &role_box);
-        render_text(renderer, r_name, text_x + 5, profile_win.y + 40, col_black, 0);
+        render_text(renderer, r_name, text_x + scale_ui(5), profile_win.y + scale_ui(40), col_black, 0);
     }
 
     char id_str[32]; snprintf(id_str, 32, "ID: %d", selected_player_id);
-    render_text(renderer, id_str, text_x, profile_win.y + 65, (SDL_Color){150,150,150,255}, 0);
-    render_text(renderer, status_names[status], text_x, profile_win.y + 90, get_status_color(status), 0);
+    render_text(renderer, id_str, text_x, profile_win.y + scale_ui(65), (SDL_Color){150,150,150,255}, 0);
+    render_text(renderer, status_names[status], text_x, profile_win.y + scale_ui(90), get_status_color(status), 0);
 
     // Buttons
-    int btn_w = profile_win.w - 40; int start_y = profile_win.y + 120;
+    int btn_w = profile_win.w - scale_ui(40); int start_y = profile_win.y + scale_ui(120);
     
     int is_friend = 0; 
     for(int i=0; i<friend_count; i++) if(my_friends[i].id == selected_player_id) is_friend = 1;
 
-    SDL_Rect btn = {profile_win.x + 20, start_y, btn_w, 30}; 
-    if (!is_friend) { SDL_SetRenderDrawColor(renderer, 0, 100, 0, 255); SDL_RenderFillRect(renderer, &btn); render_text(renderer, "+ Add Friend", btn.x + (btn_w/2) - 40, btn.y + 5, col_white, 0); } 
-    else { SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn); render_text(renderer, "- Remove", btn.x + (btn_w/2) - 30, btn.y + 5, col_white, 0); }
+    SDL_Rect btn = scale_rect(profile_win.x + scale_ui(20), start_y, btn_w, 30); 
+    if (!is_friend) { SDL_SetRenderDrawColor(renderer, 0, 100, 0, 255); SDL_RenderFillRect(renderer, &btn); render_text(renderer, "+ Add Friend", btn.x + (btn_w/2) - scale_ui(40), btn.y + btn.h/2-scale_ui(7), col_white, 0); } 
+    else { SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn); render_text(renderer, "- Remove", btn.x + (btn_w/2) - scale_ui(30), btn.y + btn.h/2-scale_ui(7), col_white, 0); }
     btn_add_friend = btn;
 
-    btn_send_pm = (SDL_Rect){profile_win.x + 20, start_y + 40, btn_w, 30};
+    btn_send_pm = scale_rect(profile_win.x + scale_ui(20), start_y + scale_ui(40), btn_w, 30);
     SDL_SetRenderDrawColor(renderer, 100, 0, 100, 255); SDL_RenderFillRect(renderer, &btn_send_pm);
-    render_text(renderer, "Message", btn_send_pm.x + (btn_w/2) - 30, btn_send_pm.y + 5, col_white, 0);
+    render_text(renderer, "Message", btn_send_pm.x + (btn_w/2) - scale_ui(30), btn_send_pm.y + btn_send_pm.h/2-scale_ui(7), col_white, 0);
 
-    SDL_Rect btn_hide = {profile_win.x + 20, start_y + 80, btn_w, 30};
+    SDL_Rect btn_hide = scale_rect(profile_win.x + scale_ui(20), start_y + scale_ui(80), btn_w, 30);
     int hidden = is_blocked(selected_player_id);
-    if (hidden) { SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_hide); render_text(renderer, "Unhide", btn_hide.x + (btn_w/2) - 20, btn_hide.y + 5, col_white, 0); } 
-    else { SDL_SetRenderDrawColor(renderer, 200, 50, 50, 255); SDL_RenderFillRect(renderer, &btn_hide); render_text(renderer, "Hide", btn_hide.x + (btn_w/2) - 20, btn_hide.y + 5, col_white, 0); }
+    if (hidden) { SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_hide); render_text(renderer, "Unhide", btn_hide.x + (btn_w/2) - scale_ui(20), btn_hide.y + btn_hide.h/2-scale_ui(7), col_white, 0); } 
+    else { SDL_SetRenderDrawColor(renderer, 200, 50, 50, 255); SDL_RenderFillRect(renderer, &btn_hide); render_text(renderer, "Hide", btn_hide.x + (btn_w/2) - scale_ui(20), btn_hide.y + btn_hide.h/2-scale_ui(7), col_white, 0); }
     btn_hide_player_dyn = btn_hide;
 
     // --- NEW: Sanction Button (Admin Only) ---
     if (my_role >= ROLE_ADMIN) {
-        btn_sanction_open = (SDL_Rect){profile_win.x + 20, start_y + 120, btn_w, 30};
+        btn_sanction_open = scale_rect(profile_win.x + scale_ui(20), start_y + scale_ui(120), btn_w, 30);
         SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_sanction_open);
-        render_text(renderer, "SANCTION", btn_sanction_open.x + (btn_w/2) - 35, btn_sanction_open.y + 5, col_white, 0);
+        render_text(renderer, "SANCTION", btn_sanction_open.x + (btn_w/2) - scale_ui(35), btn_sanction_open.y + btn_sanction_open.h/2-scale_ui(7), col_white, 0);
     }
 }
 
