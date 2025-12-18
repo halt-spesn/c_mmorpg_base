@@ -5,45 +5,39 @@ project(c_mmo_client C)
 # Set C standard
 set(CMAKE_C_STANDARD 11)
 
-# Add SDL2 libraries (assuming they will be built statically and provided)
-# User will need to build SDL2, SDL2_image, SDL2_ttf, SDL2_mixer for Android
-# and place them in the appropriate location
-
 # Include directories for SDL2 headers
-# The user should set SDL2_PATH to point to their SDL2 Android build
-set(SDL2_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../SDL2" CACHE PATH "Path to SDL2 Android build")
-
-# If SDL2_PATH doesn't exist, try to use system includes
-if(EXISTS "${SDL2_PATH}/include")
-    include_directories(${SDL2_PATH}/include)
-else()
-    # Fallback to standard locations
-    include_directories(
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../SDL2/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../SDL2_image
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../SDL2_ttf
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../SDL2_mixer
-    )
-endif()
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/main/cpp/include)
 
 # Add the main client source file
 add_library(client SHARED
     ${CMAKE_CURRENT_SOURCE_DIR}/../../client_sdl.c
 )
 
-# Find and link SDL2 libraries
-# User needs to build these libraries for Android and make them available
-find_library(SDL2_LIBRARY SDL2)
-find_library(SDL2_IMAGE_LIBRARY SDL2_image)
-find_library(SDL2_TTF_LIBRARY SDL2_ttf)
-find_library(SDL2_MIXER_LIBRARY SDL2_mixer)
+# Define the path to the prebuilt SDL2 libraries
+set(SDL2_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/main/jniLibs/${ANDROID_ABI})
 
-# Link against SDL2 libraries
+# Import SDL2 as a shared library
+add_library(SDL2 SHARED IMPORTED)
+set_target_properties(SDL2 PROPERTIES IMPORTED_LOCATION ${SDL2_LIB_DIR}/libSDL2.so)
+
+# Import SDL2_image as a shared library
+add_library(SDL2_image SHARED IMPORTED)
+set_target_properties(SDL2_image PROPERTIES IMPORTED_LOCATION ${SDL2_LIB_DIR}/libSDL2_image.so)
+
+# Import SDL2_ttf as a shared library
+add_library(SDL2_ttf SHARED IMPORTED)
+set_target_properties(SDL2_ttf PROPERTIES IMPORTED_LOCATION ${SDL2_LIB_DIR}/libSDL2_ttf.so)
+
+# Import SDL2_mixer as a shared library
+add_library(SDL2_mixer SHARED IMPORTED)
+set_target_properties(SDL2_mixer PROPERTIES IMPORTED_LOCATION ${SDL2_LIB_DIR}/libSDL2_mixer.so)
+
+# Link against SDL2 libraries and Android libraries
 target_link_libraries(client
-    ${SDL2_LIBRARY}
-    ${SDL2_IMAGE_LIBRARY}
-    ${SDL2_TTF_LIBRARY}
-    ${SDL2_MIXER_LIBRARY}
+    SDL2
+    SDL2_image
+    SDL2_ttf
+    SDL2_mixer
     GLESv2
     log
     android
