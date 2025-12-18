@@ -775,8 +775,10 @@ void play_next_track() {
     if (bgm) Mix_FreeMusic(bgm);
     current_track++;
     if (current_track >= music_count) current_track = 0;
-    char path[128];
-    snprintf(path, 128, "music/%s", music_playlist[current_track]);
+    char path[256];
+    char music_file[256];
+    snprintf(music_file, 256, "music/%s", music_playlist[current_track]);
+    get_path(path, music_file, 0);
     bgm = Mix_LoadMUS(path);
     if (bgm) Mix_PlayMusic(bgm, 1);
 }
@@ -784,7 +786,9 @@ void play_next_track() {
 void init_audio() {
     if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) return;
     DIR *d; struct dirent *dir;
-    d = opendir("music");
+    char music_dir_path[256];
+    get_path(music_dir_path, "music", 0);
+    d = opendir(music_dir_path);
     if (d) {
         while ((dir = readdir(d)) != NULL) {
             if (strstr(dir->d_name, ".mp3") || strstr(dir->d_name, ".ogg") || strstr(dir->d_name, ".wav")) {
@@ -2789,6 +2793,10 @@ int main(int argc, char *argv[]) {
     #ifdef SDL_HINT_WINDOWS_RAWKEYBOARD
     SDL_SetHint(SDL_HINT_WINDOWS_RAWKEYBOARD, "1");
     #endif
+    #if defined(__APPLE__) && !defined(__IPHONEOS__)
+    // Set render driver hint before SDL_Init to fix black window decorations on macOS
+    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
+    #endif
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) return 1;
     if (TTF_Init() == -1) return 1;
     if (!(IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG) & (IMG_INIT_PNG | IMG_INIT_JPG))) printf("IMG Init Error: %s\n", IMG_GetError());
@@ -2821,12 +2829,6 @@ int main(int argc, char *argv[]) {
     win_flags |= SDL_WINDOW_FULLSCREEN | SDL_WINDOW_ALLOW_HIGHDPI;
     #else
     int win_w = 800, win_h = 600;
-    #endif
-
-    #if defined(__APPLE__) && !defined(__IPHONEOS__)
-    // Fix black window decorations on macOS by using OpenGL renderer
-    win_flags |= SDL_WINDOW_OPENGL;
-    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengl");
     #endif
 
     SDL_Window *window = SDL_CreateWindow("C MMO Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, win_w, win_h, win_flags);
