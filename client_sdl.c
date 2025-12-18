@@ -281,6 +281,7 @@ int show_contributors = 0;
 
 // --- UI Scaling ---
 float ui_scale = 1.0f; // Default scale (range 0.5 to 2.0)
+float pending_ui_scale = 1.0f; // Scale value being dragged (applied on release)
 SDL_Rect slider_ui_scale;
 
 // --- Mobile Keyboard Handling ---
@@ -502,6 +503,7 @@ void load_config() {
             // Clamp to valid range
             if (ui_scale < 0.5f) ui_scale = 0.5f;
             if (ui_scale > 2.0f) ui_scale = 2.0f;
+            pending_ui_scale = ui_scale; // Initialize pending to match current
         }
         
         fclose(fp);
@@ -1541,8 +1543,8 @@ void process_slider_drag(int mx) {
 
     // Handle UI Scale specially (float, different range)
     if (active_slider == SLIDER_UI_SCALE) {
-        ui_scale = 0.5f + (pct * 1.5f); // Map 0.0-1.0 to 0.5-2.0
-        save_config();
+        pending_ui_scale = 0.5f + (pct * 1.5f); // Map 0.0-1.0 to 0.5-2.0
+        // Don't apply immediately - wait for mouse release to avoid jarring changes
         return;
     }
     
@@ -1731,12 +1733,14 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     y += 50;
 
     // -- UI Scale --
-    char scale_str[64]; snprintf(scale_str, 64, "UI Scale: %.1fx", ui_scale);
+    // Show pending scale if dragging, otherwise show current scale
+    float display_scale = (active_slider == SLIDER_UI_SCALE) ? pending_ui_scale : ui_scale;
+    char scale_str[64]; snprintf(scale_str, 64, "UI Scale: %.1fx", display_scale);
     render_text(renderer, scale_str, settings_win.x + 175, y, col_white, 1); 
     y += 25;
     
     slider_ui_scale = (SDL_Rect){start_x + 30, y, 240, 15};
-    float scale_pct = (ui_scale - 0.5f) / 1.5f; // Map 0.5-2.0 to 0.0-1.0
+    float scale_pct = (display_scale - 0.5f) / 1.5f; // Map 0.5-2.0 to 0.0-1.0
     render_fancy_slider(renderer, &slider_ui_scale, scale_pct, (SDL_Color){150, 150, 255, 255});
     
     render_text(renderer, "0.5x", slider_ui_scale.x - 25, slider_ui_scale.y + 2, col_white, 0);  
@@ -3303,6 +3307,11 @@ int main(int argc, char *argv[]) {
             // --- Mouse Drag Handling ---
             else if (event.type == SDL_MOUSEBUTTONUP) {
                 is_dragging = 0;
+                // Apply pending UI scale change on release
+                if (active_slider == SLIDER_UI_SCALE && pending_ui_scale != ui_scale) {
+                    ui_scale = pending_ui_scale;
+                    save_config();
+                }
                 active_slider = SLIDER_NONE;
             }
             else if (event.type == SDL_MOUSEMOTION) {
@@ -3439,7 +3448,8 @@ int main(int argc, char *argv[]) {
                          float px=0, py=0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { px=local_players[i].x; py=local_players[i].y; }
                          int cam_x = (int)px - (screen_w/2) + 16; int cam_y = (int)py - (screen_h/2) + 16;
                         if (screen_w > map_w) cam_x = -(screen_w - map_w)/2; if (screen_h > map_h) cam_y = -(screen_h - map_h)/2;
-                        handle_game_click(mx, my, cam_x, cam_y, screen_w, screen_h);
+                        // Pass scaled dimensions to match scaled mouse coordinates
+                        handle_game_click(mx, my, cam_x, cam_y, (int)(screen_w / ui_scale), (int)(screen_h / ui_scale));
                      }
                 }
                 
