@@ -2616,6 +2616,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             active_input_rect = input_area; active_input_rect.x += (5 + prefix_w); 
             cursor_pos = get_cursor_pos_from_click(input_buffer, mx, active_input_rect.x);
             selection_start = cursor_pos; selection_len = 0; is_dragging = 1;
+            chat_input_active = 1; // Activate input
             SDL_StartTextInput(); return;
         }
     }
@@ -2889,7 +2890,10 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             selected_player_id = -1; return;
         }
         else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_send_pm)) {
-            chat_target_id = selected_player_id; is_chat_open = 1; input_buffer[0] = 0; SDL_StartTextInput(); selected_player_id = -1; return;
+            chat_target_id = selected_player_id; is_chat_open = 1; input_buffer[0] = 0; 
+            chat_input_active = 1; // Activate input for immediate typing
+            SDL_StartTextInput(); 
+            selected_player_id = -1; return;
         }
         else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_hide_player_dyn)) {
             toggle_block(selected_player_id); selected_player_id = -1; return;
@@ -3458,7 +3462,17 @@ int main(int argc, char *argv[]) {
                      
                      if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_chat_toggle)) {
                         is_chat_open = !is_chat_open; 
-                        if(is_chat_open) { unread_chat_count = 0; chat_input_active = 0; } 
+                        if(is_chat_open) { 
+                            unread_chat_count = 0; 
+                            #if defined(__ANDROID__) || defined(__IPHONEOS__)
+                            // On mobile, don't auto-activate input (user taps input field to show keyboard)
+                            chat_input_active = 0;
+                            #else
+                            // On desktop, auto-activate input for immediate typing
+                            chat_input_active = 1;
+                            SDL_StartTextInput();
+                            #endif
+                        } 
                         else { 
                             chat_input_active = 0; 
                             SDL_StopTextInput();
