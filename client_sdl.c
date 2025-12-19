@@ -2359,7 +2359,6 @@ void render_game(SDL_Renderer *renderer) {
                 else SDL_SetRenderDrawColor(renderer, 255, 50, 50, 255);
                 SDL_RenderFillRect(renderer, &dst);
             }
-            SDL_Color name_col = {local_players[i].r, local_players[i].g, local_players[i].b, 255};
             if (local_players[i].id == selected_player_id) { 
                 SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderDrawRect(renderer, &dst); 
             }
