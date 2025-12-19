@@ -17,6 +17,11 @@ CLIENT_CFLAGS = $(shell pkg-config --cflags sdl2 SDL2_image SDL2_ttf) -ferror-li
 # 2. client linking flags
 CLIENT_LDFLAGS = $(shell pkg-config --libs sdl2 SDL2_image SDL2_ttf) -lSDL2_mixer -lm -lGL -ferror-limit=0
 
+# Add comdlg32 for Windows builds (needed for GetOpenFileNameA in file picker)
+ifneq (,$(findstring mingw,$(CC)))
+    CLIENT_LDFLAGS += -lcomdlg32
+endif
+
 all: server client
 
 server: $(SERVER_SRC) common.h

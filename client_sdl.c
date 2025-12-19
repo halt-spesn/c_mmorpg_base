@@ -8,6 +8,7 @@
     #include <winsock2.h>
     #include <windows.h>
     #include <ws2tcpip.h>
+    #pragma comment(lib, "comdlg32")
     #define close closesocket
     #define ioctl ioctlsocket
     #define sleep(x) Sleep(x * 1000)
@@ -2061,11 +2062,7 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     SDL_SetRenderDrawColor(renderer, 200, 100, 0, 255); SDL_RenderFillRect(renderer, &btn_my_warnings);
     render_text(renderer, "View My Warnings", btn_my_warnings.x + 150, btn_my_warnings.y + 5, col_white, 1);
 
-    y += 45; // <--- FIX: Added gap so text doesn't overlap button
-
-    // --- Footer Text ---
-    render_text(renderer, "Drag & Drop Image here", settings_win.x + 175, y, col_yellow, 1); y += 20;
-    render_text(renderer, "to upload Avatar (<16KB)", settings_win.x + 175, y, col_yellow, 1); y += 30;
+    y += 45; // Gap after button
 
     // CALCULATE CONTENT HEIGHT
     settings_content_h = y - settings_win.y + settings_scroll_y;
@@ -3622,13 +3619,37 @@ int main(int argc, char *argv[]) {
             else if (event.type == SDL_MOUSEWHEEL) {
                 int scroll_amount = event.wheel.y * SCROLL_SPEED;
                 
-                if (is_settings_open) {
-                    settings_scroll_y -= scroll_amount; 
-                    if (settings_scroll_y < 0) settings_scroll_y = 0;
-                    
-                    int max_scroll = settings_content_h - settings_view_port.h;
+                // Check overlay windows first (higher priority)
+                if (show_documentation) {
+                    documentation_scroll -= scroll_amount;
+                    if (documentation_scroll < 0) documentation_scroll = 0;
+                    // Documentation window: 450x500, content height 650px, visible area 440px (500 - 60 for header)
+                    int content_height = 650;
+                    int visible_height = 440;
+                    int max_scroll = content_height - visible_height;
                     if (max_scroll < 0) max_scroll = 0;
-                    if (settings_scroll_y > max_scroll) settings_scroll_y = max_scroll;
+                    if (documentation_scroll > max_scroll) documentation_scroll = max_scroll;
+                }
+                else if (show_contributors) {
+                    contributors_scroll -= scroll_amount;
+                    if (contributors_scroll < 0) contributors_scroll = 0;
+                    // Contributors window: 450px content height, 400px visible area
+                    // Content includes title (15px) + close btn area (30px) + ~9 text lines
+                    int content_height = 450;
+                    int visible_height = 400;
+                    int max_scroll = content_height - visible_height;
+                    if (max_scroll < 0) max_scroll = 0;
+                    if (contributors_scroll > max_scroll) contributors_scroll = max_scroll;
+                }
+                else if (show_my_warnings) {
+                    warnings_scroll -= scroll_amount;
+                    if (warnings_scroll < 0) warnings_scroll = 0;
+                    // Max scroll based on actual warning count (45px per warning + 50px header)
+                    int content_height = 50 + (my_warning_count * 45);
+                    int visible_height = 400 - 45; // Window height minus header
+                    int max_scroll = content_height - visible_height;
+                    if (max_scroll < 0) max_scroll = 0;
+                    if (warnings_scroll > max_scroll) warnings_scroll = max_scroll;
                 }
                 else if (show_friend_list) {
                     friend_list_scroll -= scroll_amount;
@@ -3650,37 +3671,6 @@ int main(int argc, char *argv[]) {
                     if (max_scroll < 0) max_scroll = 0;
                     if (inbox_scroll > max_scroll) inbox_scroll = max_scroll;
                 }
-                else if (show_contributors) {
-                    contributors_scroll -= scroll_amount;
-                    if (contributors_scroll < 0) contributors_scroll = 0;
-                    // Contributors window: 450px content height, 400px visible area
-                    // Content includes title (15px) + close btn area (30px) + ~9 text lines
-                    int content_height = 450;
-                    int visible_height = 400;
-                    int max_scroll = content_height - visible_height;
-                    if (max_scroll < 0) max_scroll = 0;
-                    if (contributors_scroll > max_scroll) contributors_scroll = max_scroll;
-                }
-                else if (show_documentation) {
-                    documentation_scroll -= scroll_amount;
-                    if (documentation_scroll < 0) documentation_scroll = 0;
-                    // Documentation window: 450x500, content height 650px, visible area 440px (500 - 60 for header)
-                    int content_height = 650;
-                    int visible_height = 440;
-                    int max_scroll = content_height - visible_height;
-                    if (max_scroll < 0) max_scroll = 0;
-                    if (documentation_scroll > max_scroll) documentation_scroll = max_scroll;
-                }
-                else if (show_my_warnings) {
-                    warnings_scroll -= scroll_amount;
-                    if (warnings_scroll < 0) warnings_scroll = 0;
-                    // Max scroll based on actual warning count (45px per warning + 50px header)
-                    int content_height = 50 + (my_warning_count * 45);
-                    int visible_height = 400 - 45; // Window height minus header
-                    int max_scroll = content_height - visible_height;
-                    if (max_scroll < 0) max_scroll = 0;
-                    if (warnings_scroll > max_scroll) warnings_scroll = max_scroll;
-                }
                 else if (show_blocked_list) {
                     blocked_scroll -= scroll_amount;
                     if (blocked_scroll < 0) blocked_scroll = 0;
@@ -3690,6 +3680,14 @@ int main(int argc, char *argv[]) {
                     int max_scroll = content_height - visible_height;
                     if (max_scroll < 0) max_scroll = 0;
                     if (blocked_scroll > max_scroll) blocked_scroll = max_scroll;
+                }
+                else if (is_settings_open) {
+                    settings_scroll_y -= scroll_amount; 
+                    if (settings_scroll_y < 0) settings_scroll_y = 0;
+                    
+                    int max_scroll = settings_content_h - settings_view_port.h;
+                    if (max_scroll < 0) max_scroll = 0;
+                    if (settings_scroll_y > max_scroll) settings_scroll_y = max_scroll;
                 }
             }
             else if (event.type == SDL_FINGERDOWN) {
