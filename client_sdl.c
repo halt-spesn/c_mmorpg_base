@@ -2490,7 +2490,8 @@ void render_documentation(SDL_Renderer *renderer, int w, int h) {
         return;
     }
 
-    SDL_Rect win = {w/2 - 300, h/2 - 300, 600, 600};
+    // Fixed size window: 450x500 (smaller for better fit on various screens)
+    SDL_Rect win = {w/2 - 225, h/2 - 250, 450, 500};
     
     // Background
     SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255); 
@@ -2499,7 +2500,7 @@ void render_documentation(SDL_Renderer *renderer, int w, int h) {
     SDL_RenderDrawRect(renderer, &win);
 
     // Title
-    render_text(renderer, "Game Documentation", win.x + 300, win.y + 15, col_green, 1);
+    render_text(renderer, "Game Documentation", win.x + 225, win.y + 15, col_green, 1);
 
     // Setup clipping for scrollable content
     SDL_Rect content_area = {win.x + 10, win.y + 50, win.w - 20, win.h - 60};
@@ -3106,7 +3107,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_close)) show_contributors = 0; return; 
     }
     if (show_documentation) {
-        SDL_Rect win = {w/2 - 300, h/2 - 300, 600, 600};
+        SDL_Rect win = {w/2 - 225, h/2 - 250, 450, 500};
         SDL_Rect btn_close = {win.x + win.w - 40, win.y + 5, 30, 30};
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_close)) show_documentation = 0; return; 
     }
@@ -3663,10 +3664,9 @@ int main(int argc, char *argv[]) {
                 else if (show_documentation) {
                     documentation_scroll -= scroll_amount;
                     if (documentation_scroll < 0) documentation_scroll = 0;
-                    // Documentation window: 650px content height (updated with chat commands), 540px visible area
-                    // Content includes title + close btn + sections for formatting, colors, shortcuts, and chat commands
+                    // Documentation window: 450x500, content height 650px, visible area 440px (500 - 60 for header)
                     int content_height = 650;
-                    int visible_height = 540;
+                    int visible_height = 440;
                     int max_scroll = content_height - visible_height;
                     if (max_scroll < 0) max_scroll = 0;
                     if (documentation_scroll > max_scroll) documentation_scroll = max_scroll;
@@ -3818,7 +3818,7 @@ int main(int argc, char *argv[]) {
                     printf("[FINGERDOWN] Settings scroll touch started\n");
                 }
                 else if (show_documentation) {
-                    SDL_Rect win = {w/2 - 300, h/2 - 300, 600, 600};
+                    SDL_Rect win = {w/2 - 225, h/2 - 250, 450, 500};
                     SDL_Rect content_area = {win.x + 10, win.y + 50, win.w - 20, win.h - 60};
                     if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
                         scroll_touch_id = event.tfinger.fingerId;
@@ -3925,7 +3925,7 @@ int main(int argc, char *argv[]) {
                         documentation_scroll += delta;
                         if (documentation_scroll < 0) documentation_scroll = 0;
                         int content_height = 650;
-                        int visible_height = 540;
+                        int visible_height = 440;
                         int max_scroll = content_height - visible_height;
                         if (max_scroll < 0) max_scroll = 0;
                         if (documentation_scroll > max_scroll) documentation_scroll = max_scroll;
