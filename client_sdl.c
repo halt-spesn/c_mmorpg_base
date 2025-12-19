@@ -3106,8 +3106,8 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_close)) show_contributors = 0; return; 
     }
     if (show_documentation) {
-        SDL_Rect win = {w/2 - 250, h/2 - 250, 500, 500};
-        SDL_Rect btn_close = {win.x + 460, win.y + 5, 30, 30};
+        SDL_Rect win = {w/2 - 300, h/2 - 300, 600, 600};
+        SDL_Rect btn_close = {win.x + win.w - 40, win.y + 5, 30, 30};
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_close)) show_documentation = 0; return; 
     }
     if (show_role_list) {
@@ -3811,11 +3811,66 @@ int main(int argc, char *argv[]) {
                 }
                 #endif
 
+                // Touch scrolling support for all scrollable windows
                 if (is_settings_open && SDL_PointInRect(&(SDL_Point){tx, ty}, &settings_view_port)) {
                     scroll_touch_id = event.tfinger.fingerId;
                     scroll_last_y = ty;
-                    printf("[FINGERDOWN] Scroll touch started\n");
-                                    } 
+                    printf("[FINGERDOWN] Settings scroll touch started\n");
+                }
+                else if (show_documentation) {
+                    SDL_Rect win = {w/2 - 300, h/2 - 300, 600, 600};
+                    SDL_Rect content_area = {win.x + 10, win.y + 50, win.w - 20, win.h - 60};
+                    if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
+                        scroll_touch_id = event.tfinger.fingerId;
+                        scroll_last_y = ty;
+                        printf("[FINGERDOWN] Documentation scroll touch started\n");
+                    }
+                }
+                else if (show_contributors) {
+                    SDL_Rect win = {w/2 - 200, h/2 - 200, 400, 400};
+                    SDL_Rect content_area = {win.x + 10, win.y + 50, win.w - 20, win.h - 60};
+                    if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
+                        scroll_touch_id = event.tfinger.fingerId;
+                        scroll_last_y = ty;
+                        printf("[FINGERDOWN] Contributors scroll touch started\n");
+                    }
+                }
+                else if (show_friend_list) {
+                    SDL_Rect win = {w/2 - 200, h/2 - 200, 400, 400};
+                    SDL_Rect content_area = {win.x + 10, win.y + 80, win.w - 20, win.h - 85};
+                    if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
+                        scroll_touch_id = event.tfinger.fingerId;
+                        scroll_last_y = ty;
+                        printf("[FINGERDOWN] Friend list scroll touch started\n");
+                    }
+                }
+                else if (is_inbox_open) {
+                    SDL_Rect win = {w/2 - 150, h/2 - 150, 300, 300};
+                    SDL_Rect content_area = {win.x + 10, win.y + 35, win.w - 20, win.h - 40};
+                    if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
+                        scroll_touch_id = event.tfinger.fingerId;
+                        scroll_last_y = ty;
+                        printf("[FINGERDOWN] Inbox scroll touch started\n");
+                    }
+                }
+                else if (show_my_warnings) {
+                    SDL_Rect win = {w/2 - 200, h/2 - 200, 400, 400};
+                    SDL_Rect content_area = {win.x + 10, win.y + 45, win.w - 20, win.h - 50};
+                    if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
+                        scroll_touch_id = event.tfinger.fingerId;
+                        scroll_last_y = ty;
+                        printf("[FINGERDOWN] Warnings scroll touch started\n");
+                    }
+                }
+                else if (show_blocked_list) {
+                    SDL_Rect win = {w/2 - 150, h/2 - 200, 300, 400};
+                    SDL_Rect content_area = {win.x + 10, win.y + 45, win.w - 20, win.h - 50};
+                    if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
+                        scroll_touch_id = event.tfinger.fingerId;
+                        scroll_last_y = ty;
+                        printf("[FINGERDOWN] Blocked list scroll touch started\n");
+                    }
+                }
                 // Game-specific touch handling only in STATE_GAME
                 else if (client_state == STATE_GAME) {
                     // Use scaled height for UI coordinate calculations
@@ -3856,13 +3911,78 @@ int main(int argc, char *argv[]) {
                     int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
                     int ty = (int)((event.tfinger.y * h) / ui_scale);
                     int delta = scroll_last_y - ty;
-                    settings_scroll_y += delta;
-                    if (settings_scroll_y < 0) settings_scroll_y = 0;
-                    int max_scroll = settings_content_h - settings_view_port.h; 
-                    if (max_scroll < 0) max_scroll = 0;
-                    if (settings_scroll_y > max_scroll) settings_scroll_y = max_scroll;
+                    
+                    // Apply scrolling to the active window
+                    if (is_settings_open) {
+                        settings_scroll_y += delta;
+                        if (settings_scroll_y < 0) settings_scroll_y = 0;
+                        int max_scroll = settings_content_h - settings_view_port.h; 
+                        if (max_scroll < 0) max_scroll = 0;
+                        if (settings_scroll_y > max_scroll) settings_scroll_y = max_scroll;
+                        printf("[FINGERMOTION] Settings scroll: delta=%d scroll_y=%d\n", delta, settings_scroll_y);
+                    }
+                    else if (show_documentation) {
+                        documentation_scroll += delta;
+                        if (documentation_scroll < 0) documentation_scroll = 0;
+                        int content_height = 650;
+                        int visible_height = 540;
+                        int max_scroll = content_height - visible_height;
+                        if (max_scroll < 0) max_scroll = 0;
+                        if (documentation_scroll > max_scroll) documentation_scroll = max_scroll;
+                        printf("[FINGERMOTION] Documentation scroll: delta=%d scroll=%d\n", delta, documentation_scroll);
+                    }
+                    else if (show_contributors) {
+                        contributors_scroll += delta;
+                        if (contributors_scroll < 0) contributors_scroll = 0;
+                        int content_height = 450;
+                        int visible_height = 400;
+                        int max_scroll = content_height - visible_height;
+                        if (max_scroll < 0) max_scroll = 0;
+                        if (contributors_scroll > max_scroll) contributors_scroll = max_scroll;
+                        printf("[FINGERMOTION] Contributors scroll: delta=%d scroll=%d\n", delta, contributors_scroll);
+                    }
+                    else if (show_friend_list) {
+                        friend_list_scroll += delta;
+                        if (friend_list_scroll < 0) friend_list_scroll = 0;
+                        int content_height = 85 + (friend_count * 30);
+                        int visible_height = 400 - 80;
+                        int max_scroll = content_height - visible_height;
+                        if (max_scroll < 0) max_scroll = 0;
+                        if (friend_list_scroll > max_scroll) friend_list_scroll = max_scroll;
+                        printf("[FINGERMOTION] Friend list scroll: delta=%d scroll=%d\n", delta, friend_list_scroll);
+                    }
+                    else if (is_inbox_open) {
+                        inbox_scroll += delta;
+                        if (inbox_scroll < 0) inbox_scroll = 0;
+                        int content_height = 40 + (inbox_count * 55);
+                        int visible_height = 300 - 35;
+                        int max_scroll = content_height - visible_height;
+                        if (max_scroll < 0) max_scroll = 0;
+                        if (inbox_scroll > max_scroll) inbox_scroll = max_scroll;
+                        printf("[FINGERMOTION] Inbox scroll: delta=%d scroll=%d\n", delta, inbox_scroll);
+                    }
+                    else if (show_my_warnings) {
+                        warnings_scroll += delta;
+                        if (warnings_scroll < 0) warnings_scroll = 0;
+                        int content_height = 50 + (my_warning_count * 45);
+                        int visible_height = 400 - 45;
+                        int max_scroll = content_height - visible_height;
+                        if (max_scroll < 0) max_scroll = 0;
+                        if (warnings_scroll > max_scroll) warnings_scroll = max_scroll;
+                        printf("[FINGERMOTION] Warnings scroll: delta=%d scroll=%d\n", delta, warnings_scroll);
+                    }
+                    else if (show_blocked_list) {
+                        blocked_scroll += delta;
+                        if (blocked_scroll < 0) blocked_scroll = 0;
+                        int content_height = 50 + (blocked_count * 35);
+                        int visible_height = 400 - 45;
+                        int max_scroll = content_height - visible_height;
+                        if (max_scroll < 0) max_scroll = 0;
+                        if (blocked_scroll > max_scroll) blocked_scroll = max_scroll;
+                        printf("[FINGERMOTION] Blocked list scroll: delta=%d scroll=%d\n", delta, blocked_scroll);
+                    }
+                    
                     scroll_last_y = ty;
-                    printf("[FINGERMOTION] Scroll: delta=%d scroll_y=%d\n", delta, settings_scroll_y);
                 } else if (event.tfinger.fingerId == touch_id_dpad) {
                     int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
                     float cx = dpad_rect.x + dpad_rect.w/2;
