@@ -3191,11 +3191,22 @@ int main(int argc, char *argv[]) {
     const char *nv_offload = getenv("__NV_PRIME_RENDER_OFFLOAD");
     const char *glx_vendor = getenv("__GLX_VENDOR_LIBRARY_NAME");
     if (nv_offload && glx_vendor && strcmp(nv_offload, "1") == 0 && strcmp(glx_vendor, "nvidia") == 0) {
-        // Force X11 video driver to ensure GLX is used (not Wayland or EGL)
-        // This is critical for NVIDIA Prime offloading to work properly
-        SDL_SetHint(SDL_HINT_VIDEODRIVER, "x11");
-        // Disable EGL to ensure GLX is used with NVIDIA Prime offloading
-        SDL_SetHint(SDL_HINT_VIDEO_X11_FORCE_EGL, "0");
+        // Detect if running on Wayland or X11
+        const char *wayland_display = getenv("WAYLAND_DISPLAY");
+        const char *xdg_session_type = getenv("XDG_SESSION_TYPE");
+        int is_wayland = (wayland_display != NULL && wayland_display[0] != '\0') ||
+                         (xdg_session_type != NULL && strcmp(xdg_session_type, "wayland") == 0);
+        
+        if (is_wayland) {
+            // On Wayland: Use native Wayland with EGL for NVIDIA Prime (requires driver >= 495)
+            // Force Wayland video driver and allow EGL
+            SDL_SetHint(SDL_HINT_VIDEODRIVER, "wayland");
+        } else {
+            // On X11: Force X11 video driver to ensure GLX is used (not EGL)
+            // This is the traditional NVIDIA Prime offloading method
+            SDL_SetHint(SDL_HINT_VIDEODRIVER, "x11");
+            SDL_SetHint(SDL_HINT_VIDEO_X11_FORCE_EGL, "0");
+        }
         // Request an accelerated visual for proper GPU selection
         SDL_GL_SetAttribute(SDL_GL_ACCELERATED_VISUAL, 1);
     }
