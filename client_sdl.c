@@ -284,6 +284,11 @@ float ui_scale = 1.0f; // Default scale (range 0.5 to 2.0)
 float pending_ui_scale = 1.0f; // Scale value being dragged (applied on release)
 SDL_Rect slider_ui_scale;
 
+// --- Game World Zoom ---
+float game_zoom = 1.0f; // Default zoom (range 0.5 to 2.0)
+float pending_game_zoom = 1.0f; // Zoom value being dragged (applied on release)
+SDL_Rect slider_game_zoom;
+
 // --- Mobile Keyboard Handling ---
 #if defined(__ANDROID__) || defined(__IPHONEOS__)
 int keyboard_height = 0; // Estimated keyboard height (updated when keyboard shows)
@@ -321,7 +326,7 @@ int warnings_scroll = 0; // Scroll offset for warnings window
 SDL_Rect btn_sanction_open; // In Profile
 SDL_Rect btn_my_warnings;   // In Settings
 
-enum { SLIDER_NONE, SLIDER_R, SLIDER_G, SLIDER_B, SLIDER_R2, SLIDER_G2, SLIDER_B2, SLIDER_VOL, SLIDER_AFK, SLIDER_UI_SCALE };
+enum { SLIDER_NONE, SLIDER_R, SLIDER_G, SLIDER_B, SLIDER_R2, SLIDER_G2, SLIDER_B2, SLIDER_VOL, SLIDER_AFK, SLIDER_UI_SCALE, SLIDER_GAME_ZOOM };
 int active_slider = SLIDER_NONE;
 
 // --- Color Sliders ---
@@ -443,14 +448,15 @@ void save_config() {
                 r = local_players[i].r; g = local_players[i].g; b = local_players[i].b;
             }
         }
-        // Format: R G B R2 G2 B2 AFK_MIN DEBUG FPS COORDS VOL UNREAD UI_SCALE
-        fprintf(fp, "%d %d %d %d %d %d %d %d %d %d %d %d %.2f\n", 
+        // Format: R G B R2 G2 B2 AFK_MIN DEBUG FPS COORDS VOL UNREAD UI_SCALE GAME_ZOOM
+        fprintf(fp, "%d %d %d %d %d %d %d %d %d %d %d %d %.2f %.2f\n", 
             r, g, b, 
             my_r2, my_g2, my_b2, 
             afk_timeout_minutes,
             show_debug_info, show_fps, show_coords, music_volume,
             show_unread_counter,
-            ui_scale
+            ui_scale,
+            game_zoom
         );
         fclose(fp);
     }
@@ -474,13 +480,13 @@ void load_config() {
     if (fp) {
         // Temp variables for flags
         int dbg=0, fps=0, crd=0, vol=64, unread=1;
-        float scale=1.0f;
+        float scale=1.0f, zoom=1.0f;
         
-        int count = fscanf(fp, "%d %d %d %d %d %d %d %d %d %d %d %d %f", 
+        int count = fscanf(fp, "%d %d %d %d %d %d %d %d %d %d %d %d %f %f", 
             &saved_r, &saved_g, &saved_b, 
             &my_r2, &my_g2, &my_b2, 
             &afk_timeout_minutes,
-            &dbg, &fps, &crd, &vol, &unread, &scale
+            &dbg, &fps, &crd, &vol, &unread, &scale, &zoom
         );
         
         // Only apply if we successfully read at least the old version (11) or new (12)
@@ -504,6 +510,15 @@ void load_config() {
             if (ui_scale < 0.5f) ui_scale = 0.5f;
             if (ui_scale > 2.0f) ui_scale = 2.0f;
             pending_ui_scale = ui_scale; // Initialize pending to match current
+        }
+        
+        // Apply game zoom if present
+        if (count >= 14) {
+            game_zoom = zoom;
+            // Clamp to valid range
+            if (game_zoom < 0.5f) game_zoom = 0.5f;
+            if (game_zoom > 2.0f) game_zoom = 2.0f;
+            pending_game_zoom = game_zoom; // Initialize pending to match current
         }
         
         fclose(fp);
@@ -1532,6 +1547,7 @@ void process_slider_drag(int mx) {
         case SLIDER_VOL: r = &slider_volume; val_ptr = &music_volume; max_val = 128; break;
         case SLIDER_AFK: r = &slider_afk;    val_ptr = &afk_timeout_minutes; max_val = 10; break;
         case SLIDER_UI_SCALE: r = &slider_ui_scale; break; // Special handling below
+        case SLIDER_GAME_ZOOM: r = &slider_game_zoom; break; // Special handling below
     }
 
     if (!r) return;
@@ -1543,6 +1559,13 @@ void process_slider_drag(int mx) {
     // Handle UI Scale specially (float, different range)
     if (active_slider == SLIDER_UI_SCALE) {
         pending_ui_scale = 0.5f + (pct * 1.5f); // Map 0.0-1.0 to 0.5-2.0
+        // Don't apply immediately - wait for mouse release to avoid jarring changes
+        return;
+    }
+    
+    // Handle Game Zoom specially (float, different range)
+    if (active_slider == SLIDER_GAME_ZOOM) {
+        pending_game_zoom = 0.5f + (pct * 1.5f); // Map 0.0-1.0 to 0.5-2.0
         // Don't apply immediately - wait for mouse release to avoid jarring changes
         return;
     }
@@ -1744,6 +1767,21 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     
     render_text(renderer, "0.5x", slider_ui_scale.x - 25, slider_ui_scale.y + 2, col_white, 0);  
     render_text(renderer, "2.0x", slider_ui_scale.x + 245, slider_ui_scale.y + 2, col_white, 0); 
+    y += 50;
+    
+    // -- Game World Zoom --
+    // Show pending zoom if dragging, otherwise show current zoom
+    float display_zoom = (active_slider == SLIDER_GAME_ZOOM) ? pending_game_zoom : game_zoom;
+    char zoom_str[64]; snprintf(zoom_str, 64, "Game Zoom: %.1fx", display_zoom);
+    render_text(renderer, zoom_str, settings_win.x + 175, y, col_white, 1); 
+    y += 25;
+    
+    slider_game_zoom = (SDL_Rect){start_x + 30, y, 240, 15};
+    float zoom_pct = (display_zoom - 0.5f) / 1.5f; // Map 0.5-2.0 to 0.0-1.0
+    render_fancy_slider(renderer, &slider_game_zoom, zoom_pct, (SDL_Color){100, 200, 100, 255});
+    
+    render_text(renderer, "0.5x", slider_game_zoom.x - 25, slider_game_zoom.y + 2, col_white, 0);  
+    render_text(renderer, "2.0x", slider_game_zoom.x + 245, slider_game_zoom.y + 2, col_white, 0); 
     y += 50;
 
    // -- Disconnect --
@@ -2265,9 +2303,17 @@ void render_mobile_controls(SDL_Renderer *renderer, int h) {
 
 void render_game(SDL_Renderer *renderer) {
     int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
+    
+    // Apply game world zoom
+    SDL_RenderSetScale(renderer, game_zoom, game_zoom);
+    
+    // Adjust dimensions for zoom
+    float zoomed_w = w / game_zoom;
+    float zoomed_h = h / game_zoom;
+    
     float px=0, py=0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { px=local_players[i].x; py=local_players[i].y; }
-    int cam_x = (int)px - (w/2) + 16; int cam_y = (int)py - (h/2) + 16;
-    if (w > map_w) cam_x = -(w - map_w)/2; if (h > map_h) cam_y = -(h - map_h)/2; 
+    int cam_x = (int)px - (zoomed_w/2) + 16; int cam_y = (int)py - (zoomed_h/2) + 16;
+    if (zoomed_w > map_w) cam_x = -(zoomed_w - map_w)/2; if (zoomed_h > map_h) cam_y = -(zoomed_h - map_h)/2; 
 
     // 1. Draw Map
     SDL_RenderClear(renderer);
@@ -2331,7 +2377,10 @@ void render_game(SDL_Renderer *renderer) {
         }
     }
 
-    // 3. Apply UI scaling (affects all UI elements, not game world)
+    // 3. Reset scale before applying UI scale
+    SDL_RenderSetScale(renderer, 1.0f, 1.0f);
+    
+    // 4. Apply UI scaling (affects all UI elements, not game world)
     // Save the current render scale
     float old_scale_x, old_scale_y;
     SDL_RenderGetScale(renderer, &old_scale_x, &old_scale_y);
@@ -2797,6 +2846,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             CHECK_SLIDER(slider_volume, SLIDER_VOL);
             CHECK_SLIDER(slider_afk, SLIDER_AFK);
             CHECK_SLIDER(slider_ui_scale, SLIDER_UI_SCALE);
+            CHECK_SLIDER(slider_game_zoom, SLIDER_GAME_ZOOM);
 
             // Bottom Buttons
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_disconnect_rect)) {
@@ -2856,11 +2906,18 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         }
     }
 
+    // Check for player clicks in game world (convert scaled UI coords to game world coords)
+    // mx, my are in UI coordinate space (divided by ui_scale)
+    // Game world is scaled by game_zoom
+    // So we need to: multiply by ui_scale to get screen coords, then divide by game_zoom to get game world coords
+    int game_mx = (int)((mx * ui_scale) / game_zoom);
+    int game_my = (int)((my * ui_scale) / game_zoom);
+    
     int clicked = 0;
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (local_players[i].active) {
             SDL_Rect r = { (int)local_players[i].x - cam_x, (int)local_players[i].y - cam_y, PLAYER_WIDTH, PLAYER_HEIGHT };
-            if (SDL_PointInRect(&(SDL_Point){mx, my}, &r)) { selected_player_id = local_players[i].id; clicked = 1; }
+            if (SDL_PointInRect(&(SDL_Point){game_mx, game_my}, &r)) { selected_player_id = local_players[i].id; clicked = 1; }
         }
     }
     
@@ -3309,6 +3366,11 @@ int main(int argc, char *argv[]) {
                 // Apply pending UI scale change on release
                 if (active_slider == SLIDER_UI_SCALE && pending_ui_scale != ui_scale) {
                     ui_scale = pending_ui_scale;
+                    save_config();
+                }
+                // Apply pending game zoom change on release
+                if (active_slider == SLIDER_GAME_ZOOM && pending_game_zoom != game_zoom) {
+                    game_zoom = pending_game_zoom;
                     save_config();
                 }
                 active_slider = SLIDER_NONE;
