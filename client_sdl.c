@@ -104,6 +104,7 @@ SDL_Rect btn_view_blocked;
 SDL_Rect blocked_win;          
 SDL_Rect btn_close_blocked;    
 SDL_Rect btn_hide_player_dyn; // Dynamic rect for click handling
+SDL_Rect btn_change_avatar;    // Avatar selection button
 
 // UI STATE
 int selected_player_id = -1;
@@ -305,6 +306,15 @@ SDL_Rect slider_game_zoom;
 #if defined(__ANDROID__) || defined(__IPHONEOS__)
 int keyboard_height = 0; // Estimated keyboard height (updated when keyboard shows)
 int chat_window_shift = 0; // Amount to shift chat window up
+
+// Mobile text editing context menu
+int show_mobile_text_menu = 0;
+SDL_Rect mobile_text_menu_rect;
+int mobile_text_menu_x = 0;
+int mobile_text_menu_y = 0;
+Uint32 long_press_start_time = 0;
+int long_press_active = 0;
+#define LONG_PRESS_DURATION 500 // milliseconds
 #endif
 int show_documentation = 0;
 SDL_Rect btn_contributors_rect;
@@ -1715,6 +1725,161 @@ void render_fancy_slider(SDL_Renderer *renderer, SDL_Rect *rect, float pct, SDL_
     SDL_RenderDrawRect(renderer, &knob);
 }
 
+// Platform-specific file picker for avatar selection
+void open_file_picker_for_avatar() {
+    #if defined(_WIN32)
+    // Windows: Use native file dialog
+    char filename[1024] = {0};
+    OPENFILENAMEA ofn;
+    ZeroMemory(&ofn, sizeof(ofn));
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = NULL;
+    ofn.lpstrFile = filename;
+    ofn.nMaxFile = sizeof(filename);
+    ofn.lpstrFilter = "Image Files\0*.PNG;*.JPG;*.JPEG;*.BMP\0All Files\0*.*\0";
+    ofn.nFilterIndex = 1;
+    ofn.lpstrFileTitle = NULL;
+    ofn.nMaxFileTitle = 0;
+    ofn.lpstrInitialDir = NULL;
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+    
+    if (GetOpenFileNameA(&ofn) == TRUE) {
+        // Load and send avatar
+        FILE *f = fopen(filename, "rb");
+        if (f) {
+            fseek(f, 0, SEEK_END);
+            long size = ftell(f);
+            fseek(f, 0, SEEK_SET);
+            
+            if (size > 0 && size <= MAX_AVATAR_SIZE) {
+                uint8_t *data = malloc(size);
+                if (data) {
+                    fread(data, 1, size, f);
+                    
+                    // Send avatar upload packet
+                    Packet pkt;
+                    memset(&pkt, 0, sizeof(Packet));
+                    pkt.type = PACKET_AVATAR_UPLOAD;
+                    pkt.image_size = size;
+                    
+                    // Send packet header first
+                    send_all(sock, &pkt, sizeof(Packet), 0);
+                    // Then send image data
+                    send_all(sock, data, size, 0);
+                    
+                    free(data);
+                }
+            }
+            fclose(f);
+        }
+    }
+    
+    #elif defined(__APPLE__) && !defined(__IPHONEOS__)
+    // macOS: Use Objective-C NSOpenPanel
+    typedef void* (*NSOpenPanelFunc)();
+    typedef void (*PanelSetAllowedFileTypesFunc)(void*, void*);
+    typedef void (*PanelBeginFunc)(void*, void*);
+    typedef long (*PanelRunModalFunc)(void*);
+    typedef void* (*PanelURLFunc)(void*);
+    typedef const char* (*URLPathFunc)(void*);
+    
+    void *panel = objc_msgSend((void*)objc_getClass("NSOpenPanel"), sel_registerName("openPanel"));
+    if (panel) {
+        // Set allowed file types
+        void *fileTypes = objc_msgSend((void*)objc_getClass("NSArray"), sel_registerName("arrayWithObjects:"),
+                                       objc_msgSend((void*)objc_getClass("NSString"), sel_registerName("stringWithUTF8String:"), "png"),
+                                       objc_msgSend((void*)objc_getClass("NSString"), sel_registerName("stringWithUTF8String:"), "jpg"),
+                                       objc_msgSend((void*)objc_getClass("NSString"), sel_registerName("stringWithUTF8String:"), "jpeg"),
+                                       objc_msgSend((void*)objc_getClass("NSString"), sel_registerName("stringWithUTF8String:"), "bmp"),
+                                       NULL);
+        objc_msgSend(panel, sel_registerName("setAllowedFileTypes:"), fileTypes);
+        
+        // Run modal
+        long result = (long)objc_msgSend(panel, sel_registerName("runModal"));
+        if (result == 1) { // NSModalResponseOK
+            void *url = objc_msgSend(panel, sel_registerName("URL"));
+            if (url) {
+                const char *path = (const char*)objc_msgSend(url, sel_registerName("fileSystemRepresentation"));
+                if (path) {
+                    // Load and send avatar (similar to Windows code)
+                    FILE *f = fopen(path, "rb");
+                    if (f) {
+                        fseek(f, 0, SEEK_END);
+                        long size = ftell(f);
+                        fseek(f, 0, SEEK_SET);
+                        
+                        if (size > 0 && size <= MAX_AVATAR_SIZE) {
+                            uint8_t *data = malloc(size);
+                            if (data) {
+                                fread(data, 1, size, f);
+                                
+                                Packet pkt;
+                                memset(&pkt, 0, sizeof(Packet));
+                                pkt.type = PACKET_AVATAR_UPLOAD;
+                                pkt.image_size = size;
+                                
+                                send_all(sock, &pkt, sizeof(Packet), 0);
+                                send_all(sock, data, size, 0);
+                                
+                                free(data);
+                            }
+                        }
+                        fclose(f);
+                    }
+                }
+            }
+        }
+    }
+    
+    #elif defined(__IPHONEOS__)
+    // iOS: File picker requires UIKit integration (would need Objective-C wrapper)
+    // For now, show a message
+    printf("iOS file picker not yet implemented - requires UIKit integration\n");
+    
+    #elif defined(__ANDROID__)
+    // Android: File picker requires JNI integration
+    // For now, show a message
+    printf("Android file picker not yet implemented - requires JNI integration\n");
+    
+    #else
+    // Linux/other: Try zenity as fallback
+    FILE *fp = popen("zenity --file-selection --file-filter='Images | *.png *.jpg *.jpeg *.bmp' 2>/dev/null", "r");
+    if (fp) {
+        char filename[1024];
+        if (fgets(filename, sizeof(filename), fp)) {
+            // Remove trailing newline
+            filename[strcspn(filename, "\n")] = 0;
+            
+            FILE *f = fopen(filename, "rb");
+            if (f) {
+                fseek(f, 0, SEEK_END);
+                long size = ftell(f);
+                fseek(f, 0, SEEK_SET);
+                
+                if (size > 0 && size <= MAX_AVATAR_SIZE) {
+                    uint8_t *data = malloc(size);
+                    if (data) {
+                        fread(data, 1, size, f);
+                        
+                        Packet pkt;
+                        memset(&pkt, 0, sizeof(Packet));
+                        pkt.type = PACKET_AVATAR_UPLOAD;
+                        pkt.image_size = size;
+                        
+                        send_all(sock, &pkt, sizeof(Packet), 0);
+                        send_all(sock, data, size, 0);
+                        
+                        free(data);
+                    }
+                }
+                fclose(f);
+            }
+        }
+        pclose(fp);
+    }
+    #endif
+}
+
 void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     if (!is_settings_open) return;
     
@@ -1776,7 +1941,12 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     SDL_SetRenderDrawColor(renderer, 100, 50, 150, 255); SDL_RenderFillRect(renderer, &btn_nick);
     render_text(renderer, "Change Nickname", btn_nick.x + 150, btn_nick.y + 5, col_white, 1);
     y += 40;
- 
+
+    btn_change_avatar = (SDL_Rect){start_x, y, 300, 30};
+    SDL_SetRenderDrawColor(renderer, 50, 150, 100, 255); SDL_RenderFillRect(renderer, &btn_change_avatar);
+    render_text(renderer, "Change Avatar", btn_change_avatar.x + 150, btn_change_avatar.y + 5, col_white, 1);
+    y += 40;
+  
     
 
     render_text(renderer, "Name Color (Start)", settings_win.x + 175, y, (SDL_Color){my_r, my_g, my_b, 255}, 1); 
@@ -2320,67 +2490,61 @@ void render_documentation(SDL_Renderer *renderer, int w, int h) {
         return;
     }
 
-    SDL_Rect win = {w/2 - 250, h/2 - 250, 500, 500};
+    SDL_Rect win = {w/2 - 300, h/2 - 300, 600, 600};
     
-    // Create cached texture if needed (iOS performance optimization)
-    if (!cached_documentation_tex) {
-        // Create a target texture
-        cached_documentation_tex = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, 
-                                                      SDL_TEXTUREACCESS_TARGET, 500, 500);
-        if (cached_documentation_tex) {
-            SDL_SetTextureBlendMode(cached_documentation_tex, SDL_BLENDMODE_BLEND);
-            
-            // Render to texture
-            SDL_SetRenderTarget(renderer, cached_documentation_tex);
-            SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0); 
-            SDL_RenderClear(renderer);
-            
-            // Background
-            SDL_Rect bg = {0, 0, 500, 500};
-            SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255); 
-            SDL_RenderFillRect(renderer, &bg);
-            SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255); 
-            SDL_RenderDrawRect(renderer, &bg);
+    // Background
+    SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255); 
+    SDL_RenderFillRect(renderer, &win);
+    SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255); 
+    SDL_RenderDrawRect(renderer, &win);
 
-            // Content
-            render_text(renderer, "Game Documentation", 250, 15, col_green, 1);
+    // Title
+    render_text(renderer, "Game Documentation", win.x + 300, win.y + 15, col_green, 1);
 
-            int start_x = 20;
-            int y = 60;
+    // Setup clipping for scrollable content
+    SDL_Rect content_area = {win.x + 10, win.y + 50, win.w - 20, win.h - 60};
+    SDL_RenderSetClipRect(renderer, &content_area);
 
-            // 1. Text Formatting
-            render_text(renderer, "#Text Formatting#", start_x, y, col_yellow, 0); y += 30;
-            render_text(renderer, "Style: *Italic*, #Bold#, ~Strike~", start_x, y, col_white, 0); y += 25;
-            render_raw_text(renderer, "Usage: wrap text in symbols (*, #, ~)", start_x, y, (SDL_Color){150,150,150,255}, 0); y += 35;
+    int start_x = win.x + 20;
+    int y = win.y + 60 - documentation_scroll;
 
-            // 2. Colors
-            render_text(renderer, "#Colors#", start_x, y, col_yellow, 0); y += 30;
-            render_text(renderer, "^1Red ^2Green ^3Blue ^4Yellow ^5Cyan ^6Magenta", start_x, y, col_white, 0); y += 25;
-            render_text(renderer, "^7White ^8Gray ^9Black", start_x, y, col_white, 0); y += 25;
-            render_raw_text(renderer, "Usage: type ^ (caret) + number", start_x, y, (SDL_Color){150,150,150,255}, 0); y += 35;
+    // 1. Text Formatting
+    render_text(renderer, "#Text Formatting#", start_x, y, col_yellow, 0); y += 30;
+    render_text(renderer, "Style: *Italic*, #Bold#, ~Strike~", start_x, y, col_white, 0); y += 25;
+    render_raw_text(renderer, "Usage: wrap text in symbols (*, #, ~)", start_x, y, (SDL_Color){150,150,150,255}, 0); y += 35;
 
-            // 3. Shortcuts
-            render_text(renderer, "#Shortcuts & Editing#", start_x, y, col_yellow, 0); y += 30;
-            render_text(renderer, "- Select: Shift + Arrows OR Mouse Drag", start_x, y, col_white, 0); y += 25;
-            render_text(renderer, "- Copy/Paste: Ctrl+C, Ctrl+V, Ctrl+X", start_x, y, col_white, 0); y += 25;
-            render_text(renderer, "- Select All: Ctrl+A", start_x, y, col_white, 0); y += 25;
-            render_text(renderer, "- Cursor: Click to move, Arrows to nav", start_x, y, col_white, 0); y += 35;
-            
-            // Restore render target
-            SDL_SetRenderTarget(renderer, NULL);
-            
-            documentation_tex_w = 500;
-            documentation_tex_h = 500;
-        }
-    }
+    // 2. Colors
+    render_text(renderer, "#Colors#", start_x, y, col_yellow, 0); y += 30;
+    render_text(renderer, "^1Red ^2Green ^3Blue ^4Yellow ^5Cyan ^6Magenta", start_x, y, col_white, 0); y += 25;
+    render_text(renderer, "^7White ^8Gray ^9Black", start_x, y, col_white, 0); y += 25;
+    render_raw_text(renderer, "Usage: type ^ (caret) + number", start_x, y, (SDL_Color){150,150,150,255}, 0); y += 35;
+
+    // 3. Shortcuts & Editing
+    render_text(renderer, "#Shortcuts & Editing#", start_x, y, col_yellow, 0); y += 30;
+    render_text(renderer, "- Select: Shift + Arrows OR Mouse Drag", start_x, y, col_white, 0); y += 25;
+    #if !defined(__ANDROID__) && !defined(__IPHONEOS__)
+    render_text(renderer, "- Copy/Paste: Ctrl+C, Ctrl+V, Ctrl+X", start_x, y, col_white, 0); y += 25;
+    #else
+    render_text(renderer, "- Copy/Paste: Use context menu", start_x, y, col_white, 0); y += 25;
+    #endif
+    render_text(renderer, "- Select All: Ctrl+A", start_x, y, col_white, 0); y += 25;
+    render_text(renderer, "- Cursor: Click to move, Arrows to nav", start_x, y, col_white, 0); y += 35;
+
+    // 4. Chat Commands
+    render_text(renderer, "#Chat Commands#", start_x, y, col_yellow, 0); y += 30;
+    render_text(renderer, "Admin Commands (requires Admin role):", start_x, y, (SDL_Color){255,150,150,255}, 0); y += 25;
+    render_text(renderer, "- /unban <ID>", start_x + 10, y, col_white, 0); y += 20;
+    render_raw_text(renderer, "  Removes ban from player ID", start_x + 10, y, (SDL_Color){180,180,180,255}, 0); y += 25;
+    render_text(renderer, "- /unwarn <ID>", start_x + 10, y, col_white, 0); y += 20;
+    render_raw_text(renderer, "  Removes last warning from player ID", start_x + 10, y, (SDL_Color){180,180,180,255}, 0); y += 25;
+    render_text(renderer, "- /role <ID> <LEVEL>", start_x + 10, y, col_white, 0); y += 20;
+    render_raw_text(renderer, "  Sets role (0=Player, 1=Admin, 2=Dev, 3=Contrib, 4=VIP)", start_x + 10, y, (SDL_Color){180,180,180,255}, 0); y += 35;
+
+    // Disable clipping
+    SDL_RenderSetClipRect(renderer, NULL);
     
-    // Draw cached texture
-    if (cached_documentation_tex) {
-        SDL_RenderCopy(renderer, cached_documentation_tex, NULL, &win);
-    }
-    
-    // Draw close button on top (not cached since it needs to be interactive)
-    SDL_Rect btn_close = {win.x + 460, win.y + 5, 30, 30};
+    // Draw close button on top
+    SDL_Rect btn_close = {win.x + win.w - 40, win.y + 5, 30, 30};
     SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); 
     SDL_RenderFillRect(renderer, &btn_close);
     render_text(renderer, "X", btn_close.x + 10, btn_close.y + 5, col_white, 0);
@@ -2408,6 +2572,72 @@ void render_mobile_controls(SDL_Renderer *renderer, int h) {
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
     #endif
 }
+
+#if defined(__ANDROID__) || defined(__IPHONEOS__)
+void render_mobile_text_menu(SDL_Renderer *renderer) {
+    if (!show_mobile_text_menu) return;
+    
+    // Menu dimensions
+    int menu_w = 280;
+    int menu_h = 50;
+    int button_w = 65;
+    int button_h = 40;
+    int button_spacing = 5;
+    
+    // Position menu near selection or at tap location
+    mobile_text_menu_rect = (SDL_Rect){mobile_text_menu_x, mobile_text_menu_y, menu_w, menu_h};
+    
+    // Draw menu background
+    SDL_SetRenderDrawColor(renderer, 50, 50, 50, 230);
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    SDL_RenderFillRect(renderer, &mobile_text_menu_rect);
+    SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255);
+    SDL_RenderDrawRect(renderer, &mobile_text_menu_rect);
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+    
+    // Draw buttons: Cut | Copy | Paste | Clear
+    int x = mobile_text_menu_rect.x + button_spacing;
+    int y = mobile_text_menu_rect.y + 5;
+    
+    // Cut button
+    SDL_Rect btn_cut = {x, y, button_w, button_h};
+    SDL_SetRenderDrawColor(renderer, 180, 80, 80, 255);
+    SDL_RenderFillRect(renderer, &btn_cut);
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+    SDL_RenderDrawRect(renderer, &btn_cut);
+    render_text(renderer, "Cut", btn_cut.x + button_w/2, btn_cut.y + 10, col_white, 1);
+    
+    x += button_w + button_spacing;
+    
+    // Copy button
+    SDL_Rect btn_copy = {x, y, button_w, button_h};
+    SDL_SetRenderDrawColor(renderer, 80, 180, 80, 255);
+    SDL_RenderFillRect(renderer, &btn_copy);
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+    SDL_RenderDrawRect(renderer, &btn_copy);
+    render_text(renderer, "Copy", btn_copy.x + button_w/2, btn_copy.y + 10, col_white, 1);
+    
+    x += button_w + button_spacing;
+    
+    // Paste button
+    SDL_Rect btn_paste = {x, y, button_w, button_h};
+    SDL_SetRenderDrawColor(renderer, 80, 80, 180, 255);
+    SDL_RenderFillRect(renderer, &btn_paste);
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+    SDL_RenderDrawRect(renderer, &btn_paste);
+    render_text(renderer, "Paste", btn_paste.x + button_w/2, btn_paste.y + 10, col_white, 1);
+    
+    x += button_w + button_spacing;
+    
+    // Clear button
+    SDL_Rect btn_clear = {x, y, button_w, button_h};
+    SDL_SetRenderDrawColor(renderer, 150, 150, 150, 255);
+    SDL_RenderFillRect(renderer, &btn_clear);
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+    SDL_RenderDrawRect(renderer, &btn_clear);
+    render_text(renderer, "Clear", btn_clear.x + button_w/2, btn_clear.y + 10, col_white, 1);
+}
+#endif
 
 void render_game(SDL_Renderer *renderer) {
     int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
@@ -2531,6 +2761,10 @@ void render_game(SDL_Renderer *renderer) {
     render_debug_overlay(renderer, scaled_w);
     render_hud(renderer, scaled_w, scaled_h);
     render_mobile_controls(renderer, scaled_w);
+    
+    #if defined(__ANDROID__) || defined(__IPHONEOS__)
+    render_mobile_text_menu(renderer);
+    #endif
 
     // 5. Draw HUD Buttons
     btn_chat_toggle = (SDL_Rect){10, scaled_h-40, 100, 30};
@@ -2941,6 +3175,12 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             SDL_Rect btn_nick = {btn_cycle_status.x, btn_cycle_status.y + 40, 300, 30};
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_nick)) {
                 show_nick_popup = 1; nick_new[0] = 0; nick_confirm[0] = 0; nick_pass[0] = 0; strcpy(auth_message, "Enter details."); return;
+            }
+
+            // Avatar change button (right after nickname button)
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_change_avatar)) {
+                open_file_picker_for_avatar();
+                return;
             }
 
             // --- Generic Slider Hit Detection (Replaces all specific slider logic) ---
@@ -3423,10 +3663,10 @@ int main(int argc, char *argv[]) {
                 else if (show_documentation) {
                     documentation_scroll -= scroll_amount;
                     if (documentation_scroll < 0) documentation_scroll = 0;
-                    // Documentation window: 500px content height, 450px visible area
-                    // Content includes title + close btn + ~12 text lines with sections
-                    int content_height = 500;
-                    int visible_height = 450;
+                    // Documentation window: 650px content height (updated with chat commands), 540px visible area
+                    // Content includes title + close btn + sections for formatting, colors, shortcuts, and chat commands
+                    int content_height = 650;
+                    int visible_height = 540;
                     int max_scroll = content_height - visible_height;
                     if (max_scroll < 0) max_scroll = 0;
                     if (documentation_scroll > max_scroll) documentation_scroll = max_scroll;
@@ -3458,6 +3698,118 @@ int main(int argc, char *argv[]) {
                 int tx = (int)((event.tfinger.x * w) / ui_scale);
                 int ty = (int)((event.tfinger.y * h) / ui_scale);
                 printf("[FINGERDOWN] tx=%d ty=%d w=%d h=%d fingerId=%lld state=%d ui_scale=%.2f\n", tx, ty, w, h, (long long)event.tfinger.fingerId, client_state, ui_scale);
+
+                #if defined(__ANDROID__) || defined(__IPHONEOS__)
+                // Check if clicking on mobile text menu
+                if (show_mobile_text_menu && SDL_PointInRect(&(SDL_Point){tx, ty}, &mobile_text_menu_rect)) {
+                    // Handle menu button clicks
+                    int button_w = 65;
+                    int button_spacing = 5;
+                    int x = mobile_text_menu_rect.x + button_spacing;
+                    int y = mobile_text_menu_rect.y + 5;
+                    int button_h = 40;
+                    
+                    SDL_Rect btn_cut = {x, y, button_w, button_h};
+                    SDL_Rect btn_copy = {x + button_w + button_spacing, y, button_w, button_h};
+                    SDL_Rect btn_paste = {x + (button_w + button_spacing) * 2, y, button_w, button_h};
+                    SDL_Rect btn_clear = {x + (button_w + button_spacing) * 3, y, button_w, button_h};
+                    
+                    if (SDL_PointInRect(&(SDL_Point){tx, ty}, &btn_cut)) {
+                        // Cut: Copy and delete
+                        if (selection_len != 0 && (is_chat_open || active_field >= 0)) {
+                            char *buffer = is_chat_open ? input_buffer : 
+                                          (active_field == 10 ? nick_new :
+                                           active_field == 11 ? nick_confirm :
+                                           active_field == 12 ? nick_pass : NULL);
+                            if (buffer) {
+                                int start = selection_start;
+                                int slen = selection_len;
+                                if (slen < 0) { start += slen; slen = -slen; }
+                                
+                                char *clip_buf = malloc(slen + 1);
+                                if (clip_buf) {
+                                    strncpy(clip_buf, buffer + start, slen);
+                                    clip_buf[slen] = 0;
+                                    SDL_SetClipboardText(clip_buf);
+                                    free(clip_buf);
+                                }
+                                delete_selection(buffer);
+                            }
+                        }
+                    } else if (SDL_PointInRect(&(SDL_Point){tx, ty}, &btn_copy)) {
+                        // Copy
+                        if (selection_len != 0 && (is_chat_open || active_field >= 0)) {
+                            char *buffer = is_chat_open ? input_buffer : 
+                                          (active_field == 10 ? nick_new :
+                                           active_field == 11 ? nick_confirm :
+                                           active_field == 12 ? nick_pass : NULL);
+                            if (buffer) {
+                                int start = selection_start;
+                                int slen = selection_len;
+                                if (slen < 0) { start += slen; slen = -slen; }
+                                
+                                char *clip_buf = malloc(slen + 1);
+                                if (clip_buf) {
+                                    strncpy(clip_buf, buffer + start, slen);
+                                    clip_buf[slen] = 0;
+                                    SDL_SetClipboardText(clip_buf);
+                                    free(clip_buf);
+                                }
+                            }
+                        }
+                    } else if (SDL_PointInRect(&(SDL_Point){tx, ty}, &btn_paste)) {
+                        // Paste
+                        if (SDL_HasClipboardText() && (is_chat_open || active_field >= 0)) {
+                            char *text = SDL_GetClipboardText();
+                            if (text) {
+                                char *buffer = is_chat_open ? input_buffer : 
+                                              (active_field == 10 ? nick_new :
+                                               active_field == 11 ? nick_confirm :
+                                               active_field == 12 ? nick_pass : NULL);
+                                int max_len = is_chat_open ? 60 : 31;
+                                
+                                if (buffer) {
+                                    if (selection_len != 0) delete_selection(buffer);
+                                    
+                                    int add_len = strlen(text);
+                                    if (strlen(buffer) + add_len <= max_len) {
+                                        memmove(buffer + cursor_pos + add_len, buffer + cursor_pos, strlen(buffer) - cursor_pos + 1);
+                                        memcpy(buffer + cursor_pos, text, add_len);
+                                        cursor_pos += add_len;
+                                    }
+                                }
+                                SDL_free(text);
+                            }
+                        }
+                    } else if (SDL_PointInRect(&(SDL_Point){tx, ty}, &btn_clear)) {
+                        // Clear selection or all text
+                        if (is_chat_open || active_field >= 0) {
+                            char *buffer = is_chat_open ? input_buffer : 
+                                          (active_field == 10 ? nick_new :
+                                           active_field == 11 ? nick_confirm :
+                                           active_field == 12 ? nick_pass : NULL);
+                            if (buffer) {
+                                if (selection_len != 0) {
+                                    delete_selection(buffer);
+                                } else {
+                                    buffer[0] = 0;
+                                    cursor_pos = 0;
+                                    selection_start = 0;
+                                    selection_len = 0;
+                                }
+                            }
+                        }
+                    }
+                    show_mobile_text_menu = 0;
+                    return;
+                }
+                
+                // Start long press detection for text fields
+                if (is_chat_open || active_field >= 0) {
+                    long_press_start_time = SDL_GetTicks();
+                    long_press_active = 1;
+                }
+                #endif
 
                 if (is_settings_open && SDL_PointInRect(&(SDL_Point){tx, ty}, &settings_view_port)) {
                     scroll_touch_id = event.tfinger.fingerId;
@@ -3528,6 +3880,33 @@ int main(int argc, char *argv[]) {
                 }
             }
             else if (event.type == SDL_FINGERUP) {
+                #if defined(__ANDROID__) || defined(__IPHONEOS__)
+                // Check for long press and show menu
+                if (long_press_active) {
+                    Uint32 press_duration = SDL_GetTicks() - long_press_start_time;
+                    if (press_duration >= LONG_PRESS_DURATION && (is_chat_open || active_field >= 0)) {
+                        int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
+                        int tx = (int)((event.tfinger.x * w) / ui_scale);
+                        int ty = (int)((event.tfinger.y * h) / ui_scale);
+                        
+                        // Position menu near touch point
+                        mobile_text_menu_x = tx - 140; // Center horizontally
+                        mobile_text_menu_y = ty - 60;  // Position above touch
+                        
+                        // Clamp to screen bounds
+                        if (mobile_text_menu_x < 0) mobile_text_menu_x = 0;
+                        if (mobile_text_menu_y < 0) mobile_text_menu_y = 0;
+                        int scaled_w = (int)(w / ui_scale);
+                        int scaled_h = (int)(h / ui_scale);
+                        if (mobile_text_menu_x + 280 > scaled_w) mobile_text_menu_x = scaled_w - 280;
+                        if (mobile_text_menu_y + 50 > scaled_h) mobile_text_menu_y = scaled_h - 50;
+                        
+                        show_mobile_text_menu = 1;
+                    }
+                    long_press_active = 0;
+                }
+                #endif
+                
                 if (event.tfinger.fingerId == scroll_touch_id) {
                     scroll_touch_id = -1;
                     scroll_last_y = 0;
