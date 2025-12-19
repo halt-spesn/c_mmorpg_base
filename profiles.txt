@@ -1,0 +1,5 @@
+# Sample profiles file format
+# Each line: username password
+# Example:
+# player1 password123
+# admin adminpass

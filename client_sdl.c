@@ -2420,13 +2420,18 @@ void render_game(SDL_Renderer *renderer) {
     
     float px=0, py=0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { px=local_players[i].x; py=local_players[i].y; }
     int cam_x = (int)px - (zoomed_w/2) + 16; int cam_y = (int)py - (zoomed_h/2) + 16;
-    if (zoomed_w > map_w) cam_x = -(zoomed_w - map_w)/2; if (zoomed_h > map_h) cam_y = -(zoomed_h - map_h)/2;
     
-    // Clamp camera to map boundaries
-    if (cam_x < 0) cam_x = 0;
-    if (cam_y < 0) cam_y = 0;
-    if (cam_x + zoomed_w > map_w) cam_x = map_w - zoomed_w;
-    if (cam_y + zoomed_h > map_h) cam_y = map_h - zoomed_h; 
+    // Clamp camera to map boundaries (only when viewport is smaller than map)
+    if (zoomed_w > map_w) cam_x = -(zoomed_w - map_w)/2; 
+    else {
+        if (cam_x < 0) cam_x = 0;
+        if (cam_x + zoomed_w > map_w) cam_x = map_w - zoomed_w;
+    }
+    if (zoomed_h > map_h) cam_y = -(zoomed_h - map_h)/2;
+    else {
+        if (cam_y < 0) cam_y = 0;
+        if (cam_y + zoomed_h > map_h) cam_y = map_h - zoomed_h;
+    } 
 
     // 1. Draw Map
     SDL_RenderClear(renderer);
