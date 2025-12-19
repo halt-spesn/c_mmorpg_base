@@ -330,6 +330,7 @@ int contributors_scroll = 0; // Scroll offset for contributors window
 int documentation_scroll = 0; // Scroll offset for documentation window
 
 int show_role_list = 0;
+int role_list_scroll = 0; // Scroll offset for staff list window
 struct { int id; char name[32]; int role; } staff_list[50];
 int staff_count = 0;
 SDL_Rect btn_staff_list_rect;
@@ -1594,7 +1595,11 @@ void render_role_list(SDL_Renderer *renderer, int w, int h) {
     SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_close);
     render_text(renderer, "X", btn_close.x + 10, btn_close.y + 5, col_white, 0);
 
-    int y = win.y + 50;
+    // Setup clipping for scrollable content
+    SDL_Rect content_area = {win.x + 10, win.y + 50, win.w - 20, win.h - 60};
+    SDL_RenderSetClipRect(renderer, &content_area);
+
+    int y = win.y + 50 - role_list_scroll; // Apply scroll offset
     
     if (staff_count == 0) {
         render_text(renderer, "Loading...", win.x + 200, y + 20, col_white, 1);
@@ -1611,6 +1616,9 @@ void render_role_list(SDL_Renderer *renderer, int w, int h) {
         render_text(renderer, buffer, win.x + 20, y, c, 0);
         y += 25;
     }
+
+    // Reset clipping
+    SDL_RenderSetClipRect(renderer, NULL);
 }
 
 void process_slider_drag(int mx) {
@@ -3651,6 +3659,16 @@ int main(int argc, char *argv[]) {
                     if (max_scroll < 0) max_scroll = 0;
                     if (warnings_scroll > max_scroll) warnings_scroll = max_scroll;
                 }
+                else if (show_role_list) {
+                    role_list_scroll -= scroll_amount;
+                    if (role_list_scroll < 0) role_list_scroll = 0;
+                    // Max scroll based on staff count (25px per staff + 50px header)
+                    int content_height = 50 + (staff_count * 25);
+                    int visible_height = 450 - 60; // Window height minus header
+                    int max_scroll = content_height - visible_height;
+                    if (max_scroll < 0) max_scroll = 0;
+                    if (role_list_scroll > max_scroll) role_list_scroll = max_scroll;
+                }
                 else if (show_friend_list) {
                     friend_list_scroll -= scroll_amount;
                     if (friend_list_scroll < 0) friend_list_scroll = 0;
@@ -3860,6 +3878,15 @@ int main(int argc, char *argv[]) {
                         printf("[FINGERDOWN] Warnings scroll touch started\n");
                     }
                 }
+                else if (show_role_list) {
+                    SDL_Rect win = {w/2 - 200, h/2 - 225, 400, 450};
+                    SDL_Rect content_area = {win.x + 10, win.y + 50, win.w - 20, win.h - 60};
+                    if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
+                        scroll_touch_id = event.tfinger.fingerId;
+                        scroll_last_y = ty;
+                        printf("[FINGERDOWN] Staff list scroll touch started\n");
+                    }
+                }
                 else if (show_blocked_list) {
                     SDL_Rect win = {w/2 - 150, h/2 - 200, 300, 400};
                     SDL_Rect content_area = {win.x + 10, win.y + 45, win.w - 20, win.h - 50};
@@ -3968,6 +3995,16 @@ int main(int argc, char *argv[]) {
                         if (max_scroll < 0) max_scroll = 0;
                         if (warnings_scroll > max_scroll) warnings_scroll = max_scroll;
                         printf("[FINGERMOTION] Warnings scroll: delta=%d scroll=%d\n", delta, warnings_scroll);
+                    }
+                    else if (show_role_list) {
+                        role_list_scroll += delta;
+                        if (role_list_scroll < 0) role_list_scroll = 0;
+                        int content_height = 50 + (staff_count * 25);
+                        int visible_height = 450 - 60;
+                        int max_scroll = content_height - visible_height;
+                        if (max_scroll < 0) max_scroll = 0;
+                        if (role_list_scroll > max_scroll) role_list_scroll = max_scroll;
+                        printf("[FINGERMOTION] Staff list scroll: delta=%d scroll=%d\n", delta, role_list_scroll);
                     }
                     else if (show_blocked_list) {
                         blocked_scroll += delta;
