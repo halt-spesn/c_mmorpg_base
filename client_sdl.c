@@ -3191,10 +3191,12 @@ int main(int argc, char *argv[]) {
     const char *nv_offload = getenv("__NV_PRIME_RENDER_OFFLOAD");
     const char *glx_vendor = getenv("__GLX_VENDOR_LIBRARY_NAME");
     if (nv_offload && glx_vendor && strcmp(nv_offload, "1") == 0 && strcmp(glx_vendor, "nvidia") == 0) {
+        // Force X11 video driver to ensure GLX is used (not Wayland or EGL)
+        // This is critical for NVIDIA Prime offloading to work properly
+        SDL_SetHint(SDL_HINT_VIDEODRIVER, "x11");
         // Disable EGL to ensure GLX is used with NVIDIA Prime offloading
-        // EGL may not properly respect __NV_PRIME_RENDER_OFFLOAD on some systems
         SDL_SetHint(SDL_HINT_VIDEO_X11_FORCE_EGL, "0");
-        // Also ensure we request an accelerated visual for proper GPU selection
+        // Request an accelerated visual for proper GPU selection
         SDL_GL_SetAttribute(SDL_GL_ACCELERATED_VISUAL, 1);
     }
     #endif
