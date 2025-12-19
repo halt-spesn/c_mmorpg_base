@@ -1763,9 +1763,9 @@ void open_file_picker_for_avatar() {
                     pkt.image_size = size;
                     
                     // Send packet header first
-                    send_all(sock, &pkt, sizeof(Packet), 0);
+                    send_all(sock, &pkt, sizeof(Packet));
                     // Then send image data
-                    send_all(sock, data, size, 0);
+                    send_all(sock, data, size);
                     
                     free(data);
                 }
@@ -1818,8 +1818,8 @@ void open_file_picker_for_avatar() {
                                 pkt.type = PACKET_AVATAR_UPLOAD;
                                 pkt.image_size = size;
                                 
-                                send_all(sock, &pkt, sizeof(Packet), 0);
-                                send_all(sock, data, size, 0);
+                                send_all(sock, &pkt, sizeof(Packet));
+                                send_all(sock, data, size);
                                 
                                 free(data);
                             }
@@ -1866,8 +1866,8 @@ void open_file_picker_for_avatar() {
                         pkt.type = PACKET_AVATAR_UPLOAD;
                         pkt.image_size = size;
                         
-                        send_all(sock, &pkt, sizeof(Packet), 0);
-                        send_all(sock, data, size, 0);
+                        send_all(sock, &pkt, sizeof(Packet));
+                        send_all(sock, data, size);
                         
                         free(data);
                     }
