@@ -2846,6 +2846,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             CHECK_SLIDER(slider_volume, SLIDER_VOL);
             CHECK_SLIDER(slider_afk, SLIDER_AFK);
             CHECK_SLIDER(slider_ui_scale, SLIDER_UI_SCALE);
+            CHECK_SLIDER(slider_game_zoom, SLIDER_GAME_ZOOM);
 
             // Bottom Buttons
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_disconnect_rect)) {
