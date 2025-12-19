@@ -62,9 +62,12 @@ Alternatively, check the OpenGL renderer string that the game displays or logs d
 The fix works by:
 
 1. Detecting the NVIDIA Prime environment variables before SDL initialization
-2. Setting `SDL_HINT_VIDEO_X11_FORCE_EGL` to "0" to ensure GLX (not EGL) is used, as EGL may not properly respect NVIDIA Prime offloading on some systems
-3. Setting `SDL_GL_ACCELERATED_VISUAL` to 1 to request a hardware-accelerated OpenGL context
-4. These settings are applied before any SDL initialization or OpenGL context creation
+2. **Forcing X11 video driver** with `SDL_HINT_VIDEODRIVER` - This is critical because NVIDIA Prime offload requires GLX, which is X11-specific. On Wayland, Prime offload doesn't work.
+3. Setting `SDL_HINT_VIDEO_X11_FORCE_EGL` to "0" to ensure GLX (not EGL) is used within X11
+4. Setting `SDL_GL_ACCELERATED_VISUAL` to 1 to request a hardware-accelerated OpenGL context
+5. These settings are applied before any SDL initialization or OpenGL context creation
+
+**Why Force X11?** Modern Linux systems may default to Wayland, but NVIDIA Prime render offload only works through GLX (OpenGL on X11). By forcing X11, we ensure GLX is used instead of Wayland's EGL backend.
 
 ## Troubleshooting
 
@@ -73,5 +76,7 @@ If the fix doesn't work:
 1. Ensure NVIDIA drivers are properly installed: `nvidia-smi` should work
 2. Verify the environment variables are set correctly
 3. Check that the system supports NVIDIA Prime render offload (NVIDIA driver >= 435.17)
-4. Try running with `DRI_PRIME=1` as an alternative (older method)
-5. Check system logs for any OpenGL or graphics driver errors
+4. **Verify X11 is available**: The fix requires X11. If you're on Wayland-only, X11 compatibility layer (XWayland) must be available.
+5. Try running with `DRI_PRIME=1` as an alternative (older method for AMD/Intel)
+6. Check system logs for any OpenGL or graphics driver errors
+7. Run `glxinfo | grep -i "renderer"` with and without the environment variables to verify GPU selection
