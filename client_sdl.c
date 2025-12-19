@@ -2146,7 +2146,7 @@ void render_auth_screen(SDL_Renderer *renderer) {
     render_text(renderer, "Saved Profiles", btn_open_profiles.x + 85, btn_open_profiles.y + 5, col_white, 1);
 
     if (show_server_list) {
-        server_list_win = (SDL_Rect){w/2 + 220, h/2 - 200, 250, 400}; 
+        server_list_win = (SDL_Rect){w/2 - 125, h/2 - 200, 250, 400}; 
         SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255); SDL_RenderFillRect(renderer, &server_list_win);
         SDL_SetRenderDrawColor(renderer, 200, 200, 0, 255); SDL_RenderDrawRect(renderer, &server_list_win);
         render_text(renderer, "Select Server", server_list_win.x + 125, server_list_win.y + 10, col_yellow, 1);
@@ -2170,7 +2170,7 @@ void render_auth_screen(SDL_Renderer *renderer) {
     }
     
     if (show_profile_list) {
-        profile_list_win = (SDL_Rect){w/2 - 470, h/2 - 200, 250, 400}; 
+        profile_list_win = (SDL_Rect){w/2 - 125, h/2 - 200, 250, 400}; 
         SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255); SDL_RenderFillRect(renderer, &profile_list_win);
         SDL_SetRenderDrawColor(renderer, 0, 200, 200, 255); SDL_RenderDrawRect(renderer, &profile_list_win);
         render_text(renderer, "Select Profile", profile_list_win.x + 125, profile_list_win.y + 10, col_cyan, 1);
