@@ -2856,6 +2856,13 @@ void render_game(SDL_Renderer *renderer) {
 
         SDL_RenderSetClipRect(renderer, NULL);
 
+        // --- DRAW INPUT AREA BACKGROUND (semi-transparent) ---
+        SDL_Rect input_bg = {10, win.y + win.h - 30, 300, 30};
+        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 200); // Black with 200/255 opacity
+        SDL_RenderFillRect(renderer, &input_bg);
+        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+
         // --- CHAT INPUT & CURSOR LOGIC ---
         char full_str[256];
         char prefix[64];
