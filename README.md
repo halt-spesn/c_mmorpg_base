@@ -7,6 +7,13 @@ current issues: game(unable to walk), server(won't launch) does not runs in wine
 to build on linux, install SDL2(_image, _mixer, _ttf), sqlite3, and run make.
 
 
+**NVIDIA Optimus Laptops**: The client now properly supports NVIDIA Prime GPU selection. Launch with:
+```
+__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia ./client
+```
+See NVIDIA_PRIME_TEST.md for more details.
+
+
 to build windows version on linux, install mingw, and mingw versions of stuff above.
 
 
