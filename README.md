@@ -13,7 +13,7 @@ to build windows version on linux, install mingw, and mingw versions of stuff ab
 macos/ios can be built using xcode(arm64 ios/x86_64 mac os)
 
 
-android port is available in the android/ directory - open project in android stuio and build apk(arm64 only supported architecture)
+android port is available in the android/ directory - open project in android stuio and build apk(arm64, x86_64 is only supported architectures)
 
 
 port can be assigned to server with a -p flag on launch
