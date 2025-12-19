@@ -214,26 +214,6 @@ void load_triggers() {
     fclose(fp);
 }
 
-void send_triggers_to_client(int client_index) {
-    Packet pkt;
-    memset(&pkt, 0, sizeof(Packet));
-    pkt.type = PACKET_TRIGGERS_DATA;
-    pkt.trigger_count = server_trigger_count;
-    
-    for (int i = 0; i < server_trigger_count; i++) {
-        pkt.triggers[i] = server_triggers[i];
-    }
-    
-    send(client_sockets[client_index], &pkt, sizeof(Packet), 0);
-    printf("Sent %d triggers to client %d\n", server_trigger_count, client_index);
-}
-
-void init_game() {
-    init_db(); init_storage(); load_triggers();
-    for (int i = 0; i < MAX_CLIENTS; i++) { client_sockets[i] = SOCKET_INVALID; players[i].active = 0; players[i].id = -1; }
-}
-
-
 // Updated to accept 'int flags' so it matches the send() signature
 int send_all(socket_t sockfd, void *buf, size_t len, int flags) {
     size_t total = 0;
@@ -247,6 +227,25 @@ int send_all(socket_t sockfd, void *buf, size_t len, int flags) {
         bytes_left -= n;
     }
     return (n == -1) ? -1 : 0; 
+}
+
+void send_triggers_to_client(int client_index) {
+    Packet pkt;
+    memset(&pkt, 0, sizeof(Packet));
+    pkt.type = PACKET_TRIGGERS_DATA;
+    pkt.trigger_count = server_trigger_count;
+    
+    for (int i = 0; i < server_trigger_count; i++) {
+        pkt.triggers[i] = server_triggers[i];
+    }
+    
+    send_all(client_sockets[client_index], &pkt, sizeof(Packet), 0);
+    printf("Sent %d triggers to client %d\n", server_trigger_count, client_index);
+}
+
+void init_game() {
+    init_db(); init_storage(); load_triggers();
+    for (int i = 0; i < MAX_CLIENTS; i++) { client_sockets[i] = SOCKET_INVALID; players[i].active = 0; players[i].id = -1; }
 }
 
 void broadcast_state() {
