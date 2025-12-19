@@ -206,6 +206,17 @@ int show_server_list = 0;
 SDL_Rect server_list_win;
 SDL_Rect btn_open_servers; // On login screen
 SDL_Rect btn_add_server;   // Inside list window
+SDL_Rect btn_close_servers; // Close button for server list
+
+// --- Profile List State ---
+typedef struct { char username[32]; char password[32]; } ProfileEntry;
+ProfileEntry profile_list[10];
+int profile_count = 0;
+int show_profile_list = 0;
+SDL_Rect profile_list_win;
+SDL_Rect btn_open_profiles; // On login screen
+SDL_Rect btn_add_profile;   // Inside list window
+SDL_Rect btn_close_profiles; // Close button for profile list
 
 int show_nick_popup = 0;
 char nick_new[32] = "";
@@ -780,11 +791,41 @@ void add_server_to_list(const char* name, const char* ip, int port) {
     save_servers();
 }
 
+void load_profiles() {
+    char path[256]; get_path(path, "profiles.txt", 1); // 1 = Save File
+    FILE *fp = fopen(path, "r");
+    if (!fp) return;
+    profile_count = 0;
+    while (fscanf(fp, "%s %s", profile_list[profile_count].username, profile_list[profile_count].password) == 2) {
+        profile_count++;
+        if (profile_count >= 10) break;
+    }
+    fclose(fp);
+}
+
+void save_profiles() {
+    char path[256]; get_path(path, "profiles.txt", 1); // 1 = Save File
+    FILE *fp = fopen(path, "w");
+    if (!fp) return;
+    for(int i=0; i<profile_count; i++) {
+        fprintf(fp, "%s %s\n", profile_list[i].username, profile_list[i].password);
+    }
+    fclose(fp);
+}
+
+void add_profile_to_list(const char* username, const char* password) {
+    if (profile_count >= 10) return;
+    strcpy(profile_list[profile_count].username, username);
+    strcpy(profile_list[profile_count].password, password);
+    profile_count++;
+    save_profiles();
+}
+
 int try_connect() {
     if (is_connected) close(sock);
     
     struct sockaddr_in serv_addr;
-    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) == (socket_t)-1) { // Check against -1 casted
+    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) == (socket_t)-1) {
         strcpy(auth_message, "Socket Error");
         return 0;
     }
@@ -792,9 +833,24 @@ int try_connect() {
     serv_addr.sin_family = AF_INET; 
     serv_addr.sin_port = htons(atoi(input_port));
     
+    // Try inet_pton first (for IP addresses)
     if (inet_pton(AF_INET, input_ip, &serv_addr.sin_addr) <= 0) {
-        strcpy(auth_message, "Invalid IP Address");
-        return 0;
+        // If inet_pton fails, try getaddrinfo (for domain names)
+        struct addrinfo hints, *result = NULL;
+        memset(&hints, 0, sizeof(hints));
+        hints.ai_family = AF_INET;
+        hints.ai_socktype = SOCK_STREAM;
+        
+        if (getaddrinfo(input_ip, NULL, &hints, &result) != 0 || result == NULL) {
+            if (result) freeaddrinfo(result);
+            strcpy(auth_message, "Invalid Address");
+            close(sock);
+            return 0;
+        }
+        
+        // Copy the resolved address
+        memcpy(&serv_addr.sin_addr, &((struct sockaddr_in*)result->ai_addr)->sin_addr, sizeof(struct in_addr));
+        freeaddrinfo(result);
     }
 
     if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
@@ -845,6 +901,24 @@ void play_next_track() {
 
 void init_audio() {
     if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) return;
+    
+    #ifdef __ANDROID__
+    // On Android, we can't use opendir on assets, so we manually list known music files
+    // or try to load files with known names
+    const char* android_music_files[] = {"1.mp3", NULL}; // Add more files as needed
+    for(int i = 0; android_music_files[i] != NULL && music_count < 20; i++) {
+        // Try to load to verify file exists
+        char path[256];
+        char music_file[256];
+        snprintf(music_file, 256, "music/%s", android_music_files[i]);
+        get_path(path, music_file, 0);
+        SDL_RWops *rw = SDL_RWFromFile(path, "rb");
+        if (rw) {
+            SDL_RWclose(rw);
+            strncpy(music_playlist[music_count++], android_music_files[i], 63);
+        }
+    }
+    #else
     DIR *d; struct dirent *dir;
     char music_dir_path[256];
     get_path(music_dir_path, "music", 0);
@@ -857,6 +931,7 @@ void init_audio() {
         }
         closedir(d);
     }
+    #endif
     Mix_VolumeMusic(music_volume);
 }
 
@@ -2054,23 +2129,32 @@ void render_auth_screen(SDL_Renderer *renderer) {
     if (show_password) { SDL_Rect inner = {btn_show_pass.x + 3, btn_show_pass.y + 3, btn_show_pass.w - 6, btn_show_pass.h - 6}; SDL_RenderFillRect(renderer, &inner); }
     render_text(renderer, "Show", btn_show_pass.x + 20, btn_show_pass.y, col_white, 0);
 
-    // Buttons & Server List (Keep existing)
+    // Buttons & Server/Profile Lists
     btn_login = (SDL_Rect){auth_box.x+20, auth_box.y+280, 160, 40};
     btn_register = (SDL_Rect){auth_box.x+220, auth_box.y+280, 160, 40};
-    btn_open_servers = (SDL_Rect){auth_box.x+100, auth_box.y+340, 200, 30};
+    btn_open_servers = (SDL_Rect){auth_box.x+20, auth_box.y+340, 180, 30};
+    btn_open_profiles = (SDL_Rect){auth_box.x+210, auth_box.y+340, 170, 30};
 
     SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_login);
     render_text(renderer, "Login", btn_login.x + 80, btn_login.y + 10, col_white, 1);
     SDL_SetRenderDrawColor(renderer, 0, 0, 150, 255); SDL_RenderFillRect(renderer, &btn_register);
     render_text(renderer, "Register", btn_register.x + 80, btn_register.y + 10, col_white, 1);
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_open_servers);
-    render_text(renderer, "Saved Servers", btn_open_servers.x + 100, btn_open_servers.y + 5, col_white, 1);
+    render_text(renderer, "Saved Servers", btn_open_servers.x + 90, btn_open_servers.y + 5, col_white, 1);
+    SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_open_profiles);
+    render_text(renderer, "Saved Profiles", btn_open_profiles.x + 85, btn_open_profiles.y + 5, col_white, 1);
 
     if (show_server_list) {
         server_list_win = (SDL_Rect){w/2 + 220, h/2 - 200, 250, 400}; 
         SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255); SDL_RenderFillRect(renderer, &server_list_win);
         SDL_SetRenderDrawColor(renderer, 200, 200, 0, 255); SDL_RenderDrawRect(renderer, &server_list_win);
         render_text(renderer, "Select Server", server_list_win.x + 125, server_list_win.y + 10, col_yellow, 1);
+        
+        // Close button
+        btn_close_servers = (SDL_Rect){server_list_win.x + 210, server_list_win.y + 5, 30, 30};
+        SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_close_servers);
+        render_text(renderer, "X", btn_close_servers.x + 15, btn_close_servers.y + 5, col_white, 1);
+        
         int y_s = 50;
         for(int i=0; i<server_count; i++) {
             SDL_Rect row = {server_list_win.x + 10, server_list_win.y + y_s, 230, 30};
@@ -2082,6 +2166,29 @@ void render_auth_screen(SDL_Renderer *renderer) {
         btn_add_server = (SDL_Rect){server_list_win.x + 20, server_list_win.y + 350, 210, 30};
         SDL_SetRenderDrawColor(renderer, 0, 100, 0, 255); SDL_RenderFillRect(renderer, &btn_add_server);
         render_text(renderer, "Save Current IP", btn_add_server.x + 105, btn_add_server.y + 5, col_white, 1);
+    }
+    
+    if (show_profile_list) {
+        profile_list_win = (SDL_Rect){w/2 - 470, h/2 - 200, 250, 400}; 
+        SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255); SDL_RenderFillRect(renderer, &profile_list_win);
+        SDL_SetRenderDrawColor(renderer, 0, 200, 200, 255); SDL_RenderDrawRect(renderer, &profile_list_win);
+        render_text(renderer, "Select Profile", profile_list_win.x + 125, profile_list_win.y + 10, col_cyan, 1);
+        
+        // Close button
+        btn_close_profiles = (SDL_Rect){profile_list_win.x + 210, profile_list_win.y + 5, 30, 30};
+        SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_close_profiles);
+        render_text(renderer, "X", btn_close_profiles.x + 15, btn_close_profiles.y + 5, col_white, 1);
+        
+        int y_p = 50;
+        for(int i=0; i<profile_count; i++) {
+            SDL_Rect row = {profile_list_win.x + 10, profile_list_win.y + y_p, 230, 30};
+            SDL_SetRenderDrawColor(renderer, 60, 60, 60, 255); SDL_RenderFillRect(renderer, &row);
+            render_text(renderer, profile_list[i].username, row.x + 5, row.y + 5, col_white, 0);
+            y_p += 35;
+        }
+        btn_add_profile = (SDL_Rect){profile_list_win.x + 20, profile_list_win.y + 350, 210, 30};
+        SDL_SetRenderDrawColor(renderer, 0, 100, 0, 255); SDL_RenderFillRect(renderer, &btn_add_profile);
+        render_text(renderer, "Save Current", btn_add_profile.x + 105, btn_add_profile.y + 5, col_white, 1);
     }
     SDL_RenderPresent(renderer);
 }
@@ -2313,7 +2420,13 @@ void render_game(SDL_Renderer *renderer) {
     
     float px=0, py=0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { px=local_players[i].x; py=local_players[i].y; }
     int cam_x = (int)px - (zoomed_w/2) + 16; int cam_y = (int)py - (zoomed_h/2) + 16;
-    if (zoomed_w > map_w) cam_x = -(zoomed_w - map_w)/2; if (zoomed_h > map_h) cam_y = -(zoomed_h - map_h)/2; 
+    if (zoomed_w > map_w) cam_x = -(zoomed_w - map_w)/2; if (zoomed_h > map_h) cam_y = -(zoomed_h - map_h)/2;
+    
+    // Clamp camera to map boundaries
+    if (cam_x < 0) cam_x = 0;
+    if (cam_y < 0) cam_y = 0;
+    if (cam_x + zoomed_w > map_w) cam_x = map_w - zoomed_w;
+    if (cam_y + zoomed_h > map_h) cam_y = map_h - zoomed_h; 
 
     // 1. Draw Map
     SDL_RenderClear(renderer);
@@ -2349,6 +2462,11 @@ void render_game(SDL_Renderer *renderer) {
         if (local_players[i].active) {
             if (strcmp(local_players[i].map_name, current_map_file) != 0) continue;
             if (is_blocked(local_players[i].id)) continue;
+            
+            // Only render players within map boundaries
+            if (local_players[i].x < 0 || local_players[i].x > map_w || 
+                local_players[i].y < 0 || local_players[i].y > map_h) continue;
+            
             SDL_Rect dst = { (int)local_players[i].x - cam_x, (int)local_players[i].y - cam_y, PLAYER_WIDTH, PLAYER_HEIGHT };
             SDL_Color c1 = {local_players[i].r, local_players[i].g, local_players[i].b, 255};
             SDL_Color c2 = {local_players[i].r2, local_players[i].g2, local_players[i].b2, 255};
@@ -2932,6 +3050,10 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
 void handle_auth_click(int mx, int my) {
     // 1. Server List Logic
     if (show_server_list) {
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_close_servers)) {
+            show_server_list = 0;
+            return;
+        }
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_add_server)) {
             char name[32]; 
             snprintf(name, 32, "Server_%d", server_count+1); // Fixed underscore
@@ -2952,9 +3074,41 @@ void handle_auth_click(int mx, int my) {
         if (!SDL_PointInRect(&(SDL_Point){mx, my}, &server_list_win)) show_server_list = 0;
         return; // Return early if list was open to prevent clicking through it
     }
+    
+    // 2. Profile List Logic
+    if (show_profile_list) {
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_close_profiles)) {
+            show_profile_list = 0;
+            return;
+        }
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_add_profile)) {
+            if (strlen(auth_username) > 0 && strlen(auth_password) > 0) {
+                add_profile_to_list(auth_username, auth_password);
+            }
+            return;
+        }
+        int y_p = 50;
+        for(int i=0; i<profile_count; i++) {
+            SDL_Rect row = {profile_list_win.x + 10, profile_list_win.y + y_p, 230, 30};
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &row)) {
+                strcpy(auth_username, profile_list[i].username);
+                strcpy(auth_password, profile_list[i].password);
+                show_profile_list = 0;
+                return;
+            }
+            y_p += 35;
+        }
+        if (!SDL_PointInRect(&(SDL_Point){mx, my}, &profile_list_win)) show_profile_list = 0;
+        return; // Return early if list was open to prevent clicking through it
+    }
 
     if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_open_servers)) {
         show_server_list = !show_server_list;
+        return;
+    }
+    
+    if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_open_profiles)) {
+        show_profile_list = !show_profile_list;
         return;
     }
 
@@ -3131,11 +3285,13 @@ int main(int argc, char *argv[]) {
         SDL_FreeSurface(temp); 
     }
     ensure_save_file("servers.txt", "servers.txt");
+    ensure_save_file("profiles.txt", "profiles.txt");
     ensure_save_file("config.txt", "config.txt");
     ensure_save_file("configs.txt", "config.txt");
 
     init_audio();
     load_servers();
+    load_profiles();
     load_triggers();
     load_config(); // Initial load
     sock = -1;
