@@ -224,7 +224,7 @@ void send_triggers_to_client(int client_index) {
         pkt.triggers[i] = server_triggers[i];
     }
     
-    send(client_sockets[client_index], &pkt, sizeof(Packet), 0);
+    send_all(client_sockets[client_index], &pkt, sizeof(Packet), 0);
     printf("Sent %d triggers to client %d\n", server_trigger_count, client_index);
 }
 
