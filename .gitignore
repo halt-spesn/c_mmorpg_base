@@ -7,6 +7,7 @@ mmorpg.db-wal
 servers.txt
 config.txt
 configs.txt
+profiles.txt
 windows_release
 game_client.exe
 # Android
