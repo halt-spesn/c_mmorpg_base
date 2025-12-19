@@ -141,6 +141,7 @@ FloatingText floating_texts[MAX_CLIENTS];
 #define CHAT_HISTORY 10
 char chat_log[CHAT_HISTORY][64];
 int chat_log_count = 0;
+int chat_scroll = 0; // Scroll offset for chat window
 int is_chat_open = 0;
 int chat_target_id = -1; 
 int chat_input_active = 0;
@@ -2827,11 +2828,11 @@ void render_game(SDL_Renderer *renderer) {
         
         SDL_RenderSetClipRect(renderer, &win); 
 
-        // Draw History
+        // Draw History with scroll offset
         for(int i=0; i<CHAT_HISTORY; i++) {
             SDL_Color line_col = col_white;
             if (strncmp(chat_log[i], "To [", 4) == 0 || strncmp(chat_log[i], "From [", 6) == 0) line_col = col_magenta;
-            render_text(renderer, chat_log[i], 15, win.y+10+(i*15), line_col, 0);
+            render_text(renderer, chat_log[i], 15, win.y+10+(i*15)-chat_scroll, line_col, 0);
         }
 
         SDL_RenderSetClipRect(renderer, NULL);
@@ -3699,6 +3700,16 @@ int main(int argc, char *argv[]) {
                     if (max_scroll < 0) max_scroll = 0;
                     if (blocked_scroll > max_scroll) blocked_scroll = max_scroll;
                 }
+                else if (is_chat_open) {
+                    chat_scroll -= scroll_amount;
+                    if (chat_scroll < 0) chat_scroll = 0;
+                    // Chat window: 10 messages * 15px = 150px content, ~160px visible area
+                    int content_height = CHAT_HISTORY * 15;
+                    int visible_height = 160; // Approximate visible chat history area
+                    int max_scroll = content_height - visible_height;
+                    if (max_scroll < 0) max_scroll = 0;
+                    if (chat_scroll > max_scroll) chat_scroll = max_scroll;
+                }
                 else if (is_settings_open) {
                     settings_scroll_y -= scroll_amount; 
                     if (settings_scroll_y < 0) settings_scroll_y = 0;
@@ -3903,6 +3914,8 @@ int main(int argc, char *argv[]) {
                     if (is_chat_open) {
                         SDL_Rect chat_win = (SDL_Rect){10, scaled_h-240, 300, 190};
                         SDL_Rect chat_input = (SDL_Rect){15, chat_win.y + chat_win.h - 24, 270, 24};
+                        SDL_Rect chat_history = (SDL_Rect){chat_win.x, chat_win.y, chat_win.w, chat_win.h - 30}; // History area (exclude input)
+                        
                         if (SDL_PointInRect(&(SDL_Point){tx, ty}, &chat_input)) {
                             chat_input_active = 1;
                             SDL_StartTextInput();
@@ -3910,6 +3923,11 @@ int main(int argc, char *argv[]) {
                             // Estimate keyboard height as 40% of screen height on mobile
                             keyboard_height = h * 0.4;
                             #endif
+                        } else if (SDL_PointInRect(&(SDL_Point){tx, ty}, &chat_history)) {
+                            // Touch in chat history area - enable scrolling
+                            scroll_touch_id = event.tfinger.fingerId;
+                            scroll_last_y = ty;
+                            printf("[FINGERDOWN] Chat scroll touch started\n");
                         } else if (!SDL_PointInRect(&(SDL_Point){tx, ty}, &chat_win)) {
                             chat_input_active = 0;
                             if (active_field < 0) SDL_StopTextInput();
@@ -4015,6 +4033,16 @@ int main(int argc, char *argv[]) {
                         if (max_scroll < 0) max_scroll = 0;
                         if (blocked_scroll > max_scroll) blocked_scroll = max_scroll;
                         printf("[FINGERMOTION] Blocked list scroll: delta=%d scroll=%d\n", delta, blocked_scroll);
+                    }
+                    else if (is_chat_open) {
+                        chat_scroll += delta;
+                        if (chat_scroll < 0) chat_scroll = 0;
+                        int content_height = CHAT_HISTORY * 15;
+                        int visible_height = 160;
+                        int max_scroll = content_height - visible_height;
+                        if (max_scroll < 0) max_scroll = 0;
+                        if (chat_scroll > max_scroll) chat_scroll = max_scroll;
+                        printf("[FINGERMOTION] Chat scroll: delta=%d scroll=%d\n", delta, chat_scroll);
                     }
                     
                     scroll_last_y = ty;
