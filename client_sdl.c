@@ -2953,15 +2953,16 @@ int main(int argc, char *argv[]) {
     
     // Set SDL hint to prefer Vulkan renderer if requested (MUST be before SDL_Init)
     #ifdef USE_VULKAN
+    ALOG("About to check use_vulkan flag, value=%d\n", use_vulkan);
     if (use_vulkan) {
         // Tell SDL to use Vulkan renderer backend
         SDL_SetHint(SDL_HINT_RENDER_DRIVER, "vulkan");
-        printf("Setting SDL to use Vulkan renderer\n");
+        ALOG("Setting SDL to use Vulkan renderer\n");
         
         // Explicitly disable VSync for Vulkan to prevent FPS drops and ping spikes
         // SDL's Vulkan renderer may have its own VSync behavior that needs to be disabled
         SDL_SetHint(SDL_HINT_RENDER_VSYNC, "0");
-        printf("Disabling VSync for Vulkan renderer\n");
+        ALOG("Disabling VSync for Vulkan renderer\n");
         
         // Handle NVIDIA PRIME GPU selection for Vulkan on Linux
         #if !defined(_WIN32) && !defined(__APPLE__) && !defined(__ANDROID__)
@@ -2978,12 +2979,15 @@ int main(int argc, char *argv[]) {
     } else {
         // Enable adaptive VSync for non-Vulkan backends
         SDL_SetHint(SDL_HINT_RENDER_VSYNC, "1");
+        ALOG("Vulkan not enabled, using default renderer with VSync\n");
     }
     #else
     // Enable adaptive VSync if available (reduces latency while preventing tearing)
     SDL_SetHint(SDL_HINT_RENDER_VSYNC, "1");
+    ALOG("Vulkan support not compiled, using default renderer\n");
     #endif
     
+    ALOG("About to call SDL_Init\n");
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) return 1;
     if (TTF_Init() == -1) return 1;
     if (!(IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG) & (IMG_INIT_PNG | IMG_INIT_JPG))) printf("IMG Init Error: %s\n", IMG_GetError());
@@ -3511,8 +3515,12 @@ int main(int argc, char *argv[]) {
                 // Touch scrolling support for all scrollable windows
                 // Check each window independently to see if touch is within its bounds
                 // This allows overlay windows (docs, contributors, etc.) to work even when settings is open
+                // NOTE: tx, ty are in UI space (divided by ui_scale), so window coords must match
+                int scaled_w = w / ui_scale;
+                int scaled_h = h / ui_scale;
+                
                 if (show_documentation) {
-                    SDL_Rect win = {w/2 - 225, h/2 - 250, 450, 500};
+                    SDL_Rect win = {scaled_w/2 - 225, scaled_h/2 - 250, 450, 500};
                     SDL_Rect content_area = {win.x + 10, win.y + 50, win.w - 20, win.h - 60};
                     if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
                         scroll_touch_id = event.tfinger.fingerId;
@@ -3522,7 +3530,7 @@ int main(int argc, char *argv[]) {
                     }
                 }
                 else if (show_contributors) {
-                    SDL_Rect win = {w/2 - 200, h/2 - 200, 400, 400};
+                    SDL_Rect win = {scaled_w/2 - 200, scaled_h/2 - 200, 400, 400};
                     SDL_Rect content_area = {win.x + 10, win.y + 50, win.w - 20, win.h - 60};
                     if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
                         scroll_touch_id = event.tfinger.fingerId;
@@ -3532,7 +3540,7 @@ int main(int argc, char *argv[]) {
                     }
                 }
                 else if (show_role_list) {
-                    SDL_Rect win = {w/2 - 200, h/2 - 225, 400, 450};
+                    SDL_Rect win = {scaled_w/2 - 200, scaled_h/2 - 225, 400, 450};
                     SDL_Rect content_area = {win.x + 10, win.y + 50, win.w - 20, win.h - 60};
                     if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
                         scroll_touch_id = event.tfinger.fingerId;
@@ -3542,7 +3550,7 @@ int main(int argc, char *argv[]) {
                     }
                 }
                 else if (show_friend_list) {
-                    SDL_Rect win = {w/2 - 200, h/2 - 200, 400, 400};
+                    SDL_Rect win = {scaled_w/2 - 200, scaled_h/2 - 200, 400, 400};
                     SDL_Rect content_area = {win.x + 10, win.y + 80, win.w - 20, win.h - 85};
                     if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
                         scroll_touch_id = event.tfinger.fingerId;
@@ -3552,7 +3560,7 @@ int main(int argc, char *argv[]) {
                     }
                 }
                 else if (is_inbox_open) {
-                    SDL_Rect win = {w/2 - 150, h/2 - 150, 300, 300};
+                    SDL_Rect win = {scaled_w/2 - 150, scaled_h/2 - 150, 300, 300};
                     SDL_Rect content_area = {win.x + 10, win.y + 35, win.w - 20, win.h - 40};
                     if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
                         scroll_touch_id = event.tfinger.fingerId;
@@ -3562,7 +3570,7 @@ int main(int argc, char *argv[]) {
                     }
                 }
                 else if (show_my_warnings) {
-                    SDL_Rect win = {w/2 - 200, h/2 - 200, 400, 400};
+                    SDL_Rect win = {scaled_w/2 - 200, scaled_h/2 - 200, 400, 400};
                     SDL_Rect content_area = {win.x + 10, win.y + 45, win.w - 20, win.h - 50};
                     if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
                         scroll_touch_id = event.tfinger.fingerId;
@@ -3572,7 +3580,7 @@ int main(int argc, char *argv[]) {
                     }
                 }
                 else if (show_blocked_list) {
-                    SDL_Rect win = {w/2 - 150, h/2 - 200, 300, 400};
+                    SDL_Rect win = {scaled_w/2 - 150, scaled_h/2 - 200, 300, 400};
                     SDL_Rect content_area = {win.x + 10, win.y + 45, win.w - 20, win.h - 50};
                     if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
                         scroll_touch_id = event.tfinger.fingerId;
