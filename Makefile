@@ -1,10 +1,10 @@
 CC = clang
 CFLAGS = -Wall -O2 -march=x86-64-v2
 
-# --- VULKAN SUPPORT (optional) ---
-# Set USE_VULKAN=1 to enable Vulkan rendering support
+# --- VULKAN SUPPORT (always enabled) ---
+# Vulkan rendering support is always built-in
 # Requires Vulkan SDK installed (libvulkan-dev on Linux)
-USE_VULKAN ?= 0
+USE_VULKAN ?= 1
 ifeq ($(USE_VULKAN),1)
     VULKAN_CFLAGS = -DUSE_VULKAN
     VULKAN_LDFLAGS = -lvulkan

@@ -237,6 +237,11 @@ float game_zoom = 1.0f;
 float pending_game_zoom = 1.0f;
 SDL_Rect slider_game_zoom;
 
+int config_use_vulkan = 0;
+int config_use_nvidia_gpu = 0;
+SDL_Rect btn_toggle_vulkan;
+SDL_Rect btn_toggle_nvidia_gpu;
+
 #if defined(__ANDROID__) || defined(__IPHONEOS__)
 int keyboard_height = 0;
 int chat_window_shift = 0;
@@ -1079,6 +1084,18 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_unread);
     if (show_unread_counter) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c={btn_toggle_unread.x+4,btn_toggle_unread.y+4,12,12}; SDL_RenderFillRect(renderer,&c); }
     render_text(renderer, "Show Unread Counter", start_x + 30, y, col_white, 0); y += 40;
+
+    btn_toggle_vulkan = (SDL_Rect){start_x, y, 20, 20};
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_vulkan);
+    if (config_use_vulkan) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c={btn_toggle_vulkan.x+4,btn_toggle_vulkan.y+4,12,12}; SDL_RenderFillRect(renderer,&c); }
+    render_text(renderer, "Use Vulkan (restart required)", start_x + 30, y, col_white, 0); y += 40;
+
+    #if !defined(_WIN32) && !defined(__APPLE__)
+    btn_toggle_nvidia_gpu = (SDL_Rect){start_x, y, 20, 20};
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_nvidia_gpu);
+    if (config_use_nvidia_gpu) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c={btn_toggle_nvidia_gpu.x+4,btn_toggle_nvidia_gpu.y+4,12,12}; SDL_RenderFillRect(renderer,&c); }
+    render_text(renderer, "Use NVIDIA GPU (restart required)", start_x + 30, y, col_white, 0); y += 40;
+    #endif
 
     // -- Buttons --
     btn_view_blocked = (SDL_Rect){start_x, y, 300, 30};
@@ -2478,6 +2495,10 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_fps)) { show_fps = !show_fps; save_config(); return; }
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_coords)) { show_coords = !show_coords; save_config(); return; }
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_unread)) { show_unread_counter = !show_unread_counter; save_config(); return; }
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_vulkan)) { config_use_vulkan = !config_use_vulkan; save_config(); return; }
+            #if !defined(_WIN32) && !defined(__APPLE__)
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_nvidia_gpu)) { config_use_nvidia_gpu = !config_use_nvidia_gpu; save_config(); return; }
+            #endif
 
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_view_blocked)) { show_blocked_list = 1; return; } 
             
@@ -2739,15 +2760,26 @@ int y_start = auth_box.y + 80;
 int main(int argc, char *argv[]) {
     setbuf(stdout, NULL);
     
-    // Parse command line arguments for rendering backend
+    // Load config early to get rendering backend preference and GPU settings
+    // This must happen before any SDL initialization
+    load_config();
+    
+    // Parse command line arguments for rendering backend (overrides config)
     #ifdef USE_VULKAN
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--vulkan") == 0 || strcmp(argv[i], "-vk") == 0) {
             use_vulkan = 1;
             render_backend = RENDER_BACKEND_VULKAN;
             backend_set_by_cmdline = 1;
-            printf("Vulkan rendering backend requested\n");
+            printf("Vulkan rendering backend requested via command line\n");
         }
+    }
+    
+    // If not set by command line, use config setting
+    if (!backend_set_by_cmdline && config_use_vulkan) {
+        use_vulkan = 1;
+        render_backend = RENDER_BACKEND_VULKAN;
+        printf("Vulkan rendering backend enabled from config\n");
     }
     #endif
     
@@ -2761,28 +2793,23 @@ int main(int argc, char *argv[]) {
     }
     FreeConsole();
     #endif
-    // Configure SDL to respect NVIDIA Prime GPU selection on Linux
+    
+    // Configure NVIDIA Prime GPU selection on Linux if enabled in config
     #if !defined(_WIN32) && !defined(__APPLE__)
-    const char *nv_offload = getenv("__NV_PRIME_RENDER_OFFLOAD");
-    const char *glx_vendor = getenv("__GLX_VENDOR_LIBRARY_NAME");
-    if (nv_offload && glx_vendor && strcmp(nv_offload, "1") == 0 && strcmp(glx_vendor, "nvidia") == 0) {
-        // Disable EGL to ensure GLX is used with NVIDIA Prime offloading
-        // EGL may not properly respect __NV_PRIME_RENDER_OFFLOAD on some systems
-        //SDL_SetHint(SDL_HINT_VIDEO_X11_FORCE_EGL, "0");
-        //SDL_SetHint(SDL_HINT_VIDEODRIVER, "x11");
-        // Also ensure we request an accelerated visual for proper GPU selection
+    if (config_use_nvidia_gpu) {
+        setenv("__NV_PRIME_RENDER_OFFLOAD", "1", 1);
+        setenv("__GLX_VENDOR_LIBRARY_NAME", "nvidia", 1);
+        printf("NVIDIA GPU selection enabled from config\n");
         SDL_GL_SetAttribute(SDL_GL_ACCELERATED_VISUAL, 1);
     }
     #endif
+    
     #ifdef SDL_HINT_WINDOWS_RAWKEYBOARD
     SDL_SetHint(SDL_HINT_WINDOWS_RAWKEYBOARD, "1");
     #endif
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) return 1;
     if (TTF_Init() == -1) return 1;
     if (!(IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG) & (IMG_INIT_PNG | IMG_INIT_JPG))) printf("IMG Init Error: %s\n", IMG_GetError());
-    
-    // Load config early to get rendering backend preference
-    load_config();
     
     // Probe GL strings even if active renderer is non-GL
     if (!gl_probe_done) {

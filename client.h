@@ -278,6 +278,8 @@ extern int cursor_pos;
 extern int unread_chat_count;
 extern int show_unread_counter;
 extern SDL_Rect btn_toggle_unread;
+extern SDL_Rect btn_toggle_vulkan;
+extern SDL_Rect btn_toggle_nvidia_gpu;
 
 extern char gl_renderer_cache[128];
 extern char gl_vendor_cache[128];
@@ -318,6 +320,9 @@ extern SDL_Rect slider_ui_scale;
 extern float game_zoom;
 extern float pending_game_zoom;
 extern SDL_Rect slider_game_zoom;
+
+extern int config_use_vulkan;
+extern int config_use_nvidia_gpu;
 
 #if defined(__ANDROID__) || defined(__IPHONEOS__)
 extern int keyboard_height;
