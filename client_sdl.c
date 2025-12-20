@@ -3787,6 +3787,19 @@ int main(int argc, char *argv[]) {
         // Tell SDL to use Vulkan renderer backend
         SDL_SetHint(SDL_HINT_RENDER_DRIVER, "vulkan");
         printf("Setting SDL to use Vulkan renderer\n");
+        
+        // Handle NVIDIA PRIME GPU selection for Vulkan on Linux
+        #if !defined(_WIN32) && !defined(__APPLE__)
+        const char *nv_offload = getenv("__NV_PRIME_RENDER_OFFLOAD");
+        const char *glx_vendor = getenv("__GLX_VENDOR_LIBRARY_NAME");
+        if (nv_offload && glx_vendor && strcmp(nv_offload, "1") == 0 && strcmp(glx_vendor, "nvidia") == 0) {
+            // When NVIDIA PRIME is requested, set Vulkan-specific environment variables
+            // This ensures Vulkan uses the NVIDIA GPU instead of Intel iGPU
+            setenv("__NV_PRIME_RENDER_OFFLOAD_PROVIDER", "NVIDIA-G0", 0);
+            setenv("__VK_LAYER_NV_optimus", "NVIDIA_only", 0);
+            printf("NVIDIA PRIME detected - configuring Vulkan to use NVIDIA GPU\n");
+        }
+        #endif
     }
     #endif
 
