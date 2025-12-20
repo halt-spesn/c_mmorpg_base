@@ -19,6 +19,7 @@ add_library(client SHARED
     ${CMAKE_CURRENT_SOURCE_DIR}/../../client_audio.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../client_utils.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../client_input.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../renderer_vulkan.c
 )
 
 # Define the path to the prebuilt SDL2 libraries
@@ -47,10 +48,11 @@ target_link_libraries(client
     SDL2_ttf
     SDL2_mixer
     GLESv2
+    vulkan
     log
     android
     m
 )
 
-# Define Android platform
-target_compile_definitions(client PRIVATE __ANDROID__)
+# Define Android platform and enable Vulkan support
+target_compile_definitions(client PRIVATE __ANDROID__ USE_VULKAN)
