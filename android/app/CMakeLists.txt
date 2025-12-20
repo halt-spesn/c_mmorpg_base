@@ -11,9 +11,14 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/../..
 )
 
-# Add the main client source file
+# Add the main client source files
 add_library(client SHARED
     ${CMAKE_CURRENT_SOURCE_DIR}/../../client_sdl.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../client_network.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../client_config.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../client_audio.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../client_utils.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../client_input.c
 )
 
 # Define the path to the prebuilt SDL2 libraries

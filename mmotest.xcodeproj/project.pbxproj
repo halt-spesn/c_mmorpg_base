@@ -17,6 +17,11 @@
 		9F3ABCFB2EF3000A0036A5E9 /* ForceFeedback.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F3ABCFC2EF3000A0036A5EA /* ForceFeedback.framework */; settings = {ATTRIBUTES = (Weak, ); }; platformFilters = (macos, ); };
 		9F3ABCFD2EF3000B0036A5EB /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F3ABCFE2EF3000B0036A5EC /* IOKit.framework */; platformFilters = (macos, ); };
 		9F8778ED2EF2C9C3003F57C3 /* client_sdl.c in Sources */ = {isa = PBXBuildFile; fileRef = 9F8778EC2EF2C9C2003F57C3 /* client_sdl.c */; };
+		9FCLIENT12EF2C9C3003F5001 /* client_network.c in Sources */ = {isa = PBXBuildFile; fileRef = 9FCLIENT02EF2C9C2003F5001 /* client_network.c */; };
+		9FCLIENT22EF2C9C3003F5002 /* client_config.c in Sources */ = {isa = PBXBuildFile; fileRef = 9FCLIENT02EF2C9C2003F5002 /* client_config.c */; };
+		9FCLIENT32EF2C9C3003F5003 /* client_audio.c in Sources */ = {isa = PBXBuildFile; fileRef = 9FCLIENT02EF2C9C2003F5003 /* client_audio.c */; };
+		9FCLIENT42EF2C9C3003F5004 /* client_utils.c in Sources */ = {isa = PBXBuildFile; fileRef = 9FCLIENT02EF2C9C2003F5004 /* client_utils.c */; };
+		9FCLIENT52EF2C9C3003F5005 /* client_input.c in Sources */ = {isa = PBXBuildFile; fileRef = 9FCLIENT02EF2C9C2003F5005 /* client_input.c */; };
 		9F8778F62EF2CA78003F57C3 /* OpenGLES.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8778F52EF2CA78003F57C3 /* OpenGLES.framework */; platformFilter = ios; };
 		9F8778F82EF2CA85003F57C3 /* AudioToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8778F72EF2CA85003F57C3 /* AudioToolbox.framework */; };
 		9F8778FA2EF2CA8A003F57C3 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8778F92EF2CA8A003F57C3 /* AVFoundation.framework */; };
@@ -52,6 +57,12 @@
 		9F8778CE2EF2C8F5003F57C3 /* mmotest.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = mmotest.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9F8778DD2EF2C8F8003F57C3 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		9F8778EC2EF2C9C2003F57C3 /* client_sdl.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = client_sdl.c; sourceTree = "<group>"; };
+		9FCLIENT02EF2C9C2003F5001 /* client_network.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = client_network.c; sourceTree = "<group>"; };
+		9FCLIENT02EF2C9C2003F5002 /* client_config.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = client_config.c; sourceTree = "<group>"; };
+		9FCLIENT02EF2C9C2003F5003 /* client_audio.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = client_audio.c; sourceTree = "<group>"; };
+		9FCLIENT02EF2C9C2003F5004 /* client_utils.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = client_utils.c; sourceTree = "<group>"; };
+		9FCLIENT02EF2C9C2003F5005 /* client_input.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = client_input.c; sourceTree = "<group>"; };
+		9FCLIENT02EF2C9C2003F5006 /* client.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = client.h; sourceTree = "<group>"; };
 		9F8778EE2EF2C9C9003F57C3 /* common.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = common.h; sourceTree = "<group>"; };
 		9F8778EF2EF2C9DA003F57C3 /* music */ = {isa = PBXFileReference; lastKnownFileType = folder; path = music; sourceTree = "<group>"; };
 		9F8778F12EF2C9F2003F57C3 /* triggers.txt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = triggers.txt; sourceTree = "<group>"; };
@@ -124,6 +135,12 @@
 			children = (
 				9F8778D02EF2C8F5003F57C3 /* mmotest */,
 				9F8778EC2EF2C9C2003F57C3 /* client_sdl.c */,
+				9FCLIENT02EF2C9C2003F5001 /* client_network.c */,
+				9FCLIENT02EF2C9C2003F5002 /* client_config.c */,
+				9FCLIENT02EF2C9C2003F5003 /* client_audio.c */,
+				9FCLIENT02EF2C9C2003F5004 /* client_utils.c */,
+				9FCLIENT02EF2C9C2003F5005 /* client_input.c */,
+				9FCLIENT02EF2C9C2003F5006 /* client.h */,
 				9F8778EE2EF2C9C9003F57C3 /* common.h */,
 				9F8778F32EF2C9FF003F57C3 /* DejaVuSans.ttf */,
 				9F8778F12EF2C9F2003F57C3 /* triggers.txt */,
@@ -256,6 +273,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				9F8778ED2EF2C9C3003F57C3 /* client_sdl.c in Sources */,
+				9FCLIENT12EF2C9C3003F5001 /* client_network.c in Sources */,
+				9FCLIENT22EF2C9C3003F5002 /* client_config.c in Sources */,
+				9FCLIENT32EF2C9C3003F5003 /* client_audio.c in Sources */,
+				9FCLIENT42EF2C9C3003F5004 /* client_utils.c in Sources */,
+				9FCLIENT52EF2C9C3003F5005 /* client_input.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
