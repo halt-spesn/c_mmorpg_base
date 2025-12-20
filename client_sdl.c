@@ -1801,18 +1801,20 @@ void render_mobile_controls(SDL_Renderer *renderer, int h) {
     #if defined(__IPHONEOS__) || defined(__ANDROID__)
     if (!joystick_active || touch_id_dpad == -1) return;
     
-    // Draw Base
+    // Draw Base (dpad_rect is already scaled)
     SDL_SetRenderDrawColor(renderer, 50, 50, 50, 100);
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
     SDL_RenderFillRect(renderer, &dpad_rect);
     
-    // Draw Knob
+    // Draw Knob (scale the knob size and offset by ui_scale)
     int center_x = dpad_rect.x + (dpad_rect.w / 2);
     int center_y = dpad_rect.y + (dpad_rect.h / 2);
-    int knob_x = center_x + (vjoy_dx * 40) - 20;
-    int knob_y = center_y + (vjoy_dy * 40) - 20;
+    int knob_offset = (int)(40 * ui_scale);
+    int knob_size = (int)(40 * ui_scale);
+    int knob_x = center_x + (vjoy_dx * knob_offset) - knob_size/2;
+    int knob_y = center_y + (vjoy_dy * knob_offset) - knob_size/2;
     
-    SDL_Rect knob = {knob_x, knob_y, 40, 40};
+    SDL_Rect knob = {knob_x, knob_y, knob_size, knob_size};
     SDL_SetRenderDrawColor(renderer, 200, 200, 200, 150);
     SDL_RenderFillRect(renderer, &knob);
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
@@ -3466,7 +3468,9 @@ int main(int argc, char *argv[]) {
                         }
                     } else if (touch_id_dpad == -1) {
                         // Create joystick only in game state
-                        dpad_rect = (SDL_Rect){tx - 75, ty - 75, 150, 150};
+                        // Use scaled coordinates for joystick position
+                        int scaled_size = (int)(150 * ui_scale);
+                        dpad_rect = (SDL_Rect){(int)(tx * ui_scale) - scaled_size/2, (int)(ty * ui_scale) - scaled_size/2, scaled_size, scaled_size};
                         touch_id_dpad = event.tfinger.fingerId;
                         vjoy_dx = 0; vjoy_dy = 0;
                         joystick_active = 1;
@@ -3577,15 +3581,18 @@ int main(int argc, char *argv[]) {
                     scroll_last_y = ty;
                 } else if (event.tfinger.fingerId == touch_id_dpad) {
                     int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
+                    // Use scaled coordinates for joystick tracking
                     float cx = dpad_rect.x + dpad_rect.w/2;
                     float cy = dpad_rect.y + dpad_rect.h/2;
-                    vjoy_dx = (event.tfinger.x * w - cx) / 60.0f;
-                    vjoy_dy = (event.tfinger.y * h - cy) / 60.0f;
+                    float touch_x = event.tfinger.x * w * ui_scale;
+                    float touch_y = event.tfinger.y * h * ui_scale;
+                    vjoy_dx = (touch_x - cx) / (60.0f * ui_scale);
+                    vjoy_dy = (touch_y - cy) / (60.0f * ui_scale);
                     // Clamp
                     if(vjoy_dx > 1.0f) vjoy_dx = 1.0f; if(vjoy_dx < -1.0f) vjoy_dx = -1.0f;
                     if(vjoy_dy > 1.0f) vjoy_dy = 1.0f; if(vjoy_dy < -1.0f) vjoy_dy = -1.0f;
                     printf("[FINGERMOTION] Joystick: fingerId=%lld tx=%.2f ty=%.2f vjoy_dx=%.2f vjoy_dy=%.2f\n", 
-                    (long long)event.tfinger.fingerId, event.tfinger.x * w, event.tfinger.y * h, vjoy_dx, vjoy_dy);
+                    (long long)event.tfinger.fingerId, touch_x, touch_y, vjoy_dx, vjoy_dy);
                 } else {
                     printf("[FINGERMOTION] Unknown finger: %lld (scroll=%lld, dpad=%lld)\n", 
                            (long long)event.tfinger.fingerId, (long long)scroll_touch_id, (long long)touch_id_dpad);

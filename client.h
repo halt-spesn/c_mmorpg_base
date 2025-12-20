@@ -30,6 +30,9 @@
 #include <SDL2/SDL_image.h>
 #include <SDL2/SDL_mixer.h>
 #include <SDL2/SDL_syswm.h>
+#ifdef __ANDROID__
+#include <SDL2/SDL_system.h>
+#endif
 #include <sys/types.h>
 
 // Handle OpenGL headers
