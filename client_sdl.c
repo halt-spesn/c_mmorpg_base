@@ -3781,14 +3781,20 @@ int main(int argc, char *argv[]) {
     #endif
     #endif
 
-    // Don't add SDL_WINDOW_VULKAN flag - let SDL_CreateRenderer choose the backend
-    // SDL will automatically use Vulkan if available and beneficial
+    // Set SDL hint to prefer Vulkan renderer if requested
+    #ifdef USE_VULKAN
+    if (use_vulkan) {
+        // Tell SDL to use Vulkan renderer backend
+        SDL_SetHint(SDL_HINT_RENDER_DRIVER, "vulkan");
+        printf("Setting SDL to use Vulkan renderer\n");
+    }
+    #endif
 
     SDL_Window *window = SDL_CreateWindow("C MMO Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, win_w, win_h, win_flags);
     if (!window) { printf("Window creation failed: %s\n", SDL_GetError()); return 1; }
     
     // Create SDL_Renderer for game content rendering
-    // SDL automatically selects best backend (OpenGL, OpenGL ES, or Vulkan on Linux)
+    // SDL will use the hinted backend (Vulkan if requested) or auto-select best available
     SDL_Renderer *renderer = NULL;
     #if defined(__APPLE__) && !defined(__IPHONEOS__)
     // Small delay to allow macOS to properly initialize window compositing
@@ -3796,13 +3802,26 @@ int main(int argc, char *argv[]) {
     // Use software renderer for compatibility with older hardware on macOS
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
     #else
-    // Use accelerated renderer - SDL will choose OpenGL, OpenGL ES, or Vulkan
+    // Use accelerated renderer - will use Vulkan if hinted, otherwise OpenGL/OpenGL ES
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     #endif
     
     if (!renderer) { 
         printf("Renderer creation failed: %s\n", SDL_GetError()); 
-        return 1; 
+        #ifdef USE_VULKAN
+        if (use_vulkan) {
+            printf("Vulkan renderer not available, falling back to OpenGL\n");
+            // Clear the hint and try again with default renderer
+            SDL_SetHint(SDL_HINT_RENDER_DRIVER, NULL);
+            use_vulkan = 0;
+            render_backend = RENDER_BACKEND_OPENGL;
+            renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+        }
+        #endif
+        if (!renderer) {
+            printf("Failed to create any renderer\n");
+            return 1;
+        }
     }
     
     // Check which rendering backend SDL chose
@@ -3811,13 +3830,18 @@ int main(int argc, char *argv[]) {
         printf("SDL Renderer backend: %s\n", info.name);
         
         #ifdef USE_VULKAN
-        // Update backend tracking based on SDL's choice
-        if (strstr(info.name, "vulkan") || strstr(info.name, "Vulkan")) {
+        // Verify backend matches user request
+        int is_vulkan = (strstr(info.name, "vulkan") || strstr(info.name, "Vulkan")) ? 1 : 0;
+        
+        if (use_vulkan && !is_vulkan) {
+            printf("Warning: Vulkan requested but SDL chose %s - Vulkan may not be available on this system\n", info.name);
+            use_vulkan = 0;
+            render_backend = RENDER_BACKEND_OPENGL;
+        } else if (is_vulkan) {
             use_vulkan = 1;
             render_backend = RENDER_BACKEND_VULKAN;
             printf("Vulkan rendering active through SDL\n");
         } else {
-            use_vulkan = 0;
             render_backend = RENDER_BACKEND_OPENGL;
             printf("OpenGL/GLES rendering active through SDL\n");
         }
