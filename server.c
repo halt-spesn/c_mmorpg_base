@@ -542,7 +542,7 @@ void save_telemetry() {
                             break;
                         }
                     }
-                    if (!found) {
+                    if (!found && unique_count < MAX_CLIENTS * 10) {
                         unique_users[unique_count++] = gl_telemetry[j].user_id;
                     }
                 }
@@ -583,7 +583,7 @@ void save_telemetry() {
                             break;
                         }
                     }
-                    if (!found) {
+                    if (!found && unique_count < MAX_CLIENTS * 10) {
                         unique_users[unique_count++] = os_telemetry[j].user_id;
                     }
                 }
