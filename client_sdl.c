@@ -86,6 +86,7 @@ RenderBackend render_backend = RENDER_BACKEND_OPENGL; // Default to OpenGL
 #ifdef USE_VULKAN
 VulkanRenderer vk_renderer;
 int use_vulkan = 0; // Runtime flag for Vulkan usage
+int backend_set_by_cmdline = 0; // Track if backend was explicitly set via command line
 #endif
 
 
@@ -312,6 +313,12 @@ SDL_Rect btn_toggle_unread;
 char gl_renderer_cache[128] = "";
 char gl_vendor_cache[128] = "";
 int gl_probe_done = 0;
+
+// --- Vulkan Device Cache ---
+#ifdef USE_VULKAN
+char vk_device_name[128] = "";
+int vk_probe_done = 0;
+#endif
 
 Uint32 last_input_tick = 0;
 int afk_timeout_minutes = 2; // Default 2 minutes
@@ -593,16 +600,14 @@ void load_config() {
             pending_game_zoom = game_zoom; // Initialize pending to match current
         }
         
-        // Apply render backend preference if present (and not overridden by command line)
+        // Apply render backend preference if present (only when explicitly set via command line)
+        // Note: We don't auto-apply config backend to preserve default OpenGL behavior
+        // Users must explicitly use --vulkan flag to enable Vulkan
         #ifdef USE_VULKAN
         #define CONFIG_FIELD_RENDER_BACKEND 15
-        if (count >= CONFIG_FIELD_RENDER_BACKEND && backend == RENDER_BACKEND_VULKAN) {
-            // Only apply config if command line didn't already set it
-            if (render_backend == RENDER_BACKEND_OPENGL) {
-                render_backend = RENDER_BACKEND_VULKAN;
-                use_vulkan = 1;
-            }
-        }
+        // Config backend preference is read but not automatically applied
+        // This ensures default behavior (OpenGL) when no command-line flag is given
+        (void)backend; // Suppress unused warning if config has backend field
         #endif
         
         fclose(fp);
@@ -1650,18 +1655,37 @@ void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
     const char *renderer_str = info.name;
     const char *video_drv = SDL_GetCurrentVideoDriver();
     snprintf(lines[line_count++], 128, "VideoDrv: %s", video_drv ? video_drv : "Unknown");
-    if (renderer_str) snprintf(lines[line_count++], 128, "GPU: %s", renderer_str); else snprintf(lines[line_count++], 128, "GPU: Unknown");
+    
+    // Show GPU info based on backend
+    #ifdef USE_VULKAN
+    int is_vulkan_backend = (strstr(renderer_str, "vulkan") || strstr(renderer_str, "Vulkan")) ? 1 : 0;
+    if (is_vulkan_backend && vk_device_name[0]) {
+        // Show Vulkan device name
+        snprintf(lines[line_count++], 128, "GPU: %s", vk_device_name);
+    } else
+    #endif
+    {
+        // Show SDL renderer name (fallback)
+        if (renderer_str) snprintf(lines[line_count++], 128, "GPU: %s", renderer_str); 
+        else snprintf(lines[line_count++], 128, "GPU: Unknown");
+    }
+    
+    // Only show GL renderer info if we're actually using OpenGL backend
+    int is_gl_backend = (strstr(renderer_str, "opengl") || strstr(renderer_str, "OpenGL")) ? 1 : 0;
+    
     void *glctx = SDL_GL_GetCurrentContext();
-    if (glctx) {
+    if (glctx && is_gl_backend) {
         const char *gl_renderer = (const char*)glGetString(GL_RENDERER);
         const char *gl_vendor   = (const char*)glGetString(GL_VENDOR);
         if (gl_renderer && strlen(gl_renderer) > 0) snprintf(lines[line_count++], 128, "GL Renderer: %s", gl_renderer);
         if (gl_vendor   && strlen(gl_vendor)   > 0) snprintf(lines[line_count++], 128, "GL Vendor: %s", gl_vendor);
-    } else {
+    } else if (is_gl_backend && !glctx) {
+        // OpenGL backend but no context - show cached info
         if (gl_renderer_cache[0]) snprintf(lines[line_count++], 128, "GL Renderer: %s", gl_renderer_cache);
         if (gl_vendor_cache[0])   snprintf(lines[line_count++], 128, "GL Vendor: %s", gl_vendor_cache);
-        else snprintf(lines[line_count++], 128, "GL Renderer: N/A (non-GL backend)");
+        else snprintf(lines[line_count++], 128, "GL Renderer: N/A");
     }
+    // Note: For Vulkan/other non-GL backends, we don't show GL renderer info
     SDL_version compiled; SDL_VERSION(&compiled); snprintf(lines[line_count++], 128, "SDL: %d.%d.%d", compiled.major, compiled.minor, compiled.patch);
     #ifndef _WIN32
     struct utsname buffer; 
@@ -3703,6 +3727,7 @@ int main(int argc, char *argv[]) {
         if (strcmp(argv[i], "--vulkan") == 0 || strcmp(argv[i], "-vk") == 0) {
             use_vulkan = 1;
             render_backend = RENDER_BACKEND_VULKAN;
+            backend_set_by_cmdline = 1;
             printf("Vulkan rendering backend requested\n");
         }
     }
@@ -3781,50 +3806,147 @@ int main(int argc, char *argv[]) {
     #endif
     #endif
 
-    // Add Vulkan flag if Vulkan backend is requested
+    // Set SDL hint to prefer Vulkan renderer if requested
     #ifdef USE_VULKAN
     if (use_vulkan) {
-        win_flags |= SDL_WINDOW_VULKAN;
+        // Tell SDL to use Vulkan renderer backend
+        SDL_SetHint(SDL_HINT_RENDER_DRIVER, "vulkan");
+        printf("Setting SDL to use Vulkan renderer\n");
+        
+        // Handle NVIDIA PRIME GPU selection for Vulkan on Linux
+        #if !defined(_WIN32) && !defined(__APPLE__)
+        const char *nv_offload = getenv("__NV_PRIME_RENDER_OFFLOAD");
+        const char *glx_vendor = getenv("__GLX_VENDOR_LIBRARY_NAME");
+        if (nv_offload && glx_vendor && strcmp(nv_offload, "1") == 0 && strcmp(glx_vendor, "nvidia") == 0) {
+            // When NVIDIA PRIME is requested, set Vulkan-specific environment variables
+            // This ensures Vulkan uses the NVIDIA GPU instead of Intel iGPU
+            setenv("__NV_PRIME_RENDER_OFFLOAD_PROVIDER", "NVIDIA-G0", 0);
+            setenv("__VK_LAYER_NV_optimus", "NVIDIA_only", 0);
+            printf("NVIDIA PRIME detected - configuring Vulkan to use NVIDIA GPU\n");
+        }
+        #endif
     }
     #endif
 
     SDL_Window *window = SDL_CreateWindow("C MMO Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, win_w, win_h, win_flags);
     if (!window) { printf("Window creation failed: %s\n", SDL_GetError()); return 1; }
     
+    // Create SDL_Renderer for game content rendering
+    // SDL will use the hinted backend (Vulkan if requested) or auto-select best available
     SDL_Renderer *renderer = NULL;
+    #if defined(__APPLE__) && !defined(__IPHONEOS__)
+    // Small delay to allow macOS to properly initialize window compositing
+    SDL_Delay(100);
+    // Use software renderer for compatibility with older hardware on macOS
+    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
+    #else
+    // Use accelerated renderer - will use Vulkan if hinted, otherwise OpenGL/OpenGL ES
+    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    #endif
     
-    #ifdef USE_VULKAN
-    if (use_vulkan) {
-        printf("Initializing Vulkan renderer...\n");
-        if (vulkan_init(window, &vk_renderer)) {
-            printf("Vulkan renderer initialized successfully!\n");
-            // When using Vulkan, we don't create SDL_Renderer to avoid conflicts on Wayland
-            // All rendering must go through Vulkan
-            // TODO: Port UI rendering to Vulkan or render to texture
-            renderer = NULL;
-        } else {
-            printf("Vulkan initialization failed, falling back to OpenGL\n");
+    if (!renderer) { 
+        printf("Renderer creation failed: %s\n", SDL_GetError()); 
+        #ifdef USE_VULKAN
+        if (use_vulkan) {
+            printf("Vulkan renderer not available, falling back to OpenGL\n");
+            // Clear the hint and try again with default renderer
+            SDL_SetHint(SDL_HINT_RENDER_DRIVER, NULL);
             use_vulkan = 0;
             render_backend = RENDER_BACKEND_OPENGL;
+            renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+        }
+        #endif
+        if (!renderer) {
+            printf("Failed to create any renderer\n");
+            return 1;
         }
     }
-    #endif
     
-    // Fallback to OpenGL renderer if Vulkan is not used or failed
-    #ifdef USE_VULKAN
-    if (!renderer && !use_vulkan) {
-    #else
-    if (!renderer) {
-    #endif
-        #if defined(__APPLE__) && !defined(__IPHONEOS__)
-        // Small delay to allow macOS to properly initialize window compositing
-        SDL_Delay(100);
-        // Use software renderer for compatibility with older hardware
-        renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
-        #else
-        renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    // Check which rendering backend SDL chose
+    SDL_RendererInfo info;
+    if (SDL_GetRendererInfo(renderer, &info) == 0) {
+        printf("SDL Renderer backend: %s\n", info.name);
+        
+        #ifdef USE_VULKAN
+        // Verify backend matches user request
+        int is_vulkan = (strstr(info.name, "vulkan") || strstr(info.name, "Vulkan")) ? 1 : 0;
+        
+        if (use_vulkan && !is_vulkan) {
+            printf("Warning: Vulkan requested but SDL chose %s - Vulkan may not be available on this system\n", info.name);
+            use_vulkan = 0;
+            render_backend = RENDER_BACKEND_OPENGL;
+        } else if (is_vulkan) {
+            use_vulkan = 1;
+            render_backend = RENDER_BACKEND_VULKAN;
+            printf("Vulkan rendering active through SDL\n");
+            
+            // Probe Vulkan device name if not already done
+            if (!vk_probe_done) {
+                // Get Vulkan instance and enumerate physical devices
+                VkInstance instance = VK_NULL_HANDLE;
+                
+                // Get required extensions for Vulkan instance
+                unsigned int ext_count = 0;
+                if (SDL_Vulkan_GetInstanceExtensions(window, &ext_count, NULL)) {
+                    const char **extensions = malloc(sizeof(char*) * ext_count);
+                    if (extensions && SDL_Vulkan_GetInstanceExtensions(window, &ext_count, extensions)) {
+                        // Create minimal Vulkan instance for probing
+                        VkApplicationInfo app_info = {0};
+                        app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+                        app_info.pApplicationName = "MMO Client";
+                        app_info.apiVersion = VK_API_VERSION_1_0;
+                        
+                        VkInstanceCreateInfo create_info = {0};
+                        create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+                        create_info.pApplicationInfo = &app_info;
+                        create_info.enabledExtensionCount = ext_count;
+                        create_info.ppEnabledExtensionNames = extensions;
+                        
+                        if (vkCreateInstance(&create_info, NULL, &instance) == VK_SUCCESS) {
+                            // Enumerate physical devices
+                            uint32_t device_count = 0;
+                            vkEnumeratePhysicalDevices(instance, &device_count, NULL);
+                            if (device_count > 0) {
+                                VkPhysicalDevice *devices = malloc(sizeof(VkPhysicalDevice) * device_count);
+                                if (devices) {
+                                    vkEnumeratePhysicalDevices(instance, &device_count, devices);
+                                    // Get properties of first device (or match based on NVIDIA if PRIME is set)
+                                    VkPhysicalDeviceProperties props;
+                                    int selected_device = 0;
+                                    
+                                    // If NVIDIA PRIME is set, try to find NVIDIA device
+                                    #if !defined(_WIN32) && !defined(__APPLE__)
+                                    const char *nv_offload = getenv("__NV_PRIME_RENDER_OFFLOAD");
+                                    if (nv_offload && strcmp(nv_offload, "1") == 0) {
+                                        for (uint32_t i = 0; i < device_count; i++) {
+                                            vkGetPhysicalDeviceProperties(devices[i], &props);
+                                            if (props.vendorID == 0x10DE) { // NVIDIA vendor ID
+                                                selected_device = i;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    #endif
+                                    
+                                    vkGetPhysicalDeviceProperties(devices[selected_device], &props);
+                                    strncpy(vk_device_name, props.deviceName, sizeof(vk_device_name) - 1);
+                                    vk_device_name[sizeof(vk_device_name) - 1] = '\0';
+                                    printf("Vulkan device: %s\n", vk_device_name);
+                                    free(devices);
+                                }
+                            }
+                            vkDestroyInstance(instance, NULL);
+                        }
+                    }
+                    free(extensions);
+                }
+                vk_probe_done = 1;
+            }
+        } else {
+            render_backend = RENDER_BACKEND_OPENGL;
+            printf("OpenGL/GLES rendering active through SDL\n");
+        }
         #endif
-        if (!renderer) { printf("Renderer creation failed: %s\n", SDL_GetError()); return 1; }
     }
     
     #if defined(__APPLE__) && !defined(__IPHONEOS__)
@@ -4861,29 +4983,9 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        #ifdef USE_VULKAN
-        if (use_vulkan) {
-            // Begin Vulkan frame
-            uint32_t image_index;
-            if (vulkan_begin_frame(&vk_renderer, &image_index)) {
-                // Vulkan clears and sets up the render pass
-                // We can add Vulkan-specific rendering here in the future
-                
-                // End Vulkan frame and present
-                vulkan_end_frame(&vk_renderer, image_index);
-            }
-            
-            // Handle window resize for Vulkan
-            if (vk_renderer.framebuffer_resized) {
-                vulkan_handle_resize(&vk_renderer);
-            }
-        } else {
-            // Use SDL_Renderer for UI when not using Vulkan
-            if (client_state == STATE_AUTH) render_auth_screen(renderer); else render_game(renderer);
-        }
-        #else
+        // Render game content using SDL_Renderer
+        // SDL automatically uses best rendering backend (OpenGL, OpenGL ES, or Vulkan on Linux)
         if (client_state == STATE_AUTH) render_auth_screen(renderer); else render_game(renderer);
-        #endif
         SDL_Delay(16);
     }
     
@@ -4894,11 +4996,8 @@ int main(int argc, char *argv[]) {
     if(sock > 0) close(sock); 
     TTF_CloseFont(font); TTF_Quit(); IMG_Quit();
     
-    #ifdef USE_VULKAN
-    if (use_vulkan) {
-        vulkan_cleanup(&vk_renderer);
-    }
-    #endif
+    // SDL handles all Vulkan cleanup automatically when using SDL_Renderer
+    // No need for manual vulkan_cleanup() call
     
     if (renderer) SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
