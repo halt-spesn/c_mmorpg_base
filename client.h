@@ -114,6 +114,12 @@ typedef struct {
     int spawn_x, spawn_y;
 } MapTrigger;
 
+// --- Staff List ---
+typedef struct { int id; char name[32]; int role; } StaffEntry;
+
+// --- Warning List ---
+typedef struct { char reason[64]; char date[32]; } WarningEntry;
+
 // Slider types
 enum { SLIDER_NONE, SLIDER_R, SLIDER_G, SLIDER_B, SLIDER_R2, SLIDER_G2, SLIDER_B2, SLIDER_VOL, SLIDER_AFK, SLIDER_UI_SCALE, SLIDER_GAME_ZOOM };
 
@@ -348,7 +354,7 @@ extern int documentation_scroll;
 
 extern int show_role_list;
 extern int role_list_scroll;
-extern struct { int id; char name[32]; int role; } staff_list[50];
+extern StaffEntry staff_list[50];
 extern int staff_count;
 extern SDL_Rect btn_staff_list_rect;
 
@@ -359,7 +365,7 @@ extern char input_sanction_reason[64];
 extern char input_ban_time[16];
 
 extern int show_my_warnings;
-extern struct { char reason[64]; char date[32]; } my_warning_list[20];
+extern WarningEntry my_warning_list[20];
 extern int my_warning_count;
 extern int warnings_scroll;
 
