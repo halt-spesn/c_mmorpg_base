@@ -3789,7 +3789,7 @@ int main(int argc, char *argv[]) {
             else if(active_field==10) len=strlen(nick_new);
             else if(active_field==11) len=strlen(nick_confirm);
             else if(active_field==12) len=strlen(nick_pass);
-            else if(active_field==20) len=strlen(input_friend_id);
+            else if(active_field==FIELD_PASSWORD_CURRENT) len=strlen(input_friend_id);
             else if(active_field==30) len=strlen(input_sanction_reason);
             else if(active_field==31) len=strlen(input_ban_time);
             
@@ -3942,9 +3942,9 @@ int main(int argc, char *argv[]) {
                                           (active_field == 10 ? nick_new :
                                            active_field == 11 ? nick_confirm :
                                            active_field == 12 ? nick_pass :
-                                           active_field == 20 ? password_current :
-                                           active_field == 21 ? password_new :
-                                           active_field == 22 ? password_confirm : NULL);
+                                           active_field == FIELD_PASSWORD_CURRENT ? password_current :
+                                           active_field == FIELD_PASSWORD_NEW ? password_new :
+                                           active_field == FIELD_PASSWORD_CONFIRM ? password_confirm : NULL);
                             if (buffer) {
                                 int start = selection_start;
                                 int slen = selection_len;
@@ -3967,9 +3967,9 @@ int main(int argc, char *argv[]) {
                                           (active_field == 10 ? nick_new :
                                            active_field == 11 ? nick_confirm :
                                            active_field == 12 ? nick_pass :
-                                           active_field == 20 ? password_current :
-                                           active_field == 21 ? password_new :
-                                           active_field == 22 ? password_confirm : NULL);
+                                           active_field == FIELD_PASSWORD_CURRENT ? password_current :
+                                           active_field == FIELD_PASSWORD_NEW ? password_new :
+                                           active_field == FIELD_PASSWORD_CONFIRM ? password_confirm : NULL);
                             if (buffer) {
                                 int start = selection_start;
                                 int slen = selection_len;
@@ -3993,10 +3993,10 @@ int main(int argc, char *argv[]) {
                                               (active_field == 10 ? nick_new :
                                                active_field == 11 ? nick_confirm :
                                                active_field == 12 ? nick_pass :
-                                               active_field == 20 ? password_current :
-                                               active_field == 21 ? password_new :
-                                               active_field == 22 ? password_confirm : NULL);
-                                int max_len = (is_chat_open ? 60 : (active_field >= 20 && active_field <= 22 ? 63 : 31));
+                                               active_field == FIELD_PASSWORD_CURRENT ? password_current :
+                                               active_field == FIELD_PASSWORD_NEW ? password_new :
+                                               active_field == FIELD_PASSWORD_CONFIRM ? password_confirm : NULL);
+                                int max_len = (is_chat_open ? 60 : (active_field >= FIELD_PASSWORD_CURRENT && active_field <= FIELD_PASSWORD_CONFIRM ? 63 : 31));
                                 
                                 if (buffer) {
                                     if (selection_len != 0) delete_selection(buffer);
@@ -4018,9 +4018,9 @@ int main(int argc, char *argv[]) {
                                           (active_field == 10 ? nick_new :
                                            active_field == 11 ? nick_confirm :
                                            active_field == 12 ? nick_pass :
-                                           active_field == 20 ? password_current :
-                                           active_field == 21 ? password_new :
-                                           active_field == 22 ? password_confirm : NULL);
+                                           active_field == FIELD_PASSWORD_CURRENT ? password_current :
+                                           active_field == FIELD_PASSWORD_NEW ? password_new :
+                                           active_field == FIELD_PASSWORD_CONFIRM ? password_confirm : NULL);
                             if (buffer) {
                                 if (selection_len != 0) {
                                     delete_selection(buffer);

@@ -58,6 +58,6 @@ The popup will automatically close and you can continue using your account with 
 - **Protocol**: `common.h` - Packet type definitions
 
 ### Field IDs
-- Current Password: `active_field == 20`
-- New Password: `active_field == 21`
-- Confirm Password: `active_field == 22`
+- Current Password: `active_field == FIELD_PASSWORD_CURRENT`
+- New Password: `active_field == FIELD_PASSWORD_NEW`
+- Confirm Password: `active_field == FIELD_PASSWORD_CONFIRM`

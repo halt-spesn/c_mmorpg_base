@@ -425,9 +425,7 @@ void process_password_change(int index, Packet *pkt) {
     
     // 2. Verify current password
     sqlite3_stmt *stmt;
-    char sql[256];
-    snprintf(sql, 256, "SELECT PASSWORD FROM users WHERE ID=?;");
-    sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
+    sqlite3_prepare_v2(db, "SELECT PASSWORD FROM users WHERE ID=?;", -1, &stmt, 0);
     sqlite3_bind_int(stmt, 1, players[index].id);
     
     if (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -454,8 +452,7 @@ void process_password_change(int index, Packet *pkt) {
     sqlite3_finalize(stmt);
     
     // 3. Update password in database using prepared statement
-    snprintf(sql, 256, "UPDATE users SET PASSWORD=? WHERE ID=?;");
-    sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
+    sqlite3_prepare_v2(db, "UPDATE users SET PASSWORD=? WHERE ID=?;", -1, &stmt, 0);
     sqlite3_bind_text(stmt, 1, new_pass, -1, SQLITE_STATIC);
     sqlite3_bind_int(stmt, 2, players[index].id);
     
