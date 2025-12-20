@@ -3811,7 +3811,11 @@ int main(int argc, char *argv[]) {
     #endif
     
     // Fallback to OpenGL renderer if Vulkan is not used or failed
+    #ifdef USE_VULKAN
+    if (!renderer && !use_vulkan) {
+    #else
     if (!renderer) {
+    #endif
         #if defined(__APPLE__) && !defined(__IPHONEOS__)
         // Small delay to allow macOS to properly initialize window compositing
         SDL_Delay(100);
