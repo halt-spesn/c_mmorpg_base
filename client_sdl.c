@@ -4569,7 +4569,7 @@ int main(int argc, char *argv[]) {
 
             if (is_connected && client_state == STATE_GAME) {
             if (now - last_ping_sent > 1000) { Packet pkt; pkt.type = PACKET_PING; pkt.timestamp = now; send_packet(&pkt); last_ping_sent = now; }
-            if (!is_chat_open && !show_nick_popup && !show_add_friend_popup && pending_friend_req_id == -1) {
+            if (!is_chat_open && !show_nick_popup && !show_password_popup && !show_add_friend_popup && !show_sanction_popup && pending_friend_req_id == -1) {
                 
                 // --- FIXED MOVEMENT LOGIC START ---
                 float dx = 0, dy = 0;
