@@ -50,6 +50,11 @@
 #include "common.h"
 #include <dirent.h> // MinGW usually provides this, but visual studio does not. MinGW is fine.
 
+// Vulkan support (optional, falls back to OpenGL if not available)
+#ifdef USE_VULKAN
+#include "renderer_vulkan.h"
+#endif
+
 // Define NSInteger for macOS Objective-C runtime calls
 #if defined(__APPLE__) && !defined(__IPHONEOS__)
 #if defined(__LP64__) && __LP64__
@@ -70,6 +75,18 @@ char current_map_file[32] = "map.jpg";
 #define FONT_PATH "DejaVuSans.ttf"
 #define FONT_SIZE 14
 #define SCROLL_SPEED 30  // Pixels per mouse wheel notch
+
+// --- Rendering Backend ---
+typedef enum {
+    RENDER_BACKEND_OPENGL,
+    RENDER_BACKEND_VULKAN
+} RenderBackend;
+
+RenderBackend render_backend = RENDER_BACKEND_OPENGL; // Default to OpenGL
+#ifdef USE_VULKAN
+VulkanRenderer vk_renderer;
+int use_vulkan = 0; // Runtime flag for Vulkan usage
+#endif
 
 
 
@@ -502,15 +519,16 @@ void save_config() {
                 r = local_players[i].r; g = local_players[i].g; b = local_players[i].b;
             }
         }
-        // Format: R G B R2 G2 B2 AFK_MIN DEBUG FPS COORDS VOL UNREAD UI_SCALE GAME_ZOOM
-        fprintf(fp, "%d %d %d %d %d %d %d %d %d %d %d %d %.2f %.2f\n", 
+        // Format: R G B R2 G2 B2 AFK_MIN DEBUG FPS COORDS VOL UNREAD UI_SCALE GAME_ZOOM RENDER_BACKEND
+        fprintf(fp, "%d %d %d %d %d %d %d %d %d %d %d %d %.2f %.2f %d\n", 
             r, g, b, 
             my_r2, my_g2, my_b2, 
             afk_timeout_minutes,
             show_debug_info, show_fps, show_coords, music_volume,
             show_unread_counter,
             ui_scale,
-            game_zoom
+            game_zoom,
+            render_backend
         );
         fclose(fp);
     }
@@ -533,14 +551,14 @@ void load_config() {
     }
     if (fp) {
         // Temp variables for flags
-        int dbg=0, fps=0, crd=0, vol=64, unread=1;
+        int dbg=0, fps=0, crd=0, vol=64, unread=1, backend=0;
         float scale=1.0f, zoom=1.0f;
         
-        int count = fscanf(fp, "%d %d %d %d %d %d %d %d %d %d %d %d %f %f", 
+        int count = fscanf(fp, "%d %d %d %d %d %d %d %d %d %d %d %d %f %f %d", 
             &saved_r, &saved_g, &saved_b, 
             &my_r2, &my_g2, &my_b2, 
             &afk_timeout_minutes,
-            &dbg, &fps, &crd, &vol, &unread, &scale, &zoom
+            &dbg, &fps, &crd, &vol, &unread, &scale, &zoom, &backend
         );
         
         // Only apply if we successfully read at least the old version (11) or new (12)
@@ -574,6 +592,18 @@ void load_config() {
             if (game_zoom > 2.0f) game_zoom = 2.0f;
             pending_game_zoom = game_zoom; // Initialize pending to match current
         }
+        
+        // Apply render backend preference if present (and not overridden by command line)
+        #ifdef USE_VULKAN
+        #define CONFIG_FIELD_RENDER_BACKEND 15
+        if (count >= CONFIG_FIELD_RENDER_BACKEND && backend == RENDER_BACKEND_VULKAN) {
+            // Only apply config if command line didn't already set it
+            if (render_backend == RENDER_BACKEND_OPENGL) {
+                render_backend = RENDER_BACKEND_VULKAN;
+                use_vulkan = 1;
+            }
+        }
+        #endif
         
         fclose(fp);
     }
@@ -1598,11 +1628,23 @@ void render_my_warnings(SDL_Renderer *renderer, int w, int h) {
 
 void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
     if (!show_debug_info) return;
-    char lines[12][128]; int line_count = 0;
+    char lines[14][128]; int line_count = 0;
     snprintf(lines[line_count++], 128, "Ping: %d ms", current_ping);
     snprintf(lines[line_count++], 128, "Server IP: %s", server_ip);
     float px=0, py=0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { px=local_players[i].x; py=local_players[i].y; }
     snprintf(lines[line_count++], 128, "Pos: %.1f, %.1f", px, py);
+    
+    // Rendering backend info
+    #ifdef USE_VULKAN
+    if (use_vulkan) {
+        snprintf(lines[line_count++], 128, "Render: Vulkan");
+    } else {
+        snprintf(lines[line_count++], 128, "Render: OpenGL");
+    }
+    #else
+    snprintf(lines[line_count++], 128, "Render: OpenGL");
+    #endif
+    
     SDL_RendererInfo info;
     SDL_GetRendererInfo(renderer, &info);
     const char *renderer_str = info.name;
@@ -1643,6 +1685,7 @@ void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
     int y = 15;
     for(int i=0; i<line_count; i++) {
         SDL_Color color = col_white; if (strncmp(lines[i], "Ping:", 5) == 0) color = col_green;
+        if (strncmp(lines[i], "Render: Vulkan", 14) == 0) color = col_cyan;
         render_raw_text(renderer, lines[i], dbg_box.x + 10, y, color, 0); y += 20;
     }
 }
@@ -3653,6 +3696,18 @@ int y_start = auth_box.y + 80;
 
 int main(int argc, char *argv[]) {
     setbuf(stdout, NULL);
+    
+    // Parse command line arguments for rendering backend
+    #ifdef USE_VULKAN
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--vulkan") == 0 || strcmp(argv[i], "-vk") == 0) {
+            use_vulkan = 1;
+            render_backend = RENDER_BACKEND_VULKAN;
+            printf("Vulkan rendering backend requested\n");
+        }
+    }
+    #endif
+    
     // 1. Init SDL & Libraries
     //printf("DEBUG: Packet Size is %d bytes\n", (int)sizeof(Packet));
     #ifdef _WIN32
@@ -3682,6 +3737,10 @@ int main(int argc, char *argv[]) {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) return 1;
     if (TTF_Init() == -1) return 1;
     if (!(IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG) & (IMG_INIT_PNG | IMG_INIT_JPG))) printf("IMG Init Error: %s\n", IMG_GetError());
+    
+    // Load config early to get rendering backend preference
+    load_config();
+    
     // Probe GL strings even if active renderer is non-GL
     if (!gl_probe_done) {
         SDL_Window *tmpw = SDL_CreateWindow("probe", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 1, 1, SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN);
@@ -3722,18 +3781,51 @@ int main(int argc, char *argv[]) {
     #endif
     #endif
 
+    // Add Vulkan flag if Vulkan backend is requested
+    #ifdef USE_VULKAN
+    if (use_vulkan) {
+        win_flags |= SDL_WINDOW_VULKAN;
+    }
+    #endif
+
     SDL_Window *window = SDL_CreateWindow("C MMO Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, win_w, win_h, win_flags);
     if (!window) { printf("Window creation failed: %s\n", SDL_GetError()); return 1; }
     
-    #if defined(__APPLE__) && !defined(__IPHONEOS__)
-    // Small delay to allow macOS to properly initialize window compositing
-    SDL_Delay(100);
-    // Use software renderer for compatibility with older hardware
-    SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
-    #else
-    SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    SDL_Renderer *renderer = NULL;
+    
+    #ifdef USE_VULKAN
+    if (use_vulkan) {
+        printf("Initializing Vulkan renderer...\n");
+        if (vulkan_init(window, &vk_renderer)) {
+            printf("Vulkan renderer initialized successfully!\n");
+            // When using Vulkan, we don't create SDL_Renderer to avoid conflicts on Wayland
+            // All rendering must go through Vulkan
+            // TODO: Port UI rendering to Vulkan or render to texture
+            renderer = NULL;
+        } else {
+            printf("Vulkan initialization failed, falling back to OpenGL\n");
+            use_vulkan = 0;
+            render_backend = RENDER_BACKEND_OPENGL;
+        }
+    }
     #endif
-    if (!renderer) { printf("Renderer creation failed: %s\n", SDL_GetError()); return 1; }
+    
+    // Fallback to OpenGL renderer if Vulkan is not used or failed
+    #ifdef USE_VULKAN
+    if (!renderer && !use_vulkan) {
+    #else
+    if (!renderer) {
+    #endif
+        #if defined(__APPLE__) && !defined(__IPHONEOS__)
+        // Small delay to allow macOS to properly initialize window compositing
+        SDL_Delay(100);
+        // Use software renderer for compatibility with older hardware
+        renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
+        #else
+        renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+        #endif
+        if (!renderer) { printf("Renderer creation failed: %s\n", SDL_GetError()); return 1; }
+    }
     
     #if defined(__APPLE__) && !defined(__IPHONEOS__)
     // Fix black window decorations on macOS by forcing non-transparent titlebar
@@ -3790,7 +3882,7 @@ int main(int argc, char *argv[]) {
     load_servers();
     load_profiles();
     load_triggers();
-    load_config(); // Initial load
+    // Config already loaded earlier to get backend preference
     sock = -1;
 
     for(int i=0; i<MAX_CLIENTS; i++) { avatar_cache[i] = NULL; avatar_status[i] = 0; }
@@ -4769,7 +4861,29 @@ int main(int argc, char *argv[]) {
             }
         }
 
+        #ifdef USE_VULKAN
+        if (use_vulkan) {
+            // Begin Vulkan frame
+            uint32_t image_index;
+            if (vulkan_begin_frame(&vk_renderer, &image_index)) {
+                // Vulkan clears and sets up the render pass
+                // We can add Vulkan-specific rendering here in the future
+                
+                // End Vulkan frame and present
+                vulkan_end_frame(&vk_renderer, image_index);
+            }
+            
+            // Handle window resize for Vulkan
+            if (vk_renderer.framebuffer_resized) {
+                vulkan_handle_resize(&vk_renderer);
+            }
+        } else {
+            // Use SDL_Renderer for UI when not using Vulkan
+            if (client_state == STATE_AUTH) render_auth_screen(renderer); else render_game(renderer);
+        }
+        #else
         if (client_state == STATE_AUTH) render_auth_screen(renderer); else render_game(renderer);
+        #endif
         SDL_Delay(16);
     }
     
@@ -4779,6 +4893,15 @@ int main(int argc, char *argv[]) {
     if(bgm) Mix_FreeMusic(bgm); Mix_CloseAudio();
     if(sock > 0) close(sock); 
     TTF_CloseFont(font); TTF_Quit(); IMG_Quit();
-    SDL_DestroyRenderer(renderer); SDL_DestroyWindow(window); SDL_Quit();
+    
+    #ifdef USE_VULKAN
+    if (use_vulkan) {
+        vulkan_cleanup(&vk_renderer);
+    }
+    #endif
+    
+    if (renderer) SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
+    SDL_Quit();
     return 0;
 }
