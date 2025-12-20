@@ -399,6 +399,81 @@ void process_nick_change(int index, Packet *pkt) {
     }
 }
 
+void process_password_change(int index, Packet *pkt) {
+    char *current_pass = pkt->password;  // Current password
+    char *new_pass = pkt->username;      // New password
+    char *confirm_pass = pkt->msg;       // Confirm password
+    
+    // 1. Validation
+    if (strlen(new_pass) < 8) {
+        Packet resp;
+        resp.type = PACKET_CHANGE_PASSWORD_RESPONSE;
+        resp.status = AUTH_FAILURE;
+        strcpy(resp.msg, "New password must be 8+ chars.");
+        send_all(client_sockets[index], &resp, sizeof(Packet), 0);
+        return;
+    }
+    
+    if (strcmp(new_pass, confirm_pass) != 0) {
+        Packet resp;
+        resp.type = PACKET_CHANGE_PASSWORD_RESPONSE;
+        resp.status = AUTH_FAILURE;
+        strcpy(resp.msg, "Passwords don't match.");
+        send_all(client_sockets[index], &resp, sizeof(Packet), 0);
+        return;
+    }
+    
+    // 2. Verify current password
+    sqlite3_stmt *stmt;
+    sqlite3_prepare_v2(db, "SELECT PASSWORD FROM users WHERE ID=?;", -1, &stmt, 0);
+    sqlite3_bind_int(stmt, 1, players[index].id);
+    
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char *db_pass = (const char*)sqlite3_column_text(stmt, 0);
+        
+        if (strcmp(current_pass, db_pass) != 0) {
+            Packet resp;
+            resp.type = PACKET_CHANGE_PASSWORD_RESPONSE;
+            resp.status = AUTH_FAILURE;
+            strcpy(resp.msg, "Current password incorrect.");
+            send_all(client_sockets[index], &resp, sizeof(Packet), 0);
+            sqlite3_finalize(stmt);
+            return;
+        }
+    } else {
+        Packet resp;
+        resp.type = PACKET_CHANGE_PASSWORD_RESPONSE;
+        resp.status = AUTH_FAILURE;
+        strcpy(resp.msg, "User not found.");
+        send_all(client_sockets[index], &resp, sizeof(Packet), 0);
+        sqlite3_finalize(stmt);
+        return;
+    }
+    sqlite3_finalize(stmt);
+    
+    // 3. Update password in database using prepared statement
+    sqlite3_prepare_v2(db, "UPDATE users SET PASSWORD=? WHERE ID=?;", -1, &stmt, 0);
+    sqlite3_bind_text(stmt, 1, new_pass, -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, 2, players[index].id);
+    
+    int result = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    
+    if (result == SQLITE_DONE) {
+        Packet resp;
+        resp.type = PACKET_CHANGE_PASSWORD_RESPONSE;
+        resp.status = AUTH_SUCCESS;
+        strcpy(resp.msg, "Password changed successfully!");
+        send_all(client_sockets[index], &resp, sizeof(Packet), 0);
+    } else {
+        Packet resp;
+        resp.type = PACKET_CHANGE_PASSWORD_RESPONSE;
+        resp.status = AUTH_FAILURE;
+        strcpy(resp.msg, "Database error.");
+        send_all(client_sockets[index], &resp, sizeof(Packet), 0);
+    }
+}
+
 void send_pending_requests(int client_index) {
     int my_id = players[client_index].id;
     
@@ -736,6 +811,9 @@ void handle_client_message(int index, Packet *pkt) {
     }
     else if (pkt->type == PACKET_CHANGE_NICK_REQUEST) {
         process_nick_change(index, pkt);
+    }
+    else if (pkt->type == PACKET_CHANGE_PASSWORD_REQUEST) {
+        process_password_change(index, pkt);
     }
     else if (pkt->type == PACKET_ROLE_LIST_REQUEST) {
         Packet resp; 

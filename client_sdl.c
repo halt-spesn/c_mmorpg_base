@@ -106,6 +106,7 @@ SDL_Rect blocked_win;
 SDL_Rect btn_close_blocked;    
 SDL_Rect btn_hide_player_dyn; // Dynamic rect for click handling
 SDL_Rect btn_change_avatar;    // Avatar selection button
+SDL_Rect btn_change_password;  // Password change button
 
 // UI STATE
 int selected_player_id = -1;
@@ -152,6 +153,23 @@ typedef enum { STATE_AUTH, STATE_GAME } ClientState;
 ClientState client_state = STATE_AUTH;
 
 #define MAX_INPUT_LEN 31
+#define MAX_PASSWORD_LEN 63
+
+// Active field IDs for text input
+#define FIELD_AUTH_USERNAME 0
+#define FIELD_AUTH_PASSWORD 1
+#define FIELD_IP 2
+#define FIELD_PORT 3
+#define FIELD_NICK_NEW 10
+#define FIELD_NICK_CONFIRM 11
+#define FIELD_NICK_PASS 12
+#define FIELD_PASSWORD_CURRENT 20
+#define FIELD_PASSWORD_NEW 21
+#define FIELD_PASSWORD_CONFIRM 22
+#define FIELD_FRIEND_ID 25
+#define FIELD_SANCTION_REASON 30
+#define FIELD_BAN_TIME 31
+
 char auth_username[MAX_INPUT_LEN+1] = "";
 char auth_password[MAX_INPUT_LEN+1] = "";
 int active_field = -1;
@@ -227,6 +245,16 @@ int show_nick_popup = 0;
 char nick_new[32] = "";
 char nick_confirm[32] = "";
 char nick_pass[32] = "";
+
+// --- Password Change State ---
+int show_password_popup = 0;
+char password_current[64] = "";
+char password_new[64] = "";
+char password_confirm[64] = "";
+char password_message[128] = "";
+int show_password_current = 0;
+int show_password_new = 0;
+int show_password_confirm = 0;
 
 // --- Inbox State ---
 typedef struct { int id; char name[32]; } IncomingReq;
@@ -1436,7 +1464,7 @@ void render_add_friend_popup(SDL_Renderer *renderer, int w, int h) {
     // ---------------------------
     
     SDL_Rect input_rect = {pop.x+50, pop.y+60, 200, 30};
-    render_input_with_cursor(renderer, input_rect, input_friend_id, active_field == 20, 0);
+    render_input_with_cursor(renderer, input_rect, input_friend_id, active_field == 25, 0);
 
     SDL_Rect btn_ok = {pop.x+50, pop.y+130, 80, 30};
     SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_ok);
@@ -1959,6 +1987,11 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     SDL_SetRenderDrawColor(renderer, 50, 150, 100, 255); SDL_RenderFillRect(renderer, &btn_change_avatar);
     render_text(renderer, "Change Avatar", btn_change_avatar.x + 150, btn_change_avatar.y + 5, col_white, 1);
     y += 40;
+
+    btn_change_password = (SDL_Rect){start_x, y, 300, 30};
+    SDL_SetRenderDrawColor(renderer, 150, 50, 100, 255); SDL_RenderFillRect(renderer, &btn_change_password);
+    render_text(renderer, "Change Password", btn_change_password.x + 150, btn_change_password.y + 5, col_white, 1);
+    y += 40;
   
     
 
@@ -2122,6 +2155,65 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
         render_text(renderer, "Submit", btn_submit.x+60, btn_submit.y+5, col_white, 1);
         SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_cancel);
         render_text(renderer, "Cancel", btn_cancel.x+60, btn_cancel.y+5, col_white, 1);
+    }
+    
+    // --- Password Change Popup ---
+    if (show_password_popup) {
+        SDL_Rect pop = {screen_w/2 - 175, screen_h/2 - 200, 350, 400};
+        SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255); SDL_RenderFillRect(renderer, &pop);
+        SDL_SetRenderDrawColor(renderer, 200, 100, 0, 255); SDL_RenderDrawRect(renderer, &pop);
+        
+        render_text(renderer, "Change Password", pop.x+175, pop.y+10, col_yellow, 1);
+        render_text(renderer, password_message, pop.x+175, pop.y+35, col_red, 1);
+
+        int py = pop.y + 60;
+        render_text(renderer, "Current Password:", pop.x+20, py, col_white, 0);
+        render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, py+20, 240, 25}, password_current, active_field==FIELD_PASSWORD_CURRENT, !show_password_current);
+        
+        // Show checkbox for current password
+        SDL_Rect btn_show_curr = {pop.x + 270, py + 25, 15, 15};
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); 
+        SDL_RenderDrawRect(renderer, &btn_show_curr);
+        if (show_password_current) {
+            SDL_Rect inner = {btn_show_curr.x+3, btn_show_curr.y+3, 9, 9};
+            SDL_RenderFillRect(renderer, &inner);
+        }
+        render_text(renderer, "Show", btn_show_curr.x + 20, btn_show_curr.y - 2, col_white, 0);
+
+        py += 70;
+        render_text(renderer, "New Password:", pop.x+20, py, col_white, 0);
+        render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, py+20, 240, 25}, password_new, active_field==FIELD_PASSWORD_NEW, !show_password_new);
+        
+        // Show checkbox for new password
+        SDL_Rect btn_show_new = {pop.x + 270, py + 25, 15, 15};
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); 
+        SDL_RenderDrawRect(renderer, &btn_show_new);
+        if (show_password_new) {
+            SDL_Rect inner = {btn_show_new.x+3, btn_show_new.y+3, 9, 9};
+            SDL_RenderFillRect(renderer, &inner);
+        }
+        render_text(renderer, "Show", btn_show_new.x + 20, btn_show_new.y - 2, col_white, 0);
+
+        py += 70;
+        render_text(renderer, "Confirm Password:", pop.x+20, py, col_white, 0);
+        render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, py+20, 240, 25}, password_confirm, active_field==FIELD_PASSWORD_CONFIRM, !show_password_confirm);
+        
+        // Show checkbox for confirm password
+        SDL_Rect btn_show_conf = {pop.x + 270, py + 25, 15, 15};
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); 
+        SDL_RenderDrawRect(renderer, &btn_show_conf);
+        if (show_password_confirm) {
+            SDL_Rect inner = {btn_show_conf.x+3, btn_show_conf.y+3, 9, 9};
+            SDL_RenderFillRect(renderer, &inner);
+        }
+        render_text(renderer, "Show", btn_show_conf.x + 20, btn_show_conf.y - 2, col_white, 0);
+
+        SDL_Rect btn_submit = {pop.x+20, pop.y+340, 150, 30};
+        SDL_Rect btn_cancel = {pop.x+180, pop.y+340, 150, 30};
+        SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_submit);
+        render_text(renderer, "Change", btn_submit.x+75, btn_submit.y+5, col_white, 1);
+        SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_cancel);
+        render_text(renderer, "Cancel", btn_cancel.x+75, btn_cancel.y+5, col_white, 1);
     }
 }
 
@@ -3091,7 +3183,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         SDL_Rect pop = {w/2 - 150, h/2 - 100, 300, 200};
         SDL_Rect input = {pop.x+50, pop.y+60, 200, 30};
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &input)) { 
-            active_field = 20; SDL_StartTextInput(); active_input_rect = input;
+            active_field = 25; SDL_StartTextInput(); active_input_rect = input;
             cursor_pos = get_cursor_pos_from_click(input_friend_id, mx, input.x); 
             selection_start = cursor_pos; selection_len = 0; is_dragging = 1; return; 
         }
@@ -3185,6 +3277,77 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){pop.x+160, pop.y+240, 120, 30})) { show_nick_popup = 0; active_field = -1; return; }
             return;
         }
+        
+        // Password Change Popup
+        if (show_password_popup) {
+            SDL_Rect pop = {w/2 - 175, h/2 - 200, 350, 400};
+            int py = pop.y + 60;
+            
+            // Current password field
+            SDL_Rect r_curr = {pop.x+20, py+20, 240, 25};
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &r_curr)) {
+                active_field = FIELD_PASSWORD_CURRENT; SDL_StartTextInput(); active_input_rect = r_curr;
+                cursor_pos = get_cursor_pos_from_click(password_current, mx, r_curr.x);
+                selection_start = cursor_pos; selection_len = 0; is_dragging = 1; return;
+            }
+            // Show checkbox for current
+            SDL_Rect btn_show_curr = {pop.x + 270, py + 25, 15, 15};
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_show_curr)) { show_password_current = !show_password_current; return; }
+            
+            py += 70;
+            // New password field
+            SDL_Rect r_new = {pop.x+20, py+20, 240, 25};
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &r_new)) {
+                active_field = FIELD_PASSWORD_NEW; SDL_StartTextInput(); active_input_rect = r_new;
+                cursor_pos = get_cursor_pos_from_click(password_new, mx, r_new.x);
+                selection_start = cursor_pos; selection_len = 0; is_dragging = 1; return;
+            }
+            // Show checkbox for new
+            SDL_Rect btn_show_new = {pop.x + 270, py + 25, 15, 15};
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_show_new)) { show_password_new = !show_password_new; return; }
+            
+            py += 70;
+            // Confirm password field
+            SDL_Rect r_conf = {pop.x+20, py+20, 240, 25};
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &r_conf)) {
+                active_field = FIELD_PASSWORD_CONFIRM; SDL_StartTextInput(); active_input_rect = r_conf;
+                cursor_pos = get_cursor_pos_from_click(password_confirm, mx, r_conf.x);
+                selection_start = cursor_pos; selection_len = 0; is_dragging = 1; return;
+            }
+            // Show checkbox for confirm
+            SDL_Rect btn_show_conf = {pop.x + 270, py + 25, 15, 15};
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_show_conf)) { show_password_confirm = !show_password_confirm; return; }
+            
+            // Submit button
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){pop.x+20, pop.y+340, 150, 30})) {
+                // Validate locally first
+                if (strlen(password_current) == 0) {
+                    strcpy(password_message, "Current password required.");
+                } else if (strlen(password_new) < 8) {
+                    strcpy(password_message, "New password must be 8+ chars.");
+                } else if (strcmp(password_new, password_confirm) != 0) {
+                    strcpy(password_message, "Passwords don't match.");
+                } else {
+                    // Send request to server
+                    Packet pkt;
+                    pkt.type = PACKET_CHANGE_PASSWORD_REQUEST;
+                    strncpy(pkt.password, password_current, 63);
+                    pkt.password[63] = '\0';
+                    strncpy(pkt.username, password_new, 63);
+                    pkt.username[63] = '\0';
+                    strncpy(pkt.msg, password_confirm, 63);
+                    pkt.msg[63] = '\0';
+                    send_packet(&pkt);
+                    strcpy(password_message, "Processing...");
+                }
+                return;
+            }
+            // Cancel button
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){pop.x+180, pop.y+340, 150, 30})) {
+                show_password_popup = 0; active_field = -1; return;
+            }
+            return;
+        }
 
         // Main Settings Scrolled
         SDL_Rect s_win = {w/2 - 175, h/2 - 300, 350, 600}; 
@@ -3213,6 +3376,14 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             // Avatar change button (right after nickname button)
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_change_avatar)) {
                 open_file_picker_for_avatar();
+                return;
+            }
+
+            // Password change button
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_change_password)) {
+                show_password_popup = 1;
+                password_current[0] = 0; password_new[0] = 0; password_confirm[0] = 0;
+                strcpy(password_message, "");
                 return;
             }
 
@@ -3621,7 +3792,10 @@ int main(int argc, char *argv[]) {
             else if(active_field==10) len=strlen(nick_new);
             else if(active_field==11) len=strlen(nick_confirm);
             else if(active_field==12) len=strlen(nick_pass);
-            else if(active_field==20) len=strlen(input_friend_id);
+            else if(active_field==FIELD_PASSWORD_CURRENT) len=strlen(password_current);
+            else if(active_field==FIELD_PASSWORD_NEW) len=strlen(password_new);
+            else if(active_field==FIELD_PASSWORD_CONFIRM) len=strlen(password_confirm);
+            else if(active_field==FIELD_FRIEND_ID) len=strlen(input_friend_id);
             else if(active_field==30) len=strlen(input_sanction_reason);
             else if(active_field==31) len=strlen(input_ban_time);
             
@@ -3773,7 +3947,10 @@ int main(int argc, char *argv[]) {
                             char *buffer = is_chat_open ? input_buffer : 
                                           (active_field == 10 ? nick_new :
                                            active_field == 11 ? nick_confirm :
-                                           active_field == 12 ? nick_pass : NULL);
+                                           active_field == 12 ? nick_pass :
+                                           active_field == FIELD_PASSWORD_CURRENT ? password_current :
+                                           active_field == FIELD_PASSWORD_NEW ? password_new :
+                                           active_field == FIELD_PASSWORD_CONFIRM ? password_confirm : NULL);
                             if (buffer) {
                                 int start = selection_start;
                                 int slen = selection_len;
@@ -3795,7 +3972,10 @@ int main(int argc, char *argv[]) {
                             char *buffer = is_chat_open ? input_buffer : 
                                           (active_field == 10 ? nick_new :
                                            active_field == 11 ? nick_confirm :
-                                           active_field == 12 ? nick_pass : NULL);
+                                           active_field == 12 ? nick_pass :
+                                           active_field == FIELD_PASSWORD_CURRENT ? password_current :
+                                           active_field == FIELD_PASSWORD_NEW ? password_new :
+                                           active_field == FIELD_PASSWORD_CONFIRM ? password_confirm : NULL);
                             if (buffer) {
                                 int start = selection_start;
                                 int slen = selection_len;
@@ -3818,8 +3998,11 @@ int main(int argc, char *argv[]) {
                                 char *buffer = is_chat_open ? input_buffer : 
                                               (active_field == 10 ? nick_new :
                                                active_field == 11 ? nick_confirm :
-                                               active_field == 12 ? nick_pass : NULL);
-                                int max_len = is_chat_open ? 60 : 31;
+                                               active_field == 12 ? nick_pass :
+                                               active_field == FIELD_PASSWORD_CURRENT ? password_current :
+                                               active_field == FIELD_PASSWORD_NEW ? password_new :
+                                               active_field == FIELD_PASSWORD_CONFIRM ? password_confirm : NULL);
+                                int max_len = (is_chat_open ? 60 : (active_field >= FIELD_PASSWORD_CURRENT && active_field <= FIELD_PASSWORD_CONFIRM ? 63 : 31));
                                 
                                 if (buffer) {
                                     if (selection_len != 0) delete_selection(buffer);
@@ -3840,7 +4023,10 @@ int main(int argc, char *argv[]) {
                             char *buffer = is_chat_open ? input_buffer : 
                                           (active_field == 10 ? nick_new :
                                            active_field == 11 ? nick_confirm :
-                                           active_field == 12 ? nick_pass : NULL);
+                                           active_field == 12 ? nick_pass :
+                                           active_field == FIELD_PASSWORD_CURRENT ? password_current :
+                                           active_field == FIELD_PASSWORD_NEW ? password_new :
+                                           active_field == FIELD_PASSWORD_CONFIRM ? password_confirm : NULL);
                             if (buffer) {
                                 if (selection_len != 0) {
                                     delete_selection(buffer);
@@ -4154,7 +4340,10 @@ int main(int argc, char *argv[]) {
                     else if (active_field == 10) target = nick_new;
                     else if (active_field == 11) target = nick_confirm;
                     else if (active_field == 12) target = nick_pass;
-                    else if (active_field == 20) target = input_friend_id;
+                    else if (active_field == 20) target = password_current;
+                    else if (active_field == 21) target = password_new;
+                    else if (active_field == 22) target = password_confirm;
+                    else if (active_field == 25) target = input_friend_id;
                     else if (active_field == 30) target = input_sanction_reason;
                     else if (active_field == 31) target = input_ban_time;
 
@@ -4245,7 +4434,7 @@ int main(int argc, char *argv[]) {
                      } 
                      else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_settings_toggle)) {
                         is_settings_open = !is_settings_open;
-                        if (!is_settings_open) { show_nick_popup = 0; show_blocked_list = 0; active_field = -1; }
+                        if (!is_settings_open) { show_nick_popup = 0; show_password_popup = 0; show_blocked_list = 0; active_field = -1; }
                         else {
                             // Sync Globals
                             for(int i=0; i<MAX_CLIENTS; i++) {
@@ -4337,8 +4526,15 @@ int main(int argc, char *argv[]) {
                     else if(active_field == 12) target = nick_pass;
                     if (target) handle_text_edit(target, 31, &event);
                 }
+                else if (is_settings_open && show_password_popup) {
+                    char *target = NULL;
+                    if(active_field == 20) target = password_current;
+                    else if(active_field == 21) target = password_new;
+                    else if(active_field == 22) target = password_confirm;
+                    if (target) handle_text_edit(target, 63, &event);
+                }
                 else if (show_add_friend_popup) {
-                    if (active_field == 20) handle_text_edit(input_friend_id, 8, &event);
+                    if (active_field == 25) handle_text_edit(input_friend_id, 8, &event);
                 }
                 else if (show_sanction_popup) {
                     char *target = NULL; int max = 63;
@@ -4373,7 +4569,7 @@ int main(int argc, char *argv[]) {
 
             if (is_connected && client_state == STATE_GAME) {
             if (now - last_ping_sent > 1000) { Packet pkt; pkt.type = PACKET_PING; pkt.timestamp = now; send_packet(&pkt); last_ping_sent = now; }
-            if (!is_chat_open && !show_nick_popup && !show_add_friend_popup && pending_friend_req_id == -1) {
+            if (!is_chat_open && !show_nick_popup && !show_password_popup && !show_add_friend_popup && !show_sanction_popup && pending_friend_req_id == -1) {
                 
                 // --- FIXED MOVEMENT LOGIC START ---
                 float dx = 0, dy = 0;
@@ -4486,6 +4682,15 @@ int main(int argc, char *argv[]) {
                     if (pkt.type == PACKET_CHANGE_NICK_RESPONSE) {
                         if (pkt.status == AUTH_SUCCESS) { show_nick_popup = 0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) strncpy(local_players[i].username, pkt.username, 31); } 
                         else strncpy(auth_message, pkt.msg, 127);
+                    }
+                    if (pkt.type == PACKET_CHANGE_PASSWORD_RESPONSE) {
+                        if (pkt.status == AUTH_SUCCESS) {
+                            show_password_popup = 0;
+                            strcpy(password_message, "Success!");
+                            active_field = -1;
+                        } else {
+                            strncpy(password_message, pkt.msg, 127);
+                        }
                     }
                     if (pkt.type == PACKET_ROLE_LIST_RESPONSE) {
                         staff_count = pkt.role_count;
