@@ -4,7 +4,9 @@ game coded by gemini, gpt-5.1-codex-max, claude sonnet 4.5.
 current issues: game(unable to walk), server(won't launch) does not runs in wine; window decors on mac os are black
 
 
-to build on linux, install SDL2(_image, _mixer, _ttf), sqlite3, and run make.
+to build on linux, install SDL2(_image, _mixer, _ttf), sqlite3, vulkan SDK (libvulkan-dev), and run make.
+
+Note: Vulkan rendering support is always built-in. Use the in-game settings to enable Vulkan and optionally select NVIDIA GPU on hybrid laptop setups.
 
 
 to build windows version on linux, install mingw, and mingw versions of stuff above.
