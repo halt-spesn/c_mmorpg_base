@@ -529,6 +529,7 @@ void load_telemetry() {
                 if (sscanf(colon + 1, "%d", &user_id) == 1) {
                     gl_telemetry[gl_telemetry_count].user_id = user_id;
                     strncpy(gl_telemetry[gl_telemetry_count].gl_renderer, renderer, 127);
+                    gl_telemetry[gl_telemetry_count].gl_renderer[127] = '\0';
                     gl_telemetry_count++;
                 }
             }
@@ -552,6 +553,7 @@ void load_telemetry() {
                 if (sscanf(colon + 1, "%d", &user_id) == 1) {
                     os_telemetry[os_telemetry_count].user_id = user_id;
                     strncpy(os_telemetry[os_telemetry_count].os_info, os, 127);
+                    os_telemetry[os_telemetry_count].os_info[127] = '\0';
                     os_telemetry_count++;
                 }
             }

@@ -935,6 +935,7 @@ void send_telemetry() {
         pkt.gl_renderer[127] = '\0';
     } else {
         strncpy(pkt.gl_renderer, "Unknown", 127);
+        pkt.gl_renderer[127] = '\0';
     }
     
     // Get OS info
