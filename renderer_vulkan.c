@@ -53,9 +53,14 @@ static int check_validation_layer_support() {
 
 // Create Vulkan instance
 static int create_instance(SDL_Window *window, VkInstance *instance) {
-    if (enable_validation_layers && !check_validation_layer_support()) {
-        printf("Validation layers requested, but not available!\n");
-        return 0;
+    int use_validation_layers = 0;
+    if (enable_validation_layers) {
+        if (check_validation_layer_support()) {
+            use_validation_layers = 1;
+            printf("Validation layers enabled\n");
+        } else {
+            printf("Validation layers requested but not available - proceeding without validation\n");
+        }
     }
     
     VkApplicationInfo app_info = {0};
@@ -91,7 +96,7 @@ static int create_instance(SDL_Window *window, VkInstance *instance) {
     create_info.enabledExtensionCount = sdl_extension_count;
     create_info.ppEnabledExtensionNames = extensions;
     
-    if (enable_validation_layers) {
+    if (use_validation_layers) {
         create_info.enabledLayerCount = validation_layer_count;
         create_info.ppEnabledLayerNames = validation_layers;
     } else {
@@ -249,12 +254,10 @@ static int create_logical_device(VkPhysicalDevice physical_device, uint32_t grap
     create_info.enabledExtensionCount = device_extension_count;
     create_info.ppEnabledExtensionNames = device_extensions;
     
-    if (enable_validation_layers) {
-        create_info.enabledLayerCount = validation_layer_count;
-        create_info.ppEnabledLayerNames = validation_layers;
-    } else {
-        create_info.enabledLayerCount = 0;
-    }
+    // Note: Device-level validation layers are deprecated in modern Vulkan
+    // Validation is now handled at the instance level only
+    // Setting to 0 for compatibility with newer implementations
+    create_info.enabledLayerCount = 0;
     
     if (vkCreateDevice(physical_device, &create_info, NULL, device) != VK_SUCCESS) {
         printf("Failed to create logical device!\n");

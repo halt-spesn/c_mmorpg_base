@@ -95,9 +95,11 @@ Where RENDER_BACKEND is:
 - Validates required extensions (VK_KHR_swapchain)
 
 ### Validation Layers
-- Enabled in debug builds (`NDEBUG` not defined)
-- Provides error checking and warnings
-- Helps catch Vulkan API misuse
+- Requested in debug builds (`NDEBUG` not defined)
+- Automatically disabled if not available (no installation required)
+- Provides error checking and warnings when available
+- Helps catch Vulkan API misuse during development
+- Vulkan works without validation layers if they're not installed
 
 ### Frame Synchronization
 - Double buffering (2 frames in flight)
@@ -204,10 +206,17 @@ if (!ptr) {
 
 ## Troubleshooting
 
+### "Validation layers requested but not available"
+- This is a warning, not an error - Vulkan will continue without validation
+- Validation layers are optional development tools
+- To install validation layers on Linux: `sudo apt-get install vulkan-validationlayers`
+- The client will work fine without them
+
 ### Vulkan initialization fails
-- Check if Vulkan SDK is installed
-- Update graphics drivers
-- Check `VK_LAYER_PATH` environment variable
+- Check if Vulkan drivers are installed (not just SDK)
+- Update graphics drivers to latest version
+- Verify GPU supports Vulkan 1.0+: `vulkaninfo` command
+- Check that Vulkan runtime libraries are present
 - Client will fall back to OpenGL automatically
 
 ### Black screen with Vulkan
