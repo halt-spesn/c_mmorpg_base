@@ -519,15 +519,16 @@ void save_config() {
                 r = local_players[i].r; g = local_players[i].g; b = local_players[i].b;
             }
         }
-        // Format: R G B R2 G2 B2 AFK_MIN DEBUG FPS COORDS VOL UNREAD UI_SCALE GAME_ZOOM
-        fprintf(fp, "%d %d %d %d %d %d %d %d %d %d %d %d %.2f %.2f\n", 
+        // Format: R G B R2 G2 B2 AFK_MIN DEBUG FPS COORDS VOL UNREAD UI_SCALE GAME_ZOOM RENDER_BACKEND
+        fprintf(fp, "%d %d %d %d %d %d %d %d %d %d %d %d %.2f %.2f %d\n", 
             r, g, b, 
             my_r2, my_g2, my_b2, 
             afk_timeout_minutes,
             show_debug_info, show_fps, show_coords, music_volume,
             show_unread_counter,
             ui_scale,
-            game_zoom
+            game_zoom,
+            render_backend
         );
         fclose(fp);
     }
@@ -550,14 +551,14 @@ void load_config() {
     }
     if (fp) {
         // Temp variables for flags
-        int dbg=0, fps=0, crd=0, vol=64, unread=1;
+        int dbg=0, fps=0, crd=0, vol=64, unread=1, backend=0;
         float scale=1.0f, zoom=1.0f;
         
-        int count = fscanf(fp, "%d %d %d %d %d %d %d %d %d %d %d %d %f %f", 
+        int count = fscanf(fp, "%d %d %d %d %d %d %d %d %d %d %d %d %f %f %d", 
             &saved_r, &saved_g, &saved_b, 
             &my_r2, &my_g2, &my_b2, 
             &afk_timeout_minutes,
-            &dbg, &fps, &crd, &vol, &unread, &scale, &zoom
+            &dbg, &fps, &crd, &vol, &unread, &scale, &zoom, &backend
         );
         
         // Only apply if we successfully read at least the old version (11) or new (12)
@@ -591,6 +592,17 @@ void load_config() {
             if (game_zoom > 2.0f) game_zoom = 2.0f;
             pending_game_zoom = game_zoom; // Initialize pending to match current
         }
+        
+        // Apply render backend preference if present (and not overridden by command line)
+        #ifdef USE_VULKAN
+        if (count >= 15 && backend == RENDER_BACKEND_VULKAN) {
+            // Only apply config if command line didn't already set it
+            if (render_backend == RENDER_BACKEND_OPENGL) {
+                render_backend = RENDER_BACKEND_VULKAN;
+                use_vulkan = 1;
+            }
+        }
+        #endif
         
         fclose(fp);
     }
@@ -1615,11 +1627,23 @@ void render_my_warnings(SDL_Renderer *renderer, int w, int h) {
 
 void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
     if (!show_debug_info) return;
-    char lines[12][128]; int line_count = 0;
+    char lines[14][128]; int line_count = 0;
     snprintf(lines[line_count++], 128, "Ping: %d ms", current_ping);
     snprintf(lines[line_count++], 128, "Server IP: %s", server_ip);
     float px=0, py=0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { px=local_players[i].x; py=local_players[i].y; }
     snprintf(lines[line_count++], 128, "Pos: %.1f, %.1f", px, py);
+    
+    // Rendering backend info
+    #ifdef USE_VULKAN
+    if (use_vulkan) {
+        snprintf(lines[line_count++], 128, "Render: Vulkan");
+    } else {
+        snprintf(lines[line_count++], 128, "Render: OpenGL");
+    }
+    #else
+    snprintf(lines[line_count++], 128, "Render: OpenGL");
+    #endif
+    
     SDL_RendererInfo info;
     SDL_GetRendererInfo(renderer, &info);
     const char *renderer_str = info.name;
@@ -1660,6 +1684,7 @@ void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
     int y = 15;
     for(int i=0; i<line_count; i++) {
         SDL_Color color = col_white; if (strncmp(lines[i], "Ping:", 5) == 0) color = col_green;
+        if (strncmp(lines[i], "Render: Vulkan", 14) == 0) color = col_cyan;
         render_raw_text(renderer, lines[i], dbg_box.x + 10, y, color, 0); y += 20;
     }
 }
@@ -3711,6 +3736,10 @@ int main(int argc, char *argv[]) {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) return 1;
     if (TTF_Init() == -1) return 1;
     if (!(IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG) & (IMG_INIT_PNG | IMG_INIT_JPG))) printf("IMG Init Error: %s\n", IMG_GetError());
+    
+    // Load config early to get rendering backend preference
+    load_config();
+    
     // Probe GL strings even if active renderer is non-GL
     if (!gl_probe_done) {
         SDL_Window *tmpw = SDL_CreateWindow("probe", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 1, 1, SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN);
@@ -3846,7 +3875,7 @@ int main(int argc, char *argv[]) {
     load_servers();
     load_profiles();
     load_triggers();
-    load_config(); // Initial load
+    // Config already loaded earlier to get backend preference
     sock = -1;
 
     for(int i=0; i<MAX_CLIENTS; i++) { avatar_cache[i] = NULL; avatar_status[i] = 0; }
