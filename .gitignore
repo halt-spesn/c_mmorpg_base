@@ -8,6 +8,8 @@ servers.txt
 config.txt
 configs.txt
 profiles.txt
+telemetryGL.txt
+telemetryOS.txt
 windows_release
 game_client.exe
 # Android
