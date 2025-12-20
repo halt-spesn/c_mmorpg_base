@@ -3781,52 +3781,47 @@ int main(int argc, char *argv[]) {
     #endif
     #endif
 
-    // Add Vulkan flag if Vulkan backend is requested
-    #ifdef USE_VULKAN
-    if (use_vulkan) {
-        win_flags |= SDL_WINDOW_VULKAN;
-    }
-    #endif
+    // Don't add SDL_WINDOW_VULKAN flag - let SDL_CreateRenderer choose the backend
+    // SDL will automatically use Vulkan if available and beneficial
 
     SDL_Window *window = SDL_CreateWindow("C MMO Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, win_w, win_h, win_flags);
     if (!window) { printf("Window creation failed: %s\n", SDL_GetError()); return 1; }
     
+    // Create SDL_Renderer for game content rendering
+    // SDL automatically selects best backend (OpenGL, OpenGL ES, or Vulkan on Linux)
     SDL_Renderer *renderer = NULL;
-    
-    #ifdef USE_VULKAN
-    if (use_vulkan) {
-        printf("Initializing Vulkan renderer...\n");
-        if (vulkan_init(window, &vk_renderer)) {
-            printf("Vulkan renderer initialized successfully!\n");
-            // Vulkan initialized successfully - it provides the presentation layer
-            // We still create SDL_Renderer below for game content rendering
-        } else {
-            printf("Vulkan initialization failed, falling back to OpenGL\n");
-            use_vulkan = 0;
-            render_backend = RENDER_BACKEND_OPENGL;
-        }
-    }
+    #if defined(__APPLE__) && !defined(__IPHONEOS__)
+    // Small delay to allow macOS to properly initialize window compositing
+    SDL_Delay(100);
+    // Use software renderer for compatibility with older hardware on macOS
+    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
+    #else
+    // Use accelerated renderer - SDL will choose OpenGL, OpenGL ES, or Vulkan
+    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     #endif
     
-    // Create SDL_Renderer for game content rendering
-    // This works with or without Vulkan - SDL handles the rendering API
-    if (!renderer) {
-        #if defined(__APPLE__) && !defined(__IPHONEOS__)
-        // Small delay to allow macOS to properly initialize window compositing
-        SDL_Delay(100);
-        // Use software renderer for compatibility with older hardware
-        renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
-        #else
-        // Use accelerated renderer - will use OpenGL, OpenGL ES, or Vulkan depending on platform
-        renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-        #endif
-        if (!renderer) { printf("Renderer creation failed: %s\n", SDL_GetError()); return 1; }
+    if (!renderer) { 
+        printf("Renderer creation failed: %s\n", SDL_GetError()); 
+        return 1; 
+    }
+    
+    // Check which rendering backend SDL chose
+    SDL_RendererInfo info;
+    if (SDL_GetRendererInfo(renderer, &info) == 0) {
+        printf("SDL Renderer backend: %s\n", info.name);
         
-        // Log which renderer backend SDL chose
-        SDL_RendererInfo info;
-        if (SDL_GetRendererInfo(renderer, &info) == 0) {
-            printf("SDL Renderer backend: %s\n", info.name);
+        #ifdef USE_VULKAN
+        // Update backend tracking based on SDL's choice
+        if (strstr(info.name, "vulkan") || strstr(info.name, "Vulkan")) {
+            use_vulkan = 1;
+            render_backend = RENDER_BACKEND_VULKAN;
+            printf("Vulkan rendering active through SDL\n");
+        } else {
+            use_vulkan = 0;
+            render_backend = RENDER_BACKEND_OPENGL;
+            printf("OpenGL/GLES rendering active through SDL\n");
         }
+        #endif
     }
     
     #if defined(__APPLE__) && !defined(__IPHONEOS__)
@@ -4864,21 +4859,8 @@ int main(int argc, char *argv[]) {
         }
 
         // Render game content using SDL_Renderer
-        // SDL handles rendering through OpenGL/GLES or its own Vulkan backend
+        // SDL automatically uses best rendering backend (OpenGL, OpenGL ES, or Vulkan on Linux)
         if (client_state == STATE_AUTH) render_auth_screen(renderer); else render_game(renderer);
-        
-        #ifdef USE_VULKAN
-        // If custom Vulkan renderer is active, it can be used for additional effects
-        // Currently it coexists with SDL's rendering
-        if (use_vulkan) {
-            // Handle window resize for Vulkan
-            if (vk_renderer.framebuffer_resized) {
-                vulkan_handle_resize(&vk_renderer);
-            }
-            // Note: Custom Vulkan rendering could be added here in the future
-            // For now, SDL_Renderer handles all game rendering
-        }
-        #endif
         SDL_Delay(16);
     }
     
@@ -4889,11 +4871,8 @@ int main(int argc, char *argv[]) {
     if(sock > 0) close(sock); 
     TTF_CloseFont(font); TTF_Quit(); IMG_Quit();
     
-    #ifdef USE_VULKAN
-    if (use_vulkan) {
-        vulkan_cleanup(&vk_renderer);
-    }
-    #endif
+    // SDL handles all Vulkan cleanup automatically when using SDL_Renderer
+    // No need for manual vulkan_cleanup() call
     
     if (renderer) SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
