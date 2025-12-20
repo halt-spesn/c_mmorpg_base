@@ -153,6 +153,23 @@ typedef enum { STATE_AUTH, STATE_GAME } ClientState;
 ClientState client_state = STATE_AUTH;
 
 #define MAX_INPUT_LEN 31
+#define MAX_PASSWORD_LEN 63
+
+// Active field IDs for text input
+#define FIELD_AUTH_USERNAME 0
+#define FIELD_AUTH_PASSWORD 1
+#define FIELD_IP 2
+#define FIELD_PORT 3
+#define FIELD_NICK_NEW 10
+#define FIELD_NICK_CONFIRM 11
+#define FIELD_NICK_PASS 12
+#define FIELD_PASSWORD_CURRENT 20
+#define FIELD_PASSWORD_NEW 21
+#define FIELD_PASSWORD_CONFIRM 22
+#define FIELD_FRIEND_ID 25
+#define FIELD_SANCTION_REASON 30
+#define FIELD_BAN_TIME 31
+
 char auth_username[MAX_INPUT_LEN+1] = "";
 char auth_password[MAX_INPUT_LEN+1] = "";
 int active_field = -1;

@@ -452,9 +452,16 @@ void process_password_change(int index, Packet *pkt) {
     }
     sqlite3_finalize(stmt);
     
-    // 3. Update password in database
-    snprintf(sql, 256, "UPDATE users SET PASSWORD='%s' WHERE ID=%d;", new_pass, players[index].id);
-    if (sqlite3_exec(db, sql, 0, 0, 0) == SQLITE_OK) {
+    // 3. Update password in database using prepared statement
+    snprintf(sql, 256, "UPDATE users SET PASSWORD=? WHERE ID=?;");
+    sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
+    sqlite3_bind_text(stmt, 1, new_pass, -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, 2, players[index].id);
+    
+    int result = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    
+    if (result == SQLITE_DONE) {
         Packet resp;
         resp.type = PACKET_CHANGE_PASSWORD_RESPONSE;
         resp.status = AUTH_SUCCESS;
