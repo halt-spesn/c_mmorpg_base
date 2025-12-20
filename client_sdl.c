@@ -3798,15 +3798,10 @@ int main(int argc, char *argv[]) {
         printf("Initializing Vulkan renderer...\n");
         if (vulkan_init(window, &vk_renderer)) {
             printf("Vulkan renderer initialized successfully!\n");
-            // Vulkan is initialized, but we still need SDL_Renderer for text/image rendering
-            // Create a software renderer for UI elements
-            renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
-            if (!renderer) {
-                printf("Failed to create fallback SDL renderer for UI: %s\n", SDL_GetError());
-                vulkan_cleanup(&vk_renderer);
-                use_vulkan = 0;
-                render_backend = RENDER_BACKEND_OPENGL;
-            }
+            // When using Vulkan, we don't create SDL_Renderer to avoid conflicts on Wayland
+            // All rendering must go through Vulkan
+            // TODO: Port UI rendering to Vulkan or render to texture
+            renderer = NULL;
         } else {
             printf("Vulkan initialization failed, falling back to OpenGL\n");
             use_vulkan = 0;
@@ -4878,10 +4873,13 @@ int main(int argc, char *argv[]) {
             if (vk_renderer.framebuffer_resized) {
                 vulkan_handle_resize(&vk_renderer);
             }
+        } else {
+            // Use SDL_Renderer for UI when not using Vulkan
+            if (client_state == STATE_AUTH) render_auth_screen(renderer); else render_game(renderer);
         }
-        #endif
-
+        #else
         if (client_state == STATE_AUTH) render_auth_screen(renderer); else render_game(renderer);
+        #endif
         SDL_Delay(16);
     }
     
@@ -4898,6 +4896,8 @@ int main(int argc, char *argv[]) {
     }
     #endif
     
-    SDL_DestroyRenderer(renderer); SDL_DestroyWindow(window); SDL_Quit();
+    if (renderer) SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
+    SDL_Quit();
     return 0;
 }

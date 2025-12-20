@@ -183,12 +183,22 @@ if (!ptr) {
 - Modern graphics features
 
 ### Current Limitations
-- UI still uses SDL_Renderer (CPU blitting)
+- **No UI rendering when using Vulkan** - SDL_Renderer conflicts with Vulkan on Wayland
+- UI rendering needs to be ported to Vulkan or rendered to texture
+- Currently Vulkan shows black screen (rendering infrastructure only)
 - Basic render pass (single subpass)
 - No shader customization yet
 - Limited to 2D rendering
 
+### Wayland Specific Issues
+- Cannot use SDL_Renderer and Vulkan on the same window
+- Creating both causes: "Surface got destroyed already" error
+- Wayland display connection closed by server (fatal)
+- Current solution: Skip SDL_Renderer when Vulkan is active
+
 ### Future Improvements
+- **Port UI rendering to Vulkan** (high priority for Wayland)
+- Render SDL content to texture, then composite in Vulkan
 - Direct Vulkan texture rendering
 - Custom shaders for effects
 - Compute shaders for game logic
@@ -220,9 +230,17 @@ if (!ptr) {
 - Client will fall back to OpenGL automatically
 
 ### Black screen with Vulkan
-- Check if GPU supports Vulkan 1.0+
-- Verify swapchain creation succeeded
-- Enable validation layers for debugging
+- **Known Issue**: UI rendering not yet ported to Vulkan
+- Vulkan currently only provides rendering infrastructure
+- UI needs to be rendered through Vulkan or to texture
+- For now, use OpenGL for actual gameplay
+- Vulkan is ready for graphics implementation
+
+### "Surface got destroyed already" on Wayland
+- Fixed in latest commit - SDL_Renderer disabled when using Vulkan
+- Cannot have both SDL_Renderer and Vulkan on same window on Wayland
+- Vulkan initializes correctly but shows black screen (no UI yet)
+- Use OpenGL backend for full functionality until UI is ported
 
 ### Poor performance
 - Check if using integrated vs dedicated GPU
