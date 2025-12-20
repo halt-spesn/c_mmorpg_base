@@ -27,6 +27,10 @@ static int check_validation_layer_support() {
     vkEnumerateInstanceLayerProperties(&layer_count, NULL);
     
     VkLayerProperties *available_layers = malloc(sizeof(VkLayerProperties) * layer_count);
+    if (!available_layers) {
+        printf("Failed to allocate memory for validation layer enumeration\n");
+        return 0;
+    }
     vkEnumerateInstanceLayerProperties(&layer_count, available_layers);
     
     for (int i = 0; i < validation_layer_count; i++) {
@@ -70,6 +74,11 @@ static int create_instance(SDL_Window *window, VkInstance *instance) {
     }
     
     const char **extensions = malloc(sizeof(char*) * sdl_extension_count);
+    if (!extensions) {
+        printf("Failed to allocate memory for Vulkan extensions\n");
+        return 0;
+    }
+    
     if (!SDL_Vulkan_GetInstanceExtensions(window, &sdl_extension_count, extensions)) {
         printf("Failed to get SDL Vulkan extensions: %s\n", SDL_GetError());
         free(extensions);
@@ -107,6 +116,10 @@ static int find_queue_families(VkPhysicalDevice device, VkSurfaceKHR surface,
     vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, NULL);
     
     VkQueueFamilyProperties *queue_families = malloc(sizeof(VkQueueFamilyProperties) * queue_family_count);
+    if (!queue_families) {
+        printf("Failed to allocate memory for queue families\n");
+        return 0;
+    }
     vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, queue_families);
     
     int graphics_found = 0;
@@ -140,6 +153,10 @@ static int check_device_extension_support(VkPhysicalDevice device) {
     vkEnumerateDeviceExtensionProperties(device, NULL, &extension_count, NULL);
     
     VkExtensionProperties *available_extensions = malloc(sizeof(VkExtensionProperties) * extension_count);
+    if (!available_extensions) {
+        printf("Failed to allocate memory for device extensions\n");
+        return 0;
+    }
     vkEnumerateDeviceExtensionProperties(device, NULL, &extension_count, available_extensions);
     
     for (int i = 0; i < device_extension_count; i++) {
@@ -173,6 +190,10 @@ static int select_physical_device(VkInstance instance, VkSurfaceKHR surface,
     }
     
     VkPhysicalDevice *devices = malloc(sizeof(VkPhysicalDevice) * device_count);
+    if (!devices) {
+        printf("Failed to allocate memory for physical devices\n");
+        return 0;
+    }
     vkEnumeratePhysicalDevices(instance, &device_count, devices);
     
     for (uint32_t i = 0; i < device_count; i++) {
@@ -256,13 +277,21 @@ static void query_swapchain_support(VkPhysicalDevice device, VkSurfaceKHR surfac
     vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, format_count, NULL);
     if (*format_count != 0) {
         *formats = malloc(sizeof(VkSurfaceFormatKHR) * (*format_count));
-        vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, format_count, *formats);
+        if (*formats) {
+            vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, format_count, *formats);
+        } else {
+            *format_count = 0;
+        }
     }
     
     vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, present_mode_count, NULL);
     if (*present_mode_count != 0) {
         *present_modes = malloc(sizeof(VkPresentModeKHR) * (*present_mode_count));
-        vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, present_mode_count, *present_modes);
+        if (*present_modes) {
+            vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, present_mode_count, *present_modes);
+        } else {
+            *present_mode_count = 0;
+        }
     }
 }
 
@@ -371,6 +400,12 @@ static int create_swapchain(SDL_Window *window, VulkanRenderer *vk) {
     
     vkGetSwapchainImagesKHR(vk->device, vk->swapchain, &vk->swapchain_image_count, NULL);
     vk->swapchain_images = malloc(sizeof(VkImage) * vk->swapchain_image_count);
+    if (!vk->swapchain_images) {
+        printf("Failed to allocate memory for swapchain images\n");
+        free(formats);
+        free(present_modes);
+        return 0;
+    }
     vkGetSwapchainImagesKHR(vk->device, vk->swapchain, &vk->swapchain_image_count, vk->swapchain_images);
     
     free(formats);
@@ -381,6 +416,10 @@ static int create_swapchain(SDL_Window *window, VulkanRenderer *vk) {
 // Create image views
 static int create_image_views(VulkanRenderer *vk) {
     vk->swapchain_image_views = malloc(sizeof(VkImageView) * vk->swapchain_image_count);
+    if (!vk->swapchain_image_views) {
+        printf("Failed to allocate memory for image views\n");
+        return 0;
+    }
     
     for (uint32_t i = 0; i < vk->swapchain_image_count; i++) {
         VkImageViewCreateInfo create_info = {0};
@@ -456,6 +495,10 @@ static int create_render_pass(VulkanRenderer *vk) {
 // Create framebuffers
 static int create_framebuffers(VulkanRenderer *vk) {
     vk->framebuffers = malloc(sizeof(VkFramebuffer) * vk->swapchain_image_count);
+    if (!vk->framebuffers) {
+        printf("Failed to allocate memory for framebuffers\n");
+        return 0;
+    }
     
     for (uint32_t i = 0; i < vk->swapchain_image_count; i++) {
         VkImageView attachments[] = {vk->swapchain_image_views[i]};
@@ -496,6 +539,10 @@ static int create_command_pool(VulkanRenderer *vk) {
 // Create command buffers
 static int create_command_buffers(VulkanRenderer *vk) {
     vk->command_buffers = malloc(sizeof(VkCommandBuffer) * MAX_FRAMES_IN_FLIGHT);
+    if (!vk->command_buffers) {
+        printf("Failed to allocate memory for command buffers\n");
+        return 0;
+    }
     
     VkCommandBufferAllocateInfo alloc_info = {0};
     alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -516,6 +563,14 @@ static int create_sync_objects(VulkanRenderer *vk) {
     vk->image_available_semaphores = malloc(sizeof(VkSemaphore) * MAX_FRAMES_IN_FLIGHT);
     vk->render_finished_semaphores = malloc(sizeof(VkSemaphore) * MAX_FRAMES_IN_FLIGHT);
     vk->in_flight_fences = malloc(sizeof(VkFence) * MAX_FRAMES_IN_FLIGHT);
+    
+    if (!vk->image_available_semaphores || !vk->render_finished_semaphores || !vk->in_flight_fences) {
+        printf("Failed to allocate memory for sync objects\n");
+        free(vk->image_available_semaphores);
+        free(vk->render_finished_semaphores);
+        free(vk->in_flight_fences);
+        return 0;
+    }
     
     VkSemaphoreCreateInfo semaphore_info = {0};
     semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -729,23 +784,11 @@ int vulkan_end_frame(VulkanRenderer *vk_renderer, uint32_t image_index) {
 
 // Handle window resize
 void vulkan_handle_resize(VulkanRenderer *vk_renderer) {
-    // Wait for device to be idle
-    vkDeviceWaitIdle(vk_renderer->device);
-    
-    // Cleanup old swapchain resources
-    for (uint32_t i = 0; i < vk_renderer->swapchain_image_count; i++) {
-        vkDestroyFramebuffer(vk_renderer->device, vk_renderer->framebuffers[i], NULL);
-        vkDestroyImageView(vk_renderer->device, vk_renderer->swapchain_image_views[i], NULL);
-    }
-    free(vk_renderer->framebuffers);
-    free(vk_renderer->swapchain_image_views);
-    free(vk_renderer->swapchain_images);
-    
-    vkDestroySwapchainKHR(vk_renderer->device, vk_renderer->swapchain, NULL);
-    
-    // Note: Window parameter needed for recreation - this is a simplified version
-    // In practice, you'd need to pass the SDL_Window or store it in VulkanRenderer
-    printf("Swapchain recreation needed (resize detected)\n");
+    // Simple implementation: just mark as resized
+    // The swapchain will be recreated on the next frame when acquisition fails
+    // For a more complete implementation, store SDL_Window pointer in VulkanRenderer
+    // and fully recreate the swapchain here
+    printf("Window resize detected - swapchain will be recreated\n");
     vk_renderer->framebuffer_resized = 0;
 }
 
