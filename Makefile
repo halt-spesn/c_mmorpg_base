@@ -1,6 +1,20 @@
 CC = clang
 CFLAGS = -Wall -O2 -march=x86-64-v2
 
+# --- VULKAN SUPPORT (optional) ---
+# Set USE_VULKAN=1 to enable Vulkan rendering support
+# Requires Vulkan SDK installed (libvulkan-dev on Linux)
+USE_VULKAN ?= 0
+ifeq ($(USE_VULKAN),1)
+    VULKAN_CFLAGS = -DUSE_VULKAN
+    VULKAN_LDFLAGS = -lvulkan
+    VULKAN_SRC = renderer_vulkan.c
+else
+    VULKAN_CFLAGS =
+    VULKAN_LDFLAGS =
+    VULKAN_SRC =
+endif
+
 # --- SERVER CONFIG ---
 SERVER_SRC = server.c
 SERVER_OUT = server
@@ -8,14 +22,14 @@ SERVER_OUT = server
 SERVER_LDFLAGS = -lsqlite3 -lm -lpthread -ferror-limit=0
 
 # --- CLIENT CONFIG ---
-CLIENT_SRC = client_sdl.c
+CLIENT_SRC = client_sdl.c $(VULKAN_SRC)
 CLIENT_OUT = client
 
 # 1. client compilation flags
-CLIENT_CFLAGS = $(shell pkg-config --cflags sdl2 SDL2_image SDL2_ttf) -ferror-limit=0
+CLIENT_CFLAGS = $(shell pkg-config --cflags sdl2 SDL2_image SDL2_ttf) -ferror-limit=0 $(VULKAN_CFLAGS)
 
 # 2. client linking flags
-CLIENT_LDFLAGS = $(shell pkg-config --libs sdl2 SDL2_image SDL2_ttf) -lSDL2_mixer -lm -lGL -ferror-limit=0
+CLIENT_LDFLAGS = $(shell pkg-config --libs sdl2 SDL2_image SDL2_ttf) -lSDL2_mixer -lm -lGL -ferror-limit=0 $(VULKAN_LDFLAGS)
 
 all: server client
 

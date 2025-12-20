@@ -50,6 +50,11 @@
 #include "common.h"
 #include <dirent.h> // MinGW usually provides this, but visual studio does not. MinGW is fine.
 
+// Vulkan support (optional, falls back to OpenGL if not available)
+#ifdef USE_VULKAN
+#include "renderer_vulkan.h"
+#endif
+
 // Define NSInteger for macOS Objective-C runtime calls
 #if defined(__APPLE__) && !defined(__IPHONEOS__)
 #if defined(__LP64__) && __LP64__
@@ -70,6 +75,18 @@ char current_map_file[32] = "map.jpg";
 #define FONT_PATH "DejaVuSans.ttf"
 #define FONT_SIZE 14
 #define SCROLL_SPEED 30  // Pixels per mouse wheel notch
+
+// --- Rendering Backend ---
+typedef enum {
+    RENDER_BACKEND_OPENGL,
+    RENDER_BACKEND_VULKAN
+} RenderBackend;
+
+RenderBackend render_backend = RENDER_BACKEND_OPENGL; // Default to OpenGL
+#ifdef USE_VULKAN
+VulkanRenderer vk_renderer;
+int use_vulkan = 0; // Runtime flag for Vulkan usage
+#endif
 
 
 
@@ -3653,6 +3670,18 @@ int y_start = auth_box.y + 80;
 
 int main(int argc, char *argv[]) {
     setbuf(stdout, NULL);
+    
+    // Parse command line arguments for rendering backend
+    #ifdef USE_VULKAN
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--vulkan") == 0 || strcmp(argv[i], "-vk") == 0) {
+            use_vulkan = 1;
+            render_backend = RENDER_BACKEND_VULKAN;
+            printf("Vulkan rendering backend requested\n");
+        }
+    }
+    #endif
+    
     // 1. Init SDL & Libraries
     //printf("DEBUG: Packet Size is %d bytes\n", (int)sizeof(Packet));
     #ifdef _WIN32
@@ -3725,15 +3754,42 @@ int main(int argc, char *argv[]) {
     SDL_Window *window = SDL_CreateWindow("C MMO Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, win_w, win_h, win_flags);
     if (!window) { printf("Window creation failed: %s\n", SDL_GetError()); return 1; }
     
-    #if defined(__APPLE__) && !defined(__IPHONEOS__)
-    // Small delay to allow macOS to properly initialize window compositing
-    SDL_Delay(100);
-    // Use software renderer for compatibility with older hardware
-    SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
-    #else
-    SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    SDL_Renderer *renderer = NULL;
+    
+    #ifdef USE_VULKAN
+    if (use_vulkan) {
+        printf("Initializing Vulkan renderer...\n");
+        if (vulkan_init(window, &vk_renderer)) {
+            printf("Vulkan renderer initialized successfully!\n");
+            // Vulkan is initialized, but we still need SDL_Renderer for text/image rendering
+            // Create a software renderer for UI elements
+            renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
+            if (!renderer) {
+                printf("Failed to create fallback SDL renderer for UI: %s\n", SDL_GetError());
+                vulkan_cleanup(&vk_renderer);
+                use_vulkan = 0;
+                render_backend = RENDER_BACKEND_OPENGL;
+            }
+        } else {
+            printf("Vulkan initialization failed, falling back to OpenGL\n");
+            use_vulkan = 0;
+            render_backend = RENDER_BACKEND_OPENGL;
+        }
+    }
     #endif
-    if (!renderer) { printf("Renderer creation failed: %s\n", SDL_GetError()); return 1; }
+    
+    // Fallback to OpenGL renderer if Vulkan is not used or failed
+    if (!renderer) {
+        #if defined(__APPLE__) && !defined(__IPHONEOS__)
+        // Small delay to allow macOS to properly initialize window compositing
+        SDL_Delay(100);
+        // Use software renderer for compatibility with older hardware
+        renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
+        #else
+        renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+        #endif
+        if (!renderer) { printf("Renderer creation failed: %s\n", SDL_GetError()); return 1; }
+    }
     
     #if defined(__APPLE__) && !defined(__IPHONEOS__)
     // Fix black window decorations on macOS by forcing non-transparent titlebar
@@ -4769,6 +4825,25 @@ int main(int argc, char *argv[]) {
             }
         }
 
+        #ifdef USE_VULKAN
+        if (use_vulkan) {
+            // Begin Vulkan frame
+            uint32_t image_index;
+            if (vulkan_begin_frame(&vk_renderer, &image_index)) {
+                // Vulkan clears and sets up the render pass
+                // We can add Vulkan-specific rendering here in the future
+                
+                // End Vulkan frame and present
+                vulkan_end_frame(&vk_renderer, image_index);
+            }
+            
+            // Handle window resize for Vulkan
+            if (vk_renderer.framebuffer_resized) {
+                vulkan_handle_resize(&vk_renderer);
+            }
+        }
+        #endif
+
         if (client_state == STATE_AUTH) render_auth_screen(renderer); else render_game(renderer);
         SDL_Delay(16);
     }
@@ -4779,6 +4854,13 @@ int main(int argc, char *argv[]) {
     if(bgm) Mix_FreeMusic(bgm); Mix_CloseAudio();
     if(sock > 0) close(sock); 
     TTF_CloseFont(font); TTF_Quit(); IMG_Quit();
+    
+    #ifdef USE_VULKAN
+    if (use_vulkan) {
+        vulkan_cleanup(&vk_renderer);
+    }
+    #endif
+    
     SDL_DestroyRenderer(renderer); SDL_DestroyWindow(window); SDL_Quit();
     return 0;
 }
