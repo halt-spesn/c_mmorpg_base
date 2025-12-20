@@ -2909,13 +2909,9 @@ int main(int argc, char *argv[]) {
     #endif
     #endif
     
-    // Add Vulkan window flag if Vulkan is requested
-    #ifdef USE_VULKAN
-    if (use_vulkan) {
-        win_flags |= SDL_WINDOW_VULKAN;
-        printf("Creating window with Vulkan support\n");
-    }
-    #endif
+    // Note: SDL_WINDOW_VULKAN is NOT used here because we're using SDL_Renderer API
+    // SDL_Renderer with Vulkan backend is controlled via SDL_HINT_RENDER_DRIVER hint (set above)
+    // SDL_WINDOW_VULKAN is only for direct Vulkan usage without SDL_Renderer
 
     SDL_Window *window = SDL_CreateWindow("C MMO Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, win_w, win_h, win_flags);
     if (!window) { printf("Window creation failed: %s\n", SDL_GetError()); return 1; }
@@ -3817,11 +3813,26 @@ int main(int argc, char *argv[]) {
                          }
                      }
                      else {
+                         // Calculate camera position accounting for game zoom
                          float px=0, py=0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { px=local_players[i].x; py=local_players[i].y; }
-                         int cam_x = (int)px - (screen_w/2) + 16; int cam_y = (int)py - (screen_h/2) + 16;
-                        if (screen_w > map_w) cam_x = -(screen_w - map_w)/2; if (screen_h > map_h) cam_y = -(screen_h - map_h)/2;
-                        // Pass scaled dimensions to match scaled mouse coordinates
-                        handle_game_click(mx, my, cam_x, cam_y, (int)(screen_w / ui_scale), (int)(screen_h / ui_scale));
+                         // Camera calculation must match render_game() - use zoomed dimensions
+                         float zoomed_w = screen_w / game_zoom;
+                         float zoomed_h = screen_h / game_zoom;
+                         int cam_x = (int)px - (zoomed_w/2) + 16; 
+                         int cam_y = (int)py - (zoomed_h/2) + 16;
+                         // Clamp camera to map boundaries
+                         if (zoomed_w > map_w) cam_x = -(zoomed_w - map_w)/2; 
+                         else {
+                             if (cam_x < 0) cam_x = 0;
+                             if (cam_x + zoomed_w > map_w) cam_x = map_w - zoomed_w;
+                         }
+                         if (zoomed_h > map_h) cam_y = -(zoomed_h - map_h)/2;
+                         else {
+                             if (cam_y < 0) cam_y = 0;
+                             if (cam_y + zoomed_h > map_h) cam_y = map_h - zoomed_h;
+                         }
+                         // Pass scaled dimensions to match scaled mouse coordinates
+                         handle_game_click(mx, my, cam_x, cam_y, (int)(screen_w / ui_scale), (int)(screen_h / ui_scale));
                      }
                 }
                 
