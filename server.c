@@ -243,6 +243,8 @@ void send_triggers_to_client(int client_index) {
     printf("Sent %d triggers to client %d\n", server_trigger_count, client_index);
 }
 
+void load_telemetry();  // Forward declaration
+
 void init_game() {
     init_db(); init_storage(); load_triggers(); load_telemetry();
     for (int i = 0; i < MAX_CLIENTS; i++) { client_sockets[i] = SOCKET_INVALID; players[i].active = 0; players[i].id = -1; }
