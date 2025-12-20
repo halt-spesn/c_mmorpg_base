@@ -1,62 +1,13 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/stat.h>
-#include <math.h>
-
 #ifdef _WIN32
-    #include <winsock2.h>
-    #include <windows.h>
-    #include <ws2tcpip.h>
     #pragma comment(lib, "comdlg32")
-    #define close closesocket
-    #define ioctl ioctlsocket
-    #define sleep(x) Sleep(x * 1000)
-    #define usleep(x) Sleep(x / 1000)
-#else
-    #include <unistd.h>
-    #include <arpa/inet.h>
-    #include <sys/ioctl.h>
-    #include <sys/socket.h>
-    #include <netinet/in.h>
-    #include <netdb.h>
-    #include <sys/utsname.h>
 #endif
 
-#include <SDL2/SDL.h>
-#include <SDL2/SDL_ttf.h>
-#include <SDL2/SDL_image.h>
-#include <SDL2/SDL_mixer.h>
-#include <SDL2/SDL_syswm.h>
-#include <sys/types.h>
-
-// Handle OpenGL headers
-#if defined(__IPHONEOS__) || defined(__ANDROID__)
-#include <SDL2/SDL_opengles2.h>
-#elif defined(__APPLE__)
-#include <SDL2/SDL_opengl.h>
-#ifndef __IPHONEOS__
+#if defined(__APPLE__) && !defined(__IPHONEOS__)
 // Objective-C runtime for macOS window manipulation
 #include <objc/runtime.h>
 #include <objc/message.h>
 #include <CoreFoundation/CoreFoundation.h>
-#endif
-#elif defined(_WIN32)
-#include <SDL2/SDL_opengl.h>
-#else
-#include <GL/gl.h>
-#endif
-
-#include "common.h"
-#include <dirent.h> // MinGW usually provides this, but visual studio does not. MinGW is fine.
-
-// Vulkan support (optional, falls back to OpenGL if not available)
-#ifdef USE_VULKAN
-#include "renderer_vulkan.h"
-#endif
-
 // Define NSInteger for macOS Objective-C runtime calls
-#if defined(__APPLE__) && !defined(__IPHONEOS__)
 #if defined(__LP64__) && __LP64__
 typedef long NSInteger;
 #else
@@ -67,35 +18,15 @@ typedef int NSInteger;
 #define NSWindowTabbingModeDisallowed 2
 #endif
 
-// --- Config ---
-#define PLAYER_WIDTH 32
-#define PLAYER_HEIGHT 32
+#include "client.h"
+
+// --- Global Variable Definitions ---
 char current_map_file[32] = "map.jpg";
-#define PLAYER_FILE "player.png"
-#define FONT_PATH "DejaVuSans.ttf"
-#define FONT_SIZE 14
-#define SCROLL_SPEED 30  // Pixels per mouse wheel notch
-
-// --- Rendering Backend ---
-typedef enum {
-    RENDER_BACKEND_OPENGL,
-    RENDER_BACKEND_VULKAN
-} RenderBackend;
-
-RenderBackend render_backend = RENDER_BACKEND_OPENGL; // Default to OpenGL
+RenderBackend render_backend = RENDER_BACKEND_OPENGL;
 #ifdef USE_VULKAN
 VulkanRenderer vk_renderer;
-int use_vulkan = 0; // Runtime flag for Vulkan usage
-int backend_set_by_cmdline = 0; // Track if backend was explicitly set via command line
-#endif
-
-
-
-// --- Globals ---
-#ifdef _WIN32
-    typedef SOCKET socket_t;
-#else
-    typedef int socket_t;
+int use_vulkan = 0;
+int backend_set_by_cmdline = 0;
 #endif
 
 socket_t sock = 0;
@@ -108,35 +39,31 @@ int map_w = MAP_WIDTH, map_h = MAP_HEIGHT;
 
 int local_player_id = -1;
 Player local_players[MAX_CLIENTS];
-FriendInfo my_friends[20]; // Changed from int array to Struct array
+FriendInfo my_friends[20];
 int friend_count = 0;
 
-// BLOCKED SYSTEM
 int blocked_ids[50];
 int blocked_count = 0;
 int show_blocked_list = 0;
-int blocked_scroll = 0; // Scroll offset for blocked list 
+int blocked_scroll = 0;
 
-// UI Rects
-SDL_Rect btn_hide_player;      
-SDL_Rect btn_view_blocked;     
-SDL_Rect blocked_win;          
-SDL_Rect btn_close_blocked;    
-SDL_Rect btn_hide_player_dyn; // Dynamic rect for click handling
-SDL_Rect btn_change_avatar;    // Avatar selection button
-SDL_Rect btn_change_password;  // Password change button
+SDL_Rect btn_hide_player;
+SDL_Rect btn_view_blocked;
+SDL_Rect blocked_win;
+SDL_Rect btn_close_blocked;
+SDL_Rect btn_hide_player_dyn;
+SDL_Rect btn_change_avatar;
+SDL_Rect btn_change_password;
 
-// UI STATE
 int selected_player_id = -1;
 int pending_friend_req_id = -1;
 char pending_friend_name[32] = "";
 
-SDL_Rect profile_win = {10, 10, 200, 130}; 
+SDL_Rect profile_win = {10, 10, 200, 130};
 SDL_Rect btn_add_friend = {20, 50, 180, 30};
-SDL_Rect btn_send_pm    = {20, 90, 180, 30}; 
+SDL_Rect btn_send_pm = {20, 90, 180, 30};
 SDL_Rect popup_win;
 
-// Settings & Debug State
 int is_settings_open = 0;
 int show_debug_info = 0;
 int show_fps = 0;
@@ -154,39 +81,16 @@ SDL_Rect btn_toggle_debug;
 SDL_Rect btn_toggle_fps;
 SDL_Rect btn_toggle_coords;
 
-// Chat & Auth
-typedef struct { char msg[64]; Uint32 timestamp; } FloatingText;
 FloatingText floating_texts[MAX_CLIENTS];
-#define CHAT_HISTORY 100
-#define CHAT_VISIBLE_LINES 10
 char chat_log[CHAT_HISTORY][64];
 int chat_log_count = 0;
-int chat_scroll = 0; // Scroll offset for chat window
+int chat_scroll = 0;
 int is_chat_open = 0;
-int chat_target_id = -1; 
+int chat_target_id = -1;
 int chat_input_active = 0;
 char input_buffer[64] = "";
 
-typedef enum { STATE_AUTH, STATE_GAME } ClientState;
 ClientState client_state = STATE_AUTH;
-
-#define MAX_INPUT_LEN 31
-#define MAX_PASSWORD_LEN 63
-
-// Active field IDs for text input
-#define FIELD_AUTH_USERNAME 0
-#define FIELD_AUTH_PASSWORD 1
-#define FIELD_IP 2
-#define FIELD_PORT 3
-#define FIELD_NICK_NEW 10
-#define FIELD_NICK_CONFIRM 11
-#define FIELD_NICK_PASS 12
-#define FIELD_PASSWORD_CURRENT 20
-#define FIELD_PASSWORD_NEW 21
-#define FIELD_PASSWORD_CONFIRM 22
-#define FIELD_FRIEND_ID 25
-#define FIELD_SANCTION_REASON 30
-#define FIELD_BAN_TIME 31
 
 char auth_username[MAX_INPUT_LEN+1] = "";
 char auth_password[MAX_INPUT_LEN+1] = "";
@@ -199,12 +103,11 @@ SDL_Color col_white = {255,255,255,255};
 SDL_Color col_red = {255,50,50,255};
 SDL_Color col_yellow = {255,255,0,255};
 SDL_Color col_cyan = {0,255,255,255};
-SDL_Color col_green = {0,255,0,255}; 
+SDL_Color col_green = {0,255,0,255};
 SDL_Color col_btn = {100,100,100,255};
 SDL_Color col_black = {0,0,0,255};
-SDL_Color col_magenta = {255,0,255,255}; 
+SDL_Color col_magenta = {255,0,255,255};
 
-// Status Colors
 SDL_Color col_status_online = {0, 255, 0, 255};
 SDL_Color col_status_afk = {255, 255, 0, 255};
 SDL_Color col_status_dnd = {255, 50, 50, 255};
@@ -213,58 +116,51 @@ SDL_Color col_status_talk = {50, 150, 255, 255};
 
 const char* status_names[] = { "Online", "AFK", "Do Not Disturb", "Roleplay", "Open to Talk" };
 
-SDL_Rect btn_cycle_status; 
-SDL_Rect btn_view_friends; 
+SDL_Rect btn_cycle_status;
+SDL_Rect btn_view_friends;
 SDL_Rect friend_list_win;
 int show_friend_list = 0;
-int friend_list_scroll = 0; // Scroll offset for friend list
+int friend_list_scroll = 0;
 
 SDL_Rect slider_r, slider_g, slider_b;
 
-SDL_Texture* avatar_cache[MAX_CLIENTS]; 
-int avatar_status[MAX_CLIENTS]; 
+SDL_Texture* avatar_cache[MAX_CLIENTS];
+int avatar_status[MAX_CLIENTS];
 
-// Audio
-char music_playlist[20][64]; 
+char music_playlist[20][64];
 int music_count = 0;
 int current_track = -1;
 Mix_Music *bgm = NULL;
-int music_volume = 64; 
-SDL_Rect slider_volume; 
+int music_volume = 64;
+SDL_Rect slider_volume;
 
 uint8_t temp_avatar_buf[MAX_AVATAR_SIZE];
 
-// --- Connection State ---
 char input_ip[64] = "127.0.0.1";
 char input_port[16] = "8888";
 int is_connected = 0;
 
-// --- Server List State ---
-typedef struct { char name[32]; char ip[64]; int port; } ServerEntry;
 ServerEntry server_list[10];
 int server_count = 0;
 int show_server_list = 0;
 SDL_Rect server_list_win;
-SDL_Rect btn_open_servers; // On login screen
-SDL_Rect btn_add_server;   // Inside list window
-SDL_Rect btn_close_servers; // Close button for server list
+SDL_Rect btn_open_servers;
+SDL_Rect btn_add_server;
+SDL_Rect btn_close_servers;
 
-// --- Profile List State ---
-typedef struct { char username[32]; char password[32]; } ProfileEntry;
 ProfileEntry profile_list[10];
 int profile_count = 0;
 int show_profile_list = 0;
 SDL_Rect profile_list_win;
-SDL_Rect btn_open_profiles; // On login screen
-SDL_Rect btn_add_profile;   // Inside list window
-SDL_Rect btn_close_profiles; // Close button for profile list
+SDL_Rect btn_open_profiles;
+SDL_Rect btn_add_profile;
+SDL_Rect btn_close_profiles;
 
 int show_nick_popup = 0;
 char nick_new[32] = "";
 char nick_confirm[32] = "";
 char nick_pass[32] = "";
 
-// --- Password Change State ---
 int show_password_popup = 0;
 char password_current[64] = "";
 char password_new[64] = "";
@@ -274,1008 +170,130 @@ int show_password_current = 0;
 int show_password_new = 0;
 int show_password_confirm = 0;
 
-// --- Inbox State ---
-typedef struct { int id; char name[32]; } IncomingReq;
 IncomingReq inbox[10];
 int inbox_count = 0;
 int is_inbox_open = 0;
 SDL_Rect btn_inbox;
-int inbox_scroll = 0; // Scroll offset for inbox 
+int inbox_scroll = 0;
 
-// --- Add Friend Popup State ---
 int show_add_friend_popup = 0;
 char input_friend_id[10] = "";
 char friend_popup_msg[128] = "";
 
-SDL_Rect btn_friend_add_id_rect; // Global to store position for click handler
+SDL_Rect btn_friend_add_id_rect;
 SDL_Rect friend_win_rect;
 SDL_Rect btn_friend_close_rect;
 
 SDL_Rect blocked_win_rect;
 SDL_Rect btn_blocked_close_rect;
-SDL_Rect btn_cycle_status;
-SDL_Rect slider_r, slider_g, slider_b, slider_volume, slider_afk;
-SDL_Rect btn_disconnect_rect; // Renamed to avoid conflicts
+SDL_Rect slider_afk;
+SDL_Rect btn_disconnect_rect;
 SDL_Rect btn_inbox_rect;
-SDL_Rect btn_friend_add_id_rect;
 
-// Blocked UI
-SDL_Rect blocked_win_rect;
-SDL_Rect btn_blocked_close_rect;
-
-int cursor_pos = 0; // Tracks current text cursor index
+int cursor_pos = 0;
 
 int unread_chat_count = 0;
-int show_unread_counter = 1; // Default ON
+int show_unread_counter = 1;
 SDL_Rect btn_toggle_unread;
 
-// --- GL Probe Cache ---
 char gl_renderer_cache[128] = "";
 char gl_vendor_cache[128] = "";
 int gl_probe_done = 0;
 
-// --- Vulkan Device Cache ---
 #ifdef USE_VULKAN
 char vk_device_name[128] = "";
 int vk_probe_done = 0;
 #endif
 
 Uint32 last_input_tick = 0;
-int afk_timeout_minutes = 2; // Default 2 minutes
+int afk_timeout_minutes = 2;
 Uint32 last_color_packet_ms = 0;
-int is_auto_afk = 0;         // Flag to know if we triggered it automatically
-SDL_Rect slider_afk;
+int is_auto_afk = 0;
 
-// --- Scrolling State ---
 int settings_scroll_y = 0;
-int settings_content_h = 0; // Total height of content
-SDL_Rect settings_view_port; // Visible area
+int settings_content_h = 0;
+SDL_Rect settings_view_port;
 
-// --- Secondary Color Sliders ---
 SDL_Rect slider_r2, slider_g2, slider_b2;
-int my_r2 = 255, my_g2 = 255, my_b2 = 255; // Local state for now
+int my_r2 = 255, my_g2 = 255, my_b2 = 255;
 
 int saved_r = 255, saved_g = 255, saved_b = 255;
 
-int selection_start = 0; // Index where selection begins
-int selection_len = 0;   // Length of selection (can be negative for left-selection)
-int is_dragging = 0;     // For mouse drag selection
+int selection_start = 0;
+int selection_len = 0;
+int is_dragging = 0;
 SDL_Rect active_input_rect;
 
-int show_nick_pass = 0;      // Toggle for Nickname Menu
-SDL_Rect btn_show_nick_pass; // Button rect for Nickname Menu
+int show_nick_pass = 0;
+SDL_Rect btn_show_nick_pass;
 
 int show_contributors = 0;
 
-// --- UI Scaling ---
-float ui_scale = 1.0f; // Default scale (range 0.5 to 2.0)
-float pending_ui_scale = 1.0f; // Scale value being dragged (applied on release)
+float ui_scale = 1.0f;
+float pending_ui_scale = 1.0f;
 SDL_Rect slider_ui_scale;
 
-// --- Game World Zoom ---
-float game_zoom = 1.0f; // Default zoom (range 0.5 to 2.0)
-float pending_game_zoom = 1.0f; // Zoom value being dragged (applied on release)
+float game_zoom = 1.0f;
+float pending_game_zoom = 1.0f;
 SDL_Rect slider_game_zoom;
 
-// --- Mobile Keyboard Handling ---
 #if defined(__ANDROID__) || defined(__IPHONEOS__)
-int keyboard_height = 0; // Estimated keyboard height (updated when keyboard shows)
-int chat_window_shift = 0; // Amount to shift chat window up
-
-// Mobile text editing context menu
+int keyboard_height = 0;
+int chat_window_shift = 0;
 int show_mobile_text_menu = 0;
 SDL_Rect mobile_text_menu_rect;
 int mobile_text_menu_x = 0;
 int mobile_text_menu_y = 0;
 Uint32 long_press_start_time = 0;
 int long_press_active = 0;
-#define LONG_PRESS_DURATION 500 // milliseconds
 #endif
+
 int show_documentation = 0;
 SDL_Rect btn_contributors_rect;
 SDL_Rect btn_documentation_rect;
 
-// Cached textures for performance on iOS
 SDL_Texture *cached_contributors_tex = NULL;
 SDL_Texture *cached_documentation_tex = NULL;
 int contributors_tex_w = 0, contributors_tex_h = 0;
 int documentation_tex_w = 0, documentation_tex_h = 0;
-int contributors_scroll = 0; // Scroll offset for contributors window
-int documentation_scroll = 0; // Scroll offset for documentation window
+int contributors_scroll = 0;
+int documentation_scroll = 0;
 
 int show_role_list = 0;
-int role_list_scroll = 0; // Scroll offset for staff list window
+int role_list_scroll = 0;
 struct { int id; char name[32]; int role; } staff_list[50];
 int staff_count = 0;
 SDL_Rect btn_staff_list_rect;
 
-// --- Sanction System ---
 int show_sanction_popup = 0;
 int sanction_target_id = -1;
-int sanction_mode = 0; // 0=Warn, 1=Ban
+int sanction_mode = 0;
 char input_sanction_reason[64] = "";
-char input_ban_time[16] = ""; // e.g. "1d"
+char input_ban_time[16] = "";
 
 int show_my_warnings = 0;
 struct { char reason[64]; char date[32]; } my_warning_list[20];
 int my_warning_count = 0;
-int warnings_scroll = 0; // Scroll offset for warnings window
+int warnings_scroll = 0;
 
-SDL_Rect btn_sanction_open; // In Profile
-SDL_Rect btn_my_warnings;   // In Settings
+SDL_Rect btn_sanction_open;
+SDL_Rect btn_my_warnings;
 
-enum { SLIDER_NONE, SLIDER_R, SLIDER_G, SLIDER_B, SLIDER_R2, SLIDER_G2, SLIDER_B2, SLIDER_VOL, SLIDER_AFK, SLIDER_UI_SCALE, SLIDER_GAME_ZOOM };
 int active_slider = SLIDER_NONE;
 
-// --- Color Sliders ---
-SDL_Rect slider_r, slider_g, slider_b;
-SDL_Rect slider_r2, slider_g2, slider_b2;
-// Add these:
-int my_r = 255, my_g = 255, my_b = 255; 
-
-typedef struct {
-    char src_map[32];
-    SDL_Rect rect;
-    char target_map[32];
-    int spawn_x, spawn_y;
-} MapTrigger;
+int my_r = 255, my_g = 255, my_b = 255;
 
 MapTrigger triggers[20];
 int trigger_count = 0;
 Uint32 last_map_switch_time = 0;
-Uint32 last_move_time = 0; // <--- MOVE HERE
+Uint32 last_move_time = 0;
 
-// Mobile Controls
-SDL_Rect dpad_rect = {20, 0, 150, 150}; // Y calculated dynamically
+SDL_Rect dpad_rect = {20, 0, 150, 150};
 float vjoy_dx = 0, vjoy_dy = 0;
-SDL_FingerID touch_id_dpad = -1; // Track which finger is on the D-Pad
+SDL_FingerID touch_id_dpad = -1;
 SDL_FingerID scroll_touch_id = -1;
 int scroll_last_y = 0;
 int joystick_active = 0;
-
-
-void get_path(char *out, const char *filename, int is_save_file) {
-    #if defined(__IPHONEOS__) || defined(__ANDROID__) || (defined(__APPLE__) && !defined(__IPHONEOS__))
-        if (is_save_file) {
-            // Writeable folder (Documents/Library)
-            char *pref = SDL_GetPrefPath("MyOrg", "C_MMO_Client");
-            if (pref) { snprintf(out, 256, "%s%s", pref, filename); SDL_free(pref); }
-        } else {
-            // Read-only Asset folder (Bundle/Resources)
-            char *base = SDL_GetBasePath();
-            if (base) { snprintf(out, 256, "%s%s", base, filename); SDL_free(base); }
-        }
-    #else
-        // Desktop: Just use the filename
-        strcpy(out, filename);
-    #endif
-}
-
-void ensure_save_file(const char *filename, const char *asset_name) {
-    char path[256]; get_path(path, filename, 1);
-    FILE *fp = fopen(path, "r");
-    if (fp) { fclose(fp); return; }
-    fp = fopen(path, "w");
-    if (!fp) return;
-    if (asset_name) {
-        char asset_path[256]; get_path(asset_path, asset_name, 0);
-        FILE *af = fopen(asset_path, "r");
-        if (af) {
-            char buf[256];
-            size_t n;
-            while ((n = fread(buf, 1, sizeof(buf), af)) > 0) fwrite(buf, 1, n, fp);
-            fclose(af);
-        }
-    }
-    fclose(fp);
-}
-
-// --- Helpers ---
-int send_all(socket_t sockfd, const void *buf, size_t len) {
-    size_t total = 0;
-    size_t bytes_left = len;
-    int n;
-
-    while(total < len) {
-        n = send(sockfd, (const char*)buf + total, bytes_left, 0);
-        if (n == -1) { break; }
-        total += n;
-        bytes_left -= n;
-    }
-    return (n == -1) ? -1 : 0; // return -1 on failure, 0 on success
-}
-
-void send_packet(Packet *pkt) { 
-    send_all(sock, pkt, sizeof(Packet)); 
-}
-
-// --- Helper to ensure full packet receipt on Windows ---
-int recv_total(socket_t sockfd, void *buf, size_t len) {
-    size_t total = 0;
-    size_t bytes_left = len;
-    int n;
-    while(total < len) {
-        // Note: Using flag 0 instead of MSG_WAITALL
-        n = recv(sockfd, (char*)buf + total, bytes_left, 0); 
-        if(n <= 0) return n; // Error or disconnect
-        total += n; 
-        bytes_left -= n;
-    }
-    return total;
-}
-
-void load_servers() {
-    char path[256]; get_path(path, "servers.txt", 1); // 1 = Save File
-    FILE *fp = fopen(path, "r");
-    if (!fp) return;
-    server_count = 0;
-    while (fscanf(fp, "%s %s %d", server_list[server_count].name, server_list[server_count].ip, &server_list[server_count].port) == 3) {
-        server_count++;
-        if (server_count >= 10) break;
-    }
-    fclose(fp);
-}
-
-void save_config() {
-    char path[256]; get_path(path, "config.txt", 1); // 1 = Save File
-    FILE *fp = fopen(path, "w");
-    if (fp) {
-        int r=255, g=255, b=255;
-        for(int i=0; i<MAX_CLIENTS; i++) {
-            if(local_players[i].active && local_players[i].id == local_player_id) {
-                r = local_players[i].r; g = local_players[i].g; b = local_players[i].b;
-            }
-        }
-        // Format: R G B R2 G2 B2 AFK_MIN DEBUG FPS COORDS VOL UNREAD UI_SCALE GAME_ZOOM RENDER_BACKEND
-        fprintf(fp, "%d %d %d %d %d %d %d %d %d %d %d %d %.2f %.2f %d\n", 
-            r, g, b, 
-            my_r2, my_g2, my_b2, 
-            afk_timeout_minutes,
-            show_debug_info, show_fps, show_coords, music_volume,
-            show_unread_counter,
-            ui_scale,
-            game_zoom,
-            render_backend
-        );
-        fclose(fp);
-    }
-}
-
-void load_config() {
-    char path[256]; get_path(path, "config.txt", 1); // 1 = Save File
-    FILE *fp = fopen(path, "r");
-    if (!fp) {
-        get_path(path, "configs.txt", 1);
-        fp = fopen(path, "r");
-    }
-    if (!fp) {
-        get_path(path, "config.txt", 0);
-        fp = fopen(path, "r");
-    }
-    if (!fp) {
-        get_path(path, "configs.txt", 0);
-        fp = fopen(path, "r");
-    }
-    if (fp) {
-        // Temp variables for flags
-        int dbg=0, fps=0, crd=0, vol=64, unread=1, backend=0;
-        float scale=1.0f, zoom=1.0f;
-        
-        int count = fscanf(fp, "%d %d %d %d %d %d %d %d %d %d %d %d %f %f %d", 
-            &saved_r, &saved_g, &saved_b, 
-            &my_r2, &my_g2, &my_b2, 
-            &afk_timeout_minutes,
-            &dbg, &fps, &crd, &vol, &unread, &scale, &zoom, &backend
-        );
-        
-        // Only apply if we successfully read at least the old version (11) or new (12)
-        if (count >= 11) {
-            show_debug_info = dbg;
-            show_fps = fps;
-            show_coords = crd;
-            music_volume = vol;
-            Mix_VolumeMusic(music_volume);
-        }
-        
-        // Apply new field if present
-        if (count >= 12) {
-            show_unread_counter = unread;
-        }
-        
-        // Apply UI scale if present
-        if (count >= 13) {
-            ui_scale = scale;
-            // Clamp to valid range
-            if (ui_scale < 0.5f) ui_scale = 0.5f;
-            if (ui_scale > 2.0f) ui_scale = 2.0f;
-            pending_ui_scale = ui_scale; // Initialize pending to match current
-        }
-        
-        // Apply game zoom if present
-        if (count >= 14) {
-            game_zoom = zoom;
-            // Clamp to valid range
-            if (game_zoom < 0.5f) game_zoom = 0.5f;
-            if (game_zoom > 2.0f) game_zoom = 2.0f;
-            pending_game_zoom = game_zoom; // Initialize pending to match current
-        }
-        
-        // Apply render backend preference if present (only when explicitly set via command line)
-        // Note: We don't auto-apply config backend to preserve default OpenGL behavior
-        // Users must explicitly use --vulkan flag to enable Vulkan
-        #ifdef USE_VULKAN
-        #define CONFIG_FIELD_RENDER_BACKEND 15
-        // Config backend preference is read but not automatically applied
-        // This ensures default behavior (OpenGL) when no command-line flag is given
-        (void)backend; // Suppress unused warning if config has backend field
-        #endif
-        
-        fclose(fp);
-    }
-}
-
-void load_triggers() {
-    // Triggers are now loaded from the server, not from file
-    // This function kept for compatibility but does nothing
-    trigger_count = 0;
-    printf("Client: Waiting to receive triggers from server...\n");
-}
-
-void receive_triggers_from_server(Packet *pkt) {
-    trigger_count = pkt->trigger_count;
-    printf("Client: Received %d triggers from server\n", trigger_count);
-    
-    for (int i = 0; i < trigger_count && i < 20; i++) {
-        strncpy(triggers[i].src_map, pkt->triggers[i].src_map, sizeof(triggers[i].src_map) - 1);
-        triggers[i].src_map[sizeof(triggers[i].src_map) - 1] = '\0';
-        triggers[i].rect.x = pkt->triggers[i].rect_x;
-        triggers[i].rect.y = pkt->triggers[i].rect_y;
-        triggers[i].rect.w = pkt->triggers[i].rect_w;
-        triggers[i].rect.h = pkt->triggers[i].rect_h;
-        strncpy(triggers[i].target_map, pkt->triggers[i].target_map, sizeof(triggers[i].target_map) - 1);
-        triggers[i].target_map[sizeof(triggers[i].target_map) - 1] = '\0';
-        triggers[i].spawn_x = pkt->triggers[i].spawn_x;
-        triggers[i].spawn_y = pkt->triggers[i].spawn_y;
-        
-        printf("Client: Loaded Trigger %d: %s [%d,%d %dx%d] -> %s\n",
-               i, triggers[i].src_map,
-               triggers[i].rect.x, triggers[i].rect.y,
-               triggers[i].rect.w, triggers[i].rect.h,
-               triggers[i].target_map);
-    }
-}
-
-void switch_map(const char* new_map, int x, int y) {
-    // 1. Update State
-    if (SDL_GetTicks() - last_map_switch_time < 2000) return;
-    last_map_switch_time = SDL_GetTicks();
-    strncpy(current_map_file, new_map, 31);
-    
-    // 2. Load New Texture
-    if (tex_map) SDL_DestroyTexture(tex_map);
-    char path[256]; get_path(path, current_map_file, 0); // 0 = Asset
-    SDL_Surface *temp = IMG_Load(path);
-    if (temp) {
-        tex_map = SDL_CreateTextureFromSurface(global_renderer, temp); // Need global renderer or pass it
-        map_w = temp->w; map_h = temp->h;
-        SDL_FreeSurface(temp);
-    } else {
-        printf("Failed to load map: %s\n", current_map_file);
-    }
-
-    // 3. Teleport Local Player
-    for(int i=0; i<MAX_CLIENTS; i++) {
-        if(local_players[i].active && local_players[i].id == local_player_id) {
-            local_players[i].x = x;
-            local_players[i].y = y;
-            strncpy(local_players[i].map_name, new_map, 31); // Update local struct immediately
-        }
-    }
-
-    // 4. Notify Server
-    Packet pkt; 
-    pkt.type = PACKET_MAP_CHANGE;
-    strncpy(pkt.target_map, new_map, 31);
-    pkt.dx = x; 
-    pkt.dy = y;
-    send_packet(&pkt);
-    
-    printf("Switched to %s at %d,%d\n", new_map, x, y);
-}
-
-int get_cursor_pos_from_click(const char *text, int mouse_x, int rect_x) {
-    if (!text || strlen(text) == 0) return 0;
-    
-    int len = strlen(text);
-    int best_index = 0;
-    int min_dist = 10000; // Arbitrary large number
-
-    // Iterate through valid UTF-8 indices
-    for (int i = 0; i <= len; ) {
-        char temp[256];
-        strncpy(temp, text, i);
-        temp[i] = 0;
-        
-        int w, h;
-        TTF_SizeText(font, temp, &w, &h);
-        
-        // +5 is the padding offset used in render_input_with_cursor
-        int text_screen_x = rect_x + 5 + w;
-        int dist = abs(mouse_x - text_screen_x);
-        
-        if (dist < min_dist) {
-            min_dist = dist;
-            best_index = i;
-        }
-
-        // Advance to next UTF-8 character start
-        if (i == len) break;
-        do { i++; } while (i < len && (text[i] & 0xC0) == 0x80);
-    }
-    return best_index;
-}
-
-// Helper: Delete currently selected text
-void delete_selection(char *buffer) {
-    if (selection_len == 0) return;
-
-    int start = selection_start;
-    int len = selection_len;
-    
-    // Normalize if selection goes backwards
-    if (len < 0) {
-        start += len; // move start back
-        len = -len;   // make len positive
-    }
-
-    int total_len = strlen(buffer);
-    if (start < 0) start = 0;
-    if (start + len > total_len) len = total_len - start;
-
-    // Shift text left
-    memmove(buffer + start, buffer + start + len, total_len - start - len + 1);
-    
-    // Reset cursor and selection
-    cursor_pos = start;
-    selection_len = 0;
-}
-
-
-
-void handle_text_edit(char *buffer, int max_len, SDL_Event *ev) {
-    int len = strlen(buffer);
-    const Uint8 *state = SDL_GetKeyboardState(NULL);
-    int shift_pressed = state[SDL_SCANCODE_LSHIFT] || state[SDL_SCANCODE_RSHIFT];
-    int ctrl_pressed = state[SDL_SCANCODE_LCTRL] || state[SDL_SCANCODE_RCTRL];
-
-    if (ev->type == SDL_TEXTINPUT) {
-        // If text is selected, delete it first
-        if (selection_len != 0) delete_selection(buffer);
-        
-        int add_len = strlen(ev->text.text);
-        if (strlen(buffer) + add_len <= max_len) {
-            memmove(buffer + cursor_pos + add_len, buffer + cursor_pos, strlen(buffer) - cursor_pos + 1);
-            memcpy(buffer + cursor_pos, ev->text.text, add_len);
-            cursor_pos += add_len;
-        }
-    } 
-    else if (ev->type == SDL_KEYDOWN) {
-        // --- COPY (Ctrl+C) ---
-        if (ctrl_pressed && ev->key.keysym.sym == SDLK_c) {
-            if (selection_len != 0) {
-                int start = selection_start;
-                int slen = selection_len;
-                if (slen < 0) { start += slen; slen = -slen; }
-                
-                char *clip_buf = malloc(slen + 1);
-                if (clip_buf) {
-                    strncpy(clip_buf, buffer + start, slen);
-                    clip_buf[slen] = 0;
-                    SDL_SetClipboardText(clip_buf);
-                    free(clip_buf);
-                }
-            }
-        }
-        // --- PASTE (Ctrl+V) ---
-        else if (ctrl_pressed && ev->key.keysym.sym == SDLK_v) {
-            if (SDL_HasClipboardText()) {
-                char *text = SDL_GetClipboardText();
-                if (text) {
-                    if (selection_len != 0) delete_selection(buffer);
-                    
-                    int add_len = strlen(text);
-                    if (strlen(buffer) + add_len <= max_len) {
-                        memmove(buffer + cursor_pos + add_len, buffer + cursor_pos, strlen(buffer) - cursor_pos + 1);
-                        memcpy(buffer + cursor_pos, text, add_len);
-                        cursor_pos += add_len;
-                    }
-                    SDL_free(text);
-                }
-            }
-        }
-        // --- CUT (Ctrl+X) ---
-        else if (ctrl_pressed && ev->key.keysym.sym == SDLK_x) {
-            if (selection_len != 0) {
-                // Copy logic
-                int start = selection_start;
-                int slen = selection_len;
-                if (slen < 0) { start += slen; slen = -slen; }
-                char *clip_buf = malloc(slen + 1);
-                if (clip_buf) {
-                    strncpy(clip_buf, buffer + start, slen);
-                    clip_buf[slen] = 0;
-                    SDL_SetClipboardText(clip_buf);
-                    free(clip_buf);
-                }
-                // Delete logic
-                delete_selection(buffer);
-            }
-        }
-        // --- SELECT ALL (Ctrl+A) ---
-        else if (ctrl_pressed && ev->key.keysym.sym == SDLK_a) {
-            cursor_pos = len;
-            selection_start = 0;
-            selection_len = len;
-        }
-        // --- NAVIGATION & SELECTION ---
-        else if (ev->key.keysym.sym == SDLK_LEFT) {
-            if (shift_pressed && selection_len == 0) selection_start = cursor_pos;
-            
-            if (cursor_pos > 0) {
-                do { cursor_pos--; if(shift_pressed) selection_len--; } 
-                while (cursor_pos > 0 && (buffer[cursor_pos] & 0xC0) == 0x80);
-            }
-            if (!shift_pressed) selection_len = 0;
-        }
-        else if (ev->key.keysym.sym == SDLK_RIGHT) {
-            if (shift_pressed && selection_len == 0) selection_start = cursor_pos;
-
-            if (cursor_pos < len) {
-                do { cursor_pos++; if(shift_pressed) selection_len++; } 
-                while (cursor_pos < len && (buffer[cursor_pos] & 0xC0) == 0x80);
-            }
-            if (!shift_pressed) selection_len = 0;
-        }
-        else if (ev->key.keysym.sym == SDLK_BACKSPACE) {
-            if (selection_len != 0) {
-                delete_selection(buffer);
-            } else if (cursor_pos > 0) {
-                int end = cursor_pos;
-                int start = end;
-                do { start--; } while (start > 0 && (buffer[start] & 0xC0) == 0x80);
-                memmove(buffer + start, buffer + end, len - end + 1);
-                cursor_pos = start;
-            }
-        }
-    }
-}
-
-void save_servers() {
-    char path[256]; get_path(path, "servers.txt", 1); // 1 = Save File
-    FILE *fp = fopen(path, "w");
-    if (!fp) return;
-    for(int i=0; i<server_count; i++) {
-        fprintf(fp, "%s %s %d\n", server_list[i].name, server_list[i].ip, server_list[i].port);
-    }
-    fclose(fp);
-}
-
-void add_server_to_list(const char* name, const char* ip, int port) {
-    if (server_count >= 10) return;
-    strcpy(server_list[server_count].name, name);
-    strcpy(server_list[server_count].ip, ip);
-    server_list[server_count].port = port;
-    server_count++;
-    save_servers();
-}
-
-void load_profiles() {
-    char path[256]; get_path(path, "profiles.txt", 1); // 1 = Save File
-    FILE *fp = fopen(path, "r");
-    if (!fp) return;
-    profile_count = 0;
-    while (fscanf(fp, "%s %s", profile_list[profile_count].username, profile_list[profile_count].password) == 2) {
-        profile_count++;
-        if (profile_count >= 10) break;
-    }
-    fclose(fp);
-}
-
-void save_profiles() {
-    char path[256]; get_path(path, "profiles.txt", 1); // 1 = Save File
-    FILE *fp = fopen(path, "w");
-    if (!fp) return;
-    for(int i=0; i<profile_count; i++) {
-        fprintf(fp, "%s %s\n", profile_list[i].username, profile_list[i].password);
-    }
-    fclose(fp);
-}
-
-void add_profile_to_list(const char* username, const char* password) {
-    if (profile_count >= 10) return;
-    strcpy(profile_list[profile_count].username, username);
-    strcpy(profile_list[profile_count].password, password);
-    profile_count++;
-    save_profiles();
-}
-
-int try_connect() {
-    if (is_connected) close(sock);
-    
-    struct sockaddr_in serv_addr;
-    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) == (socket_t)-1) {
-        strcpy(auth_message, "Socket Error");
-        return 0;
-    }
-    
-    serv_addr.sin_family = AF_INET; 
-    serv_addr.sin_port = htons(atoi(input_port));
-    
-    // Try inet_pton first (for IP addresses)
-    if (inet_pton(AF_INET, input_ip, &serv_addr.sin_addr) <= 0) {
-        // If inet_pton fails, try getaddrinfo (for domain names)
-        struct addrinfo hints, *result = NULL;
-        memset(&hints, 0, sizeof(hints));
-        hints.ai_family = AF_INET;
-        hints.ai_socktype = SOCK_STREAM;
-        
-        if (getaddrinfo(input_ip, NULL, &hints, &result) != 0 || result == NULL) {
-            if (result) freeaddrinfo(result);
-            strcpy(auth_message, "Invalid Address");
-            close(sock);
-            return 0;
-        }
-        
-        // Copy the resolved address
-        memcpy(&serv_addr.sin_addr, &((struct sockaddr_in*)result->ai_addr)->sin_addr, sizeof(struct in_addr));
-        freeaddrinfo(result);
-    }
-
-    if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
-        strcpy(auth_message, "Connection Failed");
-        return 0;
-    }
-
-    // --- FIX: Update the global variable for Debug Menu ---
-    strcpy(server_ip, input_ip); 
-    // -----------------------------------------------------
-
-    is_connected = 1;
-    strcpy(auth_message, "Connected! Logging in...");
-    return 1;
-}
-
-void get_os_info(char *buffer, size_t size) {
-    #ifdef _WIN32
-    snprintf(buffer, size, "Windows");
-    #else
-    struct utsname u;
-    if (uname(&u) == 0) {
-        snprintf(buffer, size, "%s %s", u.sysname, u.release);
-    } else {
-        snprintf(buffer, size, "Unknown");
-    }
-    #endif
-}
-
-void send_telemetry() {
-    Packet pkt;
-    memset(&pkt, 0, sizeof(Packet));
-    pkt.type = PACKET_TELEMETRY;
-    pkt.player_id = local_player_id;
-    
-    // Get GL renderer info
-    if (gl_renderer_cache[0]) {
-        strncpy(pkt.gl_renderer, gl_renderer_cache, 127);
-        pkt.gl_renderer[127] = '\0';
-    } else {
-        strncpy(pkt.gl_renderer, "Unknown", 127);
-        pkt.gl_renderer[127] = '\0';
-    }
-    
-    // Get OS info
-    get_os_info(pkt.os_info, sizeof(pkt.os_info));
-    
-    send_packet(&pkt);
-}
-
-int is_blocked(int id) {
-    for(int i=0; i<blocked_count; i++) if(blocked_ids[i] == id) return 1;
-    return 0;
-}
-
-void reset_avatar_cache() {
-    for(int i=0; i<MAX_CLIENTS; i++) {
-        if(avatar_cache[i]) SDL_DestroyTexture(avatar_cache[i]);
-        avatar_cache[i] = NULL;
-        avatar_status[i] = 0;
-    }
-}
-
-// New helper to handle array shifting
-void push_chat_line(const char *text) {
-    for(int i=0; i<CHAT_HISTORY-1; i++) strcpy(chat_log[i], chat_log[i+1]);
-    strncpy(chat_log[CHAT_HISTORY-1], text, 63);
-    // Reset scroll to show newest messages when new message arrives
-    chat_scroll = 0;
-}
-
-void play_next_track() {
-    if (music_count == 0) return;
-    if (bgm) Mix_FreeMusic(bgm);
-    current_track++;
-    if (current_track >= music_count) current_track = 0;
-    char path[256];
-    char music_file[256];
-    snprintf(music_file, 256, "music/%s", music_playlist[current_track]);
-    get_path(path, music_file, 0);
-    bgm = Mix_LoadMUS(path);
-    if (bgm) Mix_PlayMusic(bgm, 1);
-}
-
-void init_audio() {
-    if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) return;
-    
-    #ifdef __ANDROID__
-    // On Android, we can't use opendir on assets, so we manually list known music files
-    // or try to load files with known names
-    const char* android_music_files[] = {"1.mp3", NULL}; // Add more files as needed
-    for(int i = 0; android_music_files[i] != NULL && music_count < 20; i++) {
-        // Try to load to verify file exists
-        char path[256];
-        char music_file[256];
-        snprintf(music_file, 256, "music/%s", android_music_files[i]);
-        get_path(path, music_file, 0);
-        SDL_RWops *rw = SDL_RWFromFile(path, "rb");
-        if (rw) {
-            SDL_RWclose(rw);
-            strncpy(music_playlist[music_count++], android_music_files[i], 63);
-        }
-    }
-    #else
-    DIR *d; struct dirent *dir;
-    char music_dir_path[256];
-    get_path(music_dir_path, "music", 0);
-    d = opendir(music_dir_path);
-    if (d) {
-        while ((dir = readdir(d)) != NULL) {
-            if (strstr(dir->d_name, ".mp3") || strstr(dir->d_name, ".ogg") || strstr(dir->d_name, ".wav")) {
-                if (music_count < 20) strncpy(music_playlist[music_count++], dir->d_name, 63);
-            }
-        }
-        closedir(d);
-    }
-    #endif
-    Mix_VolumeMusic(music_volume);
-}
-
-void toggle_block(int id) {
-    if (is_blocked(id)) {
-        for(int i=0; i<blocked_count; i++) {
-            if(blocked_ids[i] == id) {
-                for(int j=i; j<blocked_count-1; j++) blocked_ids[j] = blocked_ids[j+1];
-                blocked_count--; return;
-            }
-        }
-    } else if(blocked_count < 50) blocked_ids[blocked_count++] = id;
-}
-
-SDL_Color get_status_color(int status) {
-    switch(status) {
-        case STATUS_AFK: return col_status_afk;
-        case STATUS_DND: return col_status_dnd;
-        case STATUS_ROLEPLAY: return col_status_rp;
-        case STATUS_TALK: return col_status_talk;
-        default: return col_status_online;
-    }
-}
-
-// --- Rich Text Helpers ---
-
-// Helper function to scale an integer value based on UI scale
-int scale_ui(int value) {
-    return (int)(value * ui_scale);
-}
-
-// Helper function to scale a rectangle
-SDL_Rect scale_rect(int x, int y, int w, int h) {
-    return (SDL_Rect){scale_ui(x), scale_ui(y), scale_ui(w), scale_ui(h)};
-}
-
-// Returns color for codes ^1 through ^9
-SDL_Color get_color_from_code(char code) {
-    switch(code) {
-        case '1': return (SDL_Color){255, 50, 50, 255};   // Red
-        case '2': return (SDL_Color){50, 255, 50, 255};   // Green
-        case '3': return (SDL_Color){80, 150, 255, 255};  // Blue
-        case '4': return (SDL_Color){255, 255, 0, 255};   // Yellow
-        case '5': return (SDL_Color){0, 255, 255, 255};   // Cyan
-        case '6': return (SDL_Color){255, 0, 255, 255};   // Magenta
-        case '7': return (SDL_Color){255, 255, 255, 255}; // White
-        case '8': return (SDL_Color){150, 150, 150, 255}; // Gray
-        case '9': return (SDL_Color){0, 0, 0, 255};       // Black
-        default: return (SDL_Color){255, 255, 255, 255};
-    }
-}
-
-// Old Simple Renderer (Renamed) - Used for Input Boxes so you see raw codes while typing
-void render_raw_text(SDL_Renderer *renderer, const char *text, int x, int y, SDL_Color color, int center) {
-    if (!text || strlen(text) == 0) return;
-    SDL_Surface *surface = TTF_RenderUTF8_Blended(font, text, color);
-    if (!surface) return;
-    SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surface);
-    int rx = center ? x - (surface->w/2) : x;
-    SDL_Rect dst = {rx, y, surface->w, surface->h};
-    SDL_RenderCopy(renderer, texture, NULL, &dst);
-    SDL_FreeSurface(surface);
-    SDL_DestroyTexture(texture);
-}
-
-// Helper: Safely remove the last UTF-8 character
-void remove_last_utf8_char(char *str) {
-    int len = strlen(str);
-    if (len == 0) return;
-
-    // Move back while the byte is a "continuation byte" (starts with 10xxxxxx)
-    // 0xC0 is 11000000. If (byte & 0xC0) == 0x80, it's a continuation byte.
-    while (len > 0) {
-        len--;
-        // If it's a start byte (0xxxxxxx or 11xxxxxx), we stop deleting here
-        if ((str[len] & 0xC0) != 0x80) break; 
-    }
-    str[len] = '\0';
-}
-
-void render_text_gradient(SDL_Renderer *renderer, const char *text, int x, int y, SDL_Color c1, SDL_Color c2, int center) {
-    if (!text || !*text) return;
-
-    // 1. Render base white text
-    SDL_Surface *surface = TTF_RenderUTF8_Blended(font, text, (SDL_Color){255, 255, 255, 255});
-    if (!surface) return;
-
-    SDL_LockSurface(surface);
-    
-    int w = surface->w;
-    int h = surface->h;
-    int pitch = surface->pitch; // Actual bytes per row in memory
-    Uint8 *pixels = (Uint8 *)surface->pixels;
-    SDL_PixelFormat *fmt = surface->format;
-
-    // 2. Iterate pixels safely
-    for (int py = 0; py < h; py++) {
-        for (int px = 0; px < w; px++) {
-            // Calculate exact memory address for this pixel
-            // Row offset (py * pitch) + Column offset (px * 4 bytes)
-            Uint32 *pixel_addr = (Uint32 *)(pixels + py * pitch + px * 4);
-            
-            Uint32 pixel_val = *pixel_addr;
-            Uint8 r_old, g_old, b_old, a;
-            SDL_GetRGBA(pixel_val, fmt, &r_old, &g_old, &b_old, &a);
-
-            // Apply gradient only to visible pixels
-            if (a > 0) {
-                float t = (float)px / (float)w; // 0.0 to 1.0 based on width
-
-                Uint8 r = c1.r + (int)((c2.r - c1.r) * t);
-                Uint8 g = c1.g + (int)((c2.g - c1.g) * t);
-                Uint8 b = c1.b + (int)((c2.b - c1.b) * t);
-
-                *pixel_addr = SDL_MapRGBA(fmt, r, g, b, a);
-            }
-        }
-    }
-    
-    SDL_UnlockSurface(surface);
-
-    // 3. Create Texture & Render
-    SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surface);
-    int rx = center ? x - (w / 2) : x;
-    SDL_Rect dst = {rx, y, w, h};
-    SDL_RenderCopy(renderer, texture, NULL, &dst);
-
-    SDL_FreeSurface(surface);
-    SDL_DestroyTexture(texture);
-}
-
-void render_text(SDL_Renderer *renderer, const char *text, int x, int y, SDL_Color default_color, int center) {
-    if (!text || !*text) return;
-
-    int original_style = TTF_GetFontStyle(font);
-    int current_style = original_style;
-    SDL_Color current_color = default_color;
-    
-    typedef struct { SDL_Texture *tex; int w, h; } Segment;
-    Segment segments[64]; int seg_count = 0;
-    int total_width = 0; int max_height = 0;
-
-    char buffer[256]; int buf_idx = 0; int i = 0;
-
-    while (text[i] && seg_count < 64) {
-        int flush = 0; int skip = 0;
-        
-        // Color Code (^1 - ^9)
-        if (text[i] == '^' && text[i+1] >= '0' && text[i+1] <= '9') {
-            flush = 1; skip = 2;
-        } 
-        // Style Tags (* = Italic, # = Bold, ~ = Strikethrough)
-        // CHANGED: '-' -> '~' to avoid conflicts with dates/minuses
-        else if (text[i] == '*' || text[i] == '#' || text[i] == '~') {
-            flush = 1; skip = 1;
-        }
-
-        if (flush) {
-            if (buf_idx > 0) {
-                buffer[buf_idx] = 0;
-                TTF_SetFontStyle(font, current_style);
-                SDL_Surface *s = TTF_RenderUTF8_Blended(font, buffer, current_color);
-                if (s) {
-                    segments[seg_count].tex = SDL_CreateTextureFromSurface(renderer, s);
-                    segments[seg_count].w = s->w; segments[seg_count].h = s->h;
-                    total_width += s->w; if (s->h > max_height) max_height = s->h;
-                    SDL_FreeSurface(s); seg_count++;
-                }
-                buf_idx = 0;
-            }
-
-            if (skip == 2) {
-                current_color = get_color_from_code(text[i+1]);
-            } else if (skip == 1) {
-                if (text[i] == '*') current_style ^= TTF_STYLE_ITALIC;
-                if (text[i] == '#') current_style ^= TTF_STYLE_BOLD;
-                if (text[i] == '~') current_style ^= TTF_STYLE_STRIKETHROUGH; // CHANGED
-            }
-            i += skip;
-        } else {
-            buffer[buf_idx++] = text[i++];
-        }
-    }
-
-    // Flush remaining
-    if (buf_idx > 0 && seg_count < 64) {
-        buffer[buf_idx] = 0;
-        TTF_SetFontStyle(font, current_style);
-        SDL_Surface *s = TTF_RenderUTF8_Blended(font, buffer, current_color);
-        if (s) {
-            segments[seg_count].tex = SDL_CreateTextureFromSurface(renderer, s);
-            segments[seg_count].w = s->w; segments[seg_count].h = s->h;
-            total_width += s->w; if (s->h > max_height) max_height = s->h;
-            SDL_FreeSurface(s); seg_count++;
-        }
-    }
-
-    // Render
-    int current_x = center ? (x - total_width / 2) : x;
-    for (int k = 0; k < seg_count; k++) {
-        if (segments[k].tex) {
-            SDL_Rect dst = {current_x, y, segments[k].w, segments[k].h};
-            SDL_RenderCopy(renderer, segments[k].tex, NULL, &dst);
-            current_x += segments[k].w;
-            SDL_DestroyTexture(segments[k].tex);
-        }
-    }
-    TTF_SetFontStyle(font, original_style);
-}
-
-// --- Role Helpers ---
-const char* get_role_name(int role) {
-    switch(role) {
-        case 1: return "ADMIN";        // ROLE_ADMIN
-        case 2: return "DEV";          // ROLE_DEVELOPER
-        case 3: return "CONTRIB";      // ROLE_CONTRIBUTOR
-        case 4: return "VIP";          // ROLE_VIP
-        default: return "Player";
-    }
-}
-
-SDL_Color get_role_color(int role) {
-    switch(role) {
-        case 1: return (SDL_Color){255, 50, 50, 255};   // Red (Admin)
-        case 2: return (SDL_Color){50, 150, 255, 255};  // Blue (Dev)
-        case 3: return (SDL_Color){0, 200, 100, 255};   // Teal (Contrib)
-        case 4: return (SDL_Color){255, 215, 0, 255};   // Gold (VIP)
-        default: return (SDL_Color){100, 100, 100, 255}; // Grey
-    }
-}
 
 void render_input_with_cursor(SDL_Renderer *renderer, SDL_Rect rect, char *buffer, int is_active, int is_password) {
     // 1. Draw Box
