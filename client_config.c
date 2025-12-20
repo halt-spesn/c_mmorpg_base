@@ -52,17 +52,18 @@ void save_config(void) {
                 r = local_players[i].r; g = local_players[i].g; b = local_players[i].b;
             }
         }
+        // Config format: r g b r2 g2 b2 afk_min debug fps coords vol unread ui_scale zoom backend use_vk use_nv
         fprintf(fp, "%d %d %d %d %d %d %d %d %d %d %d %d %.2f %.2f %d %d %d\n", 
-            r, g, b, 
-            my_r2, my_g2, my_b2, 
-            afk_timeout_minutes,
-            show_debug_info, show_fps, show_coords, music_volume,
-            show_unread_counter,
-            ui_scale,
-            game_zoom,
-            render_backend,
-            config_use_vulkan,
-            config_use_nvidia_gpu
+            r, g, b,                          // Name color (start)
+            my_r2, my_g2, my_b2,              // Name color (end)
+            afk_timeout_minutes,              // AFK timeout
+            show_debug_info, show_fps, show_coords, music_volume,  // Display settings
+            show_unread_counter,              // UI settings
+            ui_scale,                         // UI scale
+            game_zoom,                        // Game zoom
+            render_backend,                   // Rendering backend
+            config_use_vulkan,                // Vulkan preference
+            config_use_nvidia_gpu             // NVIDIA GPU preference
         );
         fclose(fp);
     }
@@ -87,11 +88,18 @@ void load_config(void) {
         int dbg=0, fps=0, crd=0, vol=64, unread=1, backend=0, use_vk=0, use_nv=0;
         float scale=1.0f, zoom=1.0f;
         
+        // Config format: r g b r2 g2 b2 afk_min debug fps coords vol unread ui_scale zoom backend use_vk use_nv
         int count = fscanf(fp, "%d %d %d %d %d %d %d %d %d %d %d %d %f %f %d %d %d", 
-            &saved_r, &saved_g, &saved_b, 
-            &my_r2, &my_g2, &my_b2, 
-            &afk_timeout_minutes,
-            &dbg, &fps, &crd, &vol, &unread, &scale, &zoom, &backend, &use_vk, &use_nv
+            &saved_r, &saved_g, &saved_b,       // Name color (start)
+            &my_r2, &my_g2, &my_b2,             // Name color (end)
+            &afk_timeout_minutes,               // AFK timeout
+            &dbg, &fps, &crd, &vol,             // Display settings
+            &unread,                            // UI settings
+            &scale,                             // UI scale
+            &zoom,                              // Game zoom
+            &backend,                           // Rendering backend
+            &use_vk,                            // Vulkan preference
+            &use_nv                             // NVIDIA GPU preference
         );
         
         if (count >= 11) {
