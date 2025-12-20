@@ -50,7 +50,10 @@ The popup will automatically close and you can continue using your account with 
 ### Implementation
 - **Packet Types**: `PACKET_CHANGE_PASSWORD_REQUEST`, `PACKET_CHANGE_PASSWORD_RESPONSE`
 - **Database**: Password is updated in the `users` table
-- **Security**: Current password is verified before allowing change
+- **Security**: 
+  - Current password is verified before allowing change
+  - Uses prepared statements to prevent SQL injection
+  - **Note**: This feature follows the existing authentication system's security model (plaintext passwords). For production use, the entire authentication system should be upgraded to use password hashing (bcrypt/Argon2) and secure transmission (TLS/SSL).
 
 ### Code Locations
 - **Client**: `client_sdl.c` - Password change UI and request logic

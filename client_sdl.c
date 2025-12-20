@@ -3332,8 +3332,11 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
                     Packet pkt;
                     pkt.type = PACKET_CHANGE_PASSWORD_REQUEST;
                     strncpy(pkt.password, password_current, 63);
+                    pkt.password[63] = '\0';
                     strncpy(pkt.username, password_new, 63);
+                    pkt.username[63] = '\0';
                     strncpy(pkt.msg, password_confirm, 63);
+                    pkt.msg[63] = '\0';
                     send_packet(&pkt);
                     strcpy(password_message, "Processing...");
                 }
@@ -3789,7 +3792,10 @@ int main(int argc, char *argv[]) {
             else if(active_field==10) len=strlen(nick_new);
             else if(active_field==11) len=strlen(nick_confirm);
             else if(active_field==12) len=strlen(nick_pass);
-            else if(active_field==FIELD_PASSWORD_CURRENT) len=strlen(input_friend_id);
+            else if(active_field==FIELD_PASSWORD_CURRENT) len=strlen(password_current);
+            else if(active_field==FIELD_PASSWORD_NEW) len=strlen(password_new);
+            else if(active_field==FIELD_PASSWORD_CONFIRM) len=strlen(password_confirm);
+            else if(active_field==FIELD_FRIEND_ID) len=strlen(input_friend_id);
             else if(active_field==30) len=strlen(input_sanction_reason);
             else if(active_field==31) len=strlen(input_ban_time);
             
