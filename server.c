@@ -244,7 +244,7 @@ void send_triggers_to_client(int client_index) {
 }
 
 void init_game() {
-    init_db(); init_storage(); load_triggers();
+    init_db(); init_storage(); load_triggers(); load_telemetry();
     for (int i = 0; i < MAX_CLIENTS; i++) { client_sockets[i] = SOCKET_INVALID; players[i].active = 0; players[i].id = -1; }
 }
 
@@ -511,9 +511,52 @@ TelemetryEntry os_telemetry[MAX_CLIENTS * 10];
 int gl_telemetry_count = 0;
 int os_telemetry_count = 0;
 
+void load_telemetry() {
+    // Load GL telemetry from raw data file
+    FILE *fp = fopen("telemetryGL_raw.txt", "r");
+    if (fp) {
+        gl_telemetry_count = 0;
+        char renderer[128];
+        int user_id;
+        while (fscanf(fp, "%d %127[^\n]\n", &user_id, renderer) == 2 && gl_telemetry_count < MAX_CLIENTS * 10) {
+            gl_telemetry[gl_telemetry_count].user_id = user_id;
+            strncpy(gl_telemetry[gl_telemetry_count].gl_renderer, renderer, 127);
+            gl_telemetry[gl_telemetry_count].gl_renderer[127] = '\0';
+            gl_telemetry_count++;
+        }
+        fclose(fp);
+        printf("Loaded %d GL telemetry entries\n", gl_telemetry_count);
+    }
+    
+    // Load OS telemetry from raw data file
+    fp = fopen("telemetryOS_raw.txt", "r");
+    if (fp) {
+        os_telemetry_count = 0;
+        char os_info[128];
+        int user_id;
+        while (fscanf(fp, "%d %127[^\n]\n", &user_id, os_info) == 2 && os_telemetry_count < MAX_CLIENTS * 10) {
+            os_telemetry[os_telemetry_count].user_id = user_id;
+            strncpy(os_telemetry[os_telemetry_count].os_info, os_info, 127);
+            os_telemetry[os_telemetry_count].os_info[127] = '\0';
+            os_telemetry_count++;
+        }
+        fclose(fp);
+        printf("Loaded %d OS telemetry entries\n", os_telemetry_count);
+    }
+}
+
 void save_telemetry() {
-    // Save GL telemetry - writes aggregated user counts per renderer/OS
-    FILE *fp = fopen("telemetryGL.txt", "w");
+    // Save raw GL telemetry data for persistence
+    FILE *fp = fopen("telemetryGL_raw.txt", "w");
+    if (fp) {
+        for (int i = 0; i < gl_telemetry_count; i++) {
+            fprintf(fp, "%d %s\n", gl_telemetry[i].user_id, gl_telemetry[i].gl_renderer);
+        }
+        fclose(fp);
+    }
+    
+    // Save aggregated GL telemetry - writes user counts per renderer
+    fp = fopen("telemetryGL.txt", "w");
     if (fp) {
         // Count occurrences of each unique renderer
         for (int i = 0; i < gl_telemetry_count; i++) {
@@ -553,7 +596,16 @@ void save_telemetry() {
         fclose(fp);
     }
     
-    // Save OS telemetry
+    // Save raw OS telemetry data for persistence
+    fp = fopen("telemetryOS_raw.txt", "w");
+    if (fp) {
+        for (int i = 0; i < os_telemetry_count; i++) {
+            fprintf(fp, "%d %s\n", os_telemetry[i].user_id, os_telemetry[i].os_info);
+        }
+        fclose(fp);
+    }
+    
+    // Save aggregated OS telemetry
     fp = fopen("telemetryOS.txt", "w");
     if (fp) {
         // Count occurrences of each unique OS

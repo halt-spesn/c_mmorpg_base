@@ -1,7 +1,18 @@
 #include "client.h"
 
 void get_path(char *out, const char *filename, int is_save_file) {
-    #ifdef __APPLE__
+    #ifdef __ANDROID__
+        if (is_save_file) {
+            const char *internal_path = SDL_AndroidGetInternalStoragePath();
+            if (internal_path) {
+                snprintf(out, 256, "%s/%s", internal_path, filename);
+            } else {
+                strcpy(out, filename);
+            }
+        } else {
+            strcpy(out, filename);
+        }
+    #elif defined(__APPLE__)
         if (is_save_file) {
             const char *home = getenv("HOME");
             if (home) {
