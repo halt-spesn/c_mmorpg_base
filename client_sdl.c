@@ -299,6 +299,7 @@ SDL_Rect dpad_rect = {20, 0, 150, 150};
 float vjoy_dx = 0, vjoy_dy = 0;
 SDL_FingerID touch_id_dpad = -1;
 SDL_FingerID scroll_touch_id = -1;
+int scroll_window_id = -1; // Track which window is being scrolled: 0=settings, 1=docs, 2=contrib, etc.
 int scroll_last_y = 0;
 int joystick_active = 0;
 
@@ -2881,15 +2882,15 @@ int main(int argc, char *argv[]) {
     
     // Parse command line arguments for rendering backend (overrides config)
     #ifdef USE_VULKAN
-    printf("Vulkan support compiled in (USE_VULKAN defined)\n");
-    printf("config_use_vulkan = %d, use_vulkan = %d\n", config_use_vulkan, use_vulkan);
+    ALOG("Vulkan support compiled in (USE_VULKAN defined)\n");
+    ALOG("config_use_vulkan = %d, use_vulkan = %d\n", config_use_vulkan, use_vulkan);
     
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--vulkan") == 0 || strcmp(argv[i], "-vk") == 0) {
             use_vulkan = 1;
             render_backend = RENDER_BACKEND_VULKAN;
             backend_set_by_cmdline = 1;
-            printf("Vulkan rendering backend requested via command line\n");
+            ALOG("Vulkan rendering backend requested via command line\n");
         }
     }
     
@@ -2897,20 +2898,20 @@ int main(int argc, char *argv[]) {
     if (!backend_set_by_cmdline && config_use_vulkan) {
         use_vulkan = 1;
         render_backend = RENDER_BACKEND_VULKAN;
-        printf("Vulkan rendering backend enabled from config\n");
+        ALOG("Vulkan rendering backend enabled from config\n");
     }
     
     // On Android, provide clear status message
     #ifdef __ANDROID__
     if (use_vulkan) {
-        printf("Android: Vulkan renderer will be requested\n");
+        ALOG("Android: Vulkan renderer will be requested\n");
     } else {
-        printf("Android: OpenGL ES renderer will be used (Vulkan not enabled in config)\n");
-        printf("Android: To enable Vulkan, set the toggle in Settings menu\n");
+        ALOG("Android: OpenGL ES renderer will be used (Vulkan not enabled in config)\n");
+        ALOG("Android: To enable Vulkan, set the toggle in Settings menu\n");
     }
     #endif
     #else
-    printf("Vulkan support not compiled (USE_VULKAN not defined)\n");
+    ALOG("Vulkan support not compiled (USE_VULKAN not defined)\n");
     #endif
     
     // 1. Init SDL & Libraries
@@ -3500,6 +3501,7 @@ int main(int argc, char *argv[]) {
                 if (is_settings_open && SDL_PointInRect(&(SDL_Point){tx, ty}, &settings_view_port)) {
                     scroll_touch_id = event.tfinger.fingerId;
                     scroll_last_y = ty;
+                    scroll_window_id = 0; // Settings
                     printf("[FINGERDOWN] Settings scroll touch started\n");
                 }
                 else if (show_documentation) {
@@ -3508,6 +3510,7 @@ int main(int argc, char *argv[]) {
                     if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
                         scroll_touch_id = event.tfinger.fingerId;
                         scroll_last_y = ty;
+                        scroll_window_id = 1; // Documentation
                         printf("[FINGERDOWN] Documentation scroll touch started\n");
                     }
                 }
@@ -3517,6 +3520,7 @@ int main(int argc, char *argv[]) {
                     if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
                         scroll_touch_id = event.tfinger.fingerId;
                         scroll_last_y = ty;
+                        scroll_window_id = 2; // Contributors
                         printf("[FINGERDOWN] Contributors scroll touch started\n");
                     }
                 }
@@ -3526,6 +3530,7 @@ int main(int argc, char *argv[]) {
                     if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
                         scroll_touch_id = event.tfinger.fingerId;
                         scroll_last_y = ty;
+                        scroll_window_id = 3; // Friend list
                         printf("[FINGERDOWN] Friend list scroll touch started\n");
                     }
                 }
@@ -3535,6 +3540,7 @@ int main(int argc, char *argv[]) {
                     if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
                         scroll_touch_id = event.tfinger.fingerId;
                         scroll_last_y = ty;
+                        scroll_window_id = 4; // Inbox
                         printf("[FINGERDOWN] Inbox scroll touch started\n");
                     }
                 }
@@ -3544,6 +3550,7 @@ int main(int argc, char *argv[]) {
                     if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
                         scroll_touch_id = event.tfinger.fingerId;
                         scroll_last_y = ty;
+                        scroll_window_id = 5; // Warnings
                         printf("[FINGERDOWN] Warnings scroll touch started\n");
                     }
                 }
@@ -3553,6 +3560,7 @@ int main(int argc, char *argv[]) {
                     if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
                         scroll_touch_id = event.tfinger.fingerId;
                         scroll_last_y = ty;
+                        scroll_window_id = 6; // Role list
                         printf("[FINGERDOWN] Staff list scroll touch started\n");
                     }
                 }
@@ -3562,6 +3570,7 @@ int main(int argc, char *argv[]) {
                     if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
                         scroll_touch_id = event.tfinger.fingerId;
                         scroll_last_y = ty;
+                        scroll_window_id = 7; // Blocked list
                         printf("[FINGERDOWN] Blocked list scroll touch started\n");
                     }
                 }
@@ -3585,6 +3594,7 @@ int main(int argc, char *argv[]) {
                             // Touch in chat history area - enable scrolling
                             scroll_touch_id = event.tfinger.fingerId;
                             scroll_last_y = ty;
+                            scroll_window_id = 8; // Chat
                             printf("[FINGERDOWN] Chat scroll touch started\n");
                         } else if (!SDL_PointInRect(&(SDL_Point){tx, ty}, &chat_win)) {
                             chat_input_active = 0;
@@ -3614,8 +3624,9 @@ int main(int argc, char *argv[]) {
                     int ty = (int)((event.tfinger.y * h) / ui_scale);
                     int delta = scroll_last_y - ty;
                     
-                    // Apply scrolling to the active window
-                    if (is_settings_open) {
+                    // Apply scrolling only to the window that was touched
+                    if (scroll_window_id == 0 && is_settings_open) {
+                        // Settings
                         settings_scroll_y += delta;
                         if (settings_scroll_y < 0) settings_scroll_y = 0;
                         int max_scroll = settings_content_h - settings_view_port.h; 
@@ -3623,7 +3634,8 @@ int main(int argc, char *argv[]) {
                         if (settings_scroll_y > max_scroll) settings_scroll_y = max_scroll;
                         printf("[FINGERMOTION] Settings scroll: delta=%d scroll_y=%d\n", delta, settings_scroll_y);
                     }
-                    else if (show_documentation) {
+                    else if (scroll_window_id == 1 && show_documentation) {
+                        // Documentation
                         documentation_scroll += delta;
                         if (documentation_scroll < 0) documentation_scroll = 0;
                         int content_height = 650;
@@ -3633,7 +3645,8 @@ int main(int argc, char *argv[]) {
                         if (documentation_scroll > max_scroll) documentation_scroll = max_scroll;
                         printf("[FINGERMOTION] Documentation scroll: delta=%d scroll=%d\n", delta, documentation_scroll);
                     }
-                    else if (show_contributors) {
+                    else if (scroll_window_id == 2 && show_contributors) {
+                        // Contributors
                         contributors_scroll += delta;
                         if (contributors_scroll < 0) contributors_scroll = 0;
                         int content_height = 450;
@@ -3643,7 +3656,8 @@ int main(int argc, char *argv[]) {
                         if (contributors_scroll > max_scroll) contributors_scroll = max_scroll;
                         printf("[FINGERMOTION] Contributors scroll: delta=%d scroll=%d\n", delta, contributors_scroll);
                     }
-                    else if (show_friend_list) {
+                    else if (scroll_window_id == 3 && show_friend_list) {
+                        // Friend list
                         friend_list_scroll += delta;
                         if (friend_list_scroll < 0) friend_list_scroll = 0;
                         int content_height = 85 + (friend_count * 30);
@@ -3653,7 +3667,8 @@ int main(int argc, char *argv[]) {
                         if (friend_list_scroll > max_scroll) friend_list_scroll = max_scroll;
                         printf("[FINGERMOTION] Friend list scroll: delta=%d scroll=%d\n", delta, friend_list_scroll);
                     }
-                    else if (is_inbox_open) {
+                    else if (scroll_window_id == 4 && is_inbox_open) {
+                        // Inbox
                         inbox_scroll += delta;
                         if (inbox_scroll < 0) inbox_scroll = 0;
                         int content_height = 40 + (inbox_count * 55);
@@ -3663,7 +3678,8 @@ int main(int argc, char *argv[]) {
                         if (inbox_scroll > max_scroll) inbox_scroll = max_scroll;
                         printf("[FINGERMOTION] Inbox scroll: delta=%d scroll=%d\n", delta, inbox_scroll);
                     }
-                    else if (show_my_warnings) {
+                    else if (scroll_window_id == 5 && show_my_warnings) {
+                        // Warnings
                         warnings_scroll += delta;
                         if (warnings_scroll < 0) warnings_scroll = 0;
                         int content_height = 50 + (my_warning_count * 45);
@@ -3673,7 +3689,8 @@ int main(int argc, char *argv[]) {
                         if (warnings_scroll > max_scroll) warnings_scroll = max_scroll;
                         printf("[FINGERMOTION] Warnings scroll: delta=%d scroll=%d\n", delta, warnings_scroll);
                     }
-                    else if (show_role_list) {
+                    else if (scroll_window_id == 6 && show_role_list) {
+                        // Role list
                         role_list_scroll += delta;
                         if (role_list_scroll < 0) role_list_scroll = 0;
                         int content_height = 50 + (staff_count * 25);
@@ -3683,7 +3700,8 @@ int main(int argc, char *argv[]) {
                         if (role_list_scroll > max_scroll) role_list_scroll = max_scroll;
                         printf("[FINGERMOTION] Staff list scroll: delta=%d scroll=%d\n", delta, role_list_scroll);
                     }
-                    else if (show_blocked_list) {
+                    else if (scroll_window_id == 7 && show_blocked_list) {
+                        // Blocked list
                         blocked_scroll += delta;
                         if (blocked_scroll < 0) blocked_scroll = 0;
                         int content_height = 50 + (blocked_count * 35);
@@ -3693,7 +3711,8 @@ int main(int argc, char *argv[]) {
                         if (blocked_scroll > max_scroll) blocked_scroll = max_scroll;
                         printf("[FINGERMOTION] Blocked list scroll: delta=%d scroll=%d\n", delta, blocked_scroll);
                     }
-                    else if (is_chat_open) {
+                    else if (scroll_window_id == 8 && is_chat_open) {
+                        // Chat
                         chat_scroll -= delta; // Touch drag down = see newer, drag up = see older
                         if (chat_scroll < 0) chat_scroll = 0;
                         int total_content = CHAT_HISTORY * 15;
@@ -3755,6 +3774,7 @@ int main(int argc, char *argv[]) {
                 
                 if (event.tfinger.fingerId == scroll_touch_id) {
                     scroll_touch_id = -1;
+                    scroll_window_id = -1;
                     scroll_last_y = 0;
                 } else if (event.tfinger.fingerId == touch_id_dpad) {
                     touch_id_dpad = -1;

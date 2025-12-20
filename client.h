@@ -32,6 +32,10 @@
 #include <SDL2/SDL_syswm.h>
 #ifdef __ANDROID__
 #include <SDL2/SDL_system.h>
+#include <android/log.h>
+#define ALOG(...) __android_log_print(ANDROID_LOG_INFO, "C_MMO_Client", __VA_ARGS__)
+#else
+#define ALOG(...) printf(__VA_ARGS__)
 #endif
 #include <sys/types.h>
 
