@@ -50,6 +50,7 @@ pthread_mutex_t state_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // --- Prototypes ---
 void broadcast_state();
+void load_telemetry();
 
 // --- Database ---
 int get_role_id_from_name(char *name) {
@@ -565,7 +566,6 @@ void save_telemetry() {
     if (fp) {
         // Count occurrences of each unique renderer
         for (int i = 0; i < gl_telemetry_count; i++) {
-            int count = 0;
             int already_counted = 0;
             
             // Check if we already counted this renderer
@@ -607,7 +607,6 @@ void save_telemetry() {
     if (fp) {
         // Count occurrences of each unique OS
         for (int i = 0; i < os_telemetry_count; i++) {
-            int count = 0;
             int already_counted = 0;
             
             // Check if we already counted this OS
