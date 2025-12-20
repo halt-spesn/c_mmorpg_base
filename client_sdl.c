@@ -313,6 +313,12 @@ char gl_renderer_cache[128] = "";
 char gl_vendor_cache[128] = "";
 int gl_probe_done = 0;
 
+// --- Vulkan Device Cache ---
+#ifdef USE_VULKAN
+char vk_device_name[128] = "";
+int vk_probe_done = 0;
+#endif
+
 Uint32 last_input_tick = 0;
 int afk_timeout_minutes = 2; // Default 2 minutes
 Uint32 last_color_packet_ms = 0;
@@ -1650,7 +1656,20 @@ void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
     const char *renderer_str = info.name;
     const char *video_drv = SDL_GetCurrentVideoDriver();
     snprintf(lines[line_count++], 128, "VideoDrv: %s", video_drv ? video_drv : "Unknown");
-    if (renderer_str) snprintf(lines[line_count++], 128, "GPU: %s", renderer_str); else snprintf(lines[line_count++], 128, "GPU: Unknown");
+    
+    // Show GPU info based on backend
+    #ifdef USE_VULKAN
+    int is_vulkan_backend = (strstr(renderer_str, "vulkan") || strstr(renderer_str, "Vulkan")) ? 1 : 0;
+    if (is_vulkan_backend && vk_device_name[0]) {
+        // Show Vulkan device name
+        snprintf(lines[line_count++], 128, "GPU: %s", vk_device_name);
+    } else
+    #endif
+    {
+        // Show SDL renderer name (fallback)
+        if (renderer_str) snprintf(lines[line_count++], 128, "GPU: %s", renderer_str); 
+        else snprintf(lines[line_count++], 128, "GPU: Unknown");
+    }
     
     // Only show GL renderer info if we're actually using OpenGL backend
     int is_gl_backend = (strstr(renderer_str, "opengl") || strstr(renderer_str, "OpenGL")) ? 1 : 0;
@@ -3860,6 +3879,69 @@ int main(int argc, char *argv[]) {
             use_vulkan = 1;
             render_backend = RENDER_BACKEND_VULKAN;
             printf("Vulkan rendering active through SDL\n");
+            
+            // Probe Vulkan device name if not already done
+            if (!vk_probe_done) {
+                // Get Vulkan instance and enumerate physical devices
+                VkInstance instance = VK_NULL_HANDLE;
+                
+                // Get required extensions for Vulkan instance
+                unsigned int ext_count = 0;
+                if (SDL_Vulkan_GetInstanceExtensions(window, &ext_count, NULL)) {
+                    const char **extensions = malloc(sizeof(char*) * ext_count);
+                    if (extensions && SDL_Vulkan_GetInstanceExtensions(window, &ext_count, extensions)) {
+                        // Create minimal Vulkan instance for probing
+                        VkApplicationInfo app_info = {0};
+                        app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+                        app_info.pApplicationName = "MMO Client";
+                        app_info.apiVersion = VK_API_VERSION_1_0;
+                        
+                        VkInstanceCreateInfo create_info = {0};
+                        create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+                        create_info.pApplicationInfo = &app_info;
+                        create_info.enabledExtensionCount = ext_count;
+                        create_info.ppEnabledExtensionNames = extensions;
+                        
+                        if (vkCreateInstance(&create_info, NULL, &instance) == VK_SUCCESS) {
+                            // Enumerate physical devices
+                            uint32_t device_count = 0;
+                            vkEnumeratePhysicalDevices(instance, &device_count, NULL);
+                            if (device_count > 0) {
+                                VkPhysicalDevice *devices = malloc(sizeof(VkPhysicalDevice) * device_count);
+                                if (devices) {
+                                    vkEnumeratePhysicalDevices(instance, &device_count, devices);
+                                    // Get properties of first device (or match based on NVIDIA if PRIME is set)
+                                    VkPhysicalDeviceProperties props;
+                                    int selected_device = 0;
+                                    
+                                    // If NVIDIA PRIME is set, try to find NVIDIA device
+                                    #if !defined(_WIN32) && !defined(__APPLE__)
+                                    const char *nv_offload = getenv("__NV_PRIME_RENDER_OFFLOAD");
+                                    if (nv_offload && strcmp(nv_offload, "1") == 0) {
+                                        for (uint32_t i = 0; i < device_count; i++) {
+                                            vkGetPhysicalDeviceProperties(devices[i], &props);
+                                            if (props.vendorID == 0x10DE) { // NVIDIA vendor ID
+                                                selected_device = i;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    #endif
+                                    
+                                    vkGetPhysicalDeviceProperties(devices[selected_device], &props);
+                                    strncpy(vk_device_name, props.deviceName, sizeof(vk_device_name) - 1);
+                                    vk_device_name[sizeof(vk_device_name) - 1] = '\0';
+                                    printf("Vulkan device: %s\n", vk_device_name);
+                                    free(devices);
+                                }
+                            }
+                            vkDestroyInstance(instance, NULL);
+                        }
+                    }
+                    free(extensions);
+                }
+                vk_probe_done = 1;
+            }
         } else {
             render_backend = RENDER_BACKEND_OPENGL;
             printf("OpenGL/GLES rendering active through SDL\n");
