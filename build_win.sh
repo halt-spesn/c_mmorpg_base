@@ -11,7 +11,7 @@ mkdir -p windows_release
 echo "Creating folder windows_release..."
 
 # Compile Command
-x86_64-w64-mingw32-gcc client_sdl.c -o windows_release/game_client.exe \
+x86_64-w64-mingw32-gcc client_sdl.c client_network.c client_config.c client_audio.c client_utils.c client_input.c -o windows_release/game_client.exe \
     -I$SDL2_PATH/include/SDL2 \
     -I$SDL2_PATH/include \
     -I$IMG_PATH/include \
