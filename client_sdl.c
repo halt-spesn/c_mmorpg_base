@@ -1512,7 +1512,15 @@ void render_profile(SDL_Renderer *renderer) {
 
 void render_auth_screen(SDL_Renderer *renderer) {
     int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
-    auth_box = (SDL_Rect){w/2-200, h/2-200, 400, 400}; 
+    
+    // Apply UI scaling to auth screen (same as game UI)
+    SDL_RenderSetScale(renderer, ui_scale, ui_scale);
+    
+    // Adjust dimensions for scaled rendering
+    float scaled_w = w / ui_scale;
+    float scaled_h = h / ui_scale;
+    
+    auth_box = (SDL_Rect){scaled_w/2-200, scaled_h/2-200, 400, 400}; 
     
     SDL_SetRenderDrawColor(renderer, 50, 50, 50, 255); SDL_RenderClear(renderer);
     SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255); SDL_RenderFillRect(renderer, &auth_box);
@@ -1561,7 +1569,7 @@ void render_auth_screen(SDL_Renderer *renderer) {
     render_text(renderer, "Saved Profiles", btn_open_profiles.x + 85, btn_open_profiles.y + 5, col_white, 1);
 
     if (show_server_list) {
-        server_list_win = (SDL_Rect){w/2 - 125, h/2 - 200, 250, 400}; 
+        server_list_win = (SDL_Rect){scaled_w/2 - 125, scaled_h/2 - 200, 250, 400}; 
         SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255); SDL_RenderFillRect(renderer, &server_list_win);
         SDL_SetRenderDrawColor(renderer, 200, 200, 0, 255); SDL_RenderDrawRect(renderer, &server_list_win);
         render_text(renderer, "Select Server", server_list_win.x + 125, server_list_win.y + 10, col_yellow, 1);
@@ -1585,7 +1593,7 @@ void render_auth_screen(SDL_Renderer *renderer) {
     }
     
     if (show_profile_list) {
-        profile_list_win = (SDL_Rect){w/2 - 125, h/2 - 200, 250, 400}; 
+        profile_list_win = (SDL_Rect){scaled_w/2 - 125, scaled_h/2 - 200, 250, 400}; 
         SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255); SDL_RenderFillRect(renderer, &profile_list_win);
         SDL_SetRenderDrawColor(renderer, 0, 200, 200, 255); SDL_RenderDrawRect(renderer, &profile_list_win);
         render_text(renderer, "Select Profile", profile_list_win.x + 125, profile_list_win.y + 10, col_cyan, 1);
@@ -3702,7 +3710,9 @@ int main(int argc, char *argv[]) {
 
             if (client_state == STATE_AUTH) {
                 if(event.type == SDL_MOUSEBUTTONDOWN) {
-                    int mx = event.button.x * scale_x; int my = event.button.y * scale_y;
+                    // Convert window coordinates to UI coordinate space
+                    int mx = (int)((event.button.x * scale_x) / ui_scale);
+                    int my = (int)((event.button.y * scale_y) / ui_scale);
                     handle_auth_click(mx, my);
                 }
                 
