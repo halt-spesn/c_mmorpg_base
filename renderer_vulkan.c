@@ -312,11 +312,29 @@ static VkSurfaceFormatKHR choose_swap_surface_format(VkSurfaceFormatKHR *formats
 
 // Choose swap present mode
 static VkPresentModeKHR choose_swap_present_mode(VkPresentModeKHR *present_modes, uint32_t present_mode_count) {
+    // Priority order for best performance:
+    // 1. IMMEDIATE - lowest latency, no VSync (may cause tearing but best FPS)
+    // 2. MAILBOX - triple buffering, good balance of latency and smoothness
+    // 3. FIFO - VSync enabled, guaranteed to be available but can introduce latency
+    
+    // First try IMMEDIATE for lowest latency and best FPS
     for (uint32_t i = 0; i < present_mode_count; i++) {
-        if (present_modes[i] == VK_PRESENT_MODE_MAILBOX_KHR) {
+        if (present_modes[i] == VK_PRESENT_MODE_IMMEDIATE_KHR) {
+            printf("Using VK_PRESENT_MODE_IMMEDIATE_KHR for best performance\n");
             return present_modes[i];
         }
     }
+    
+    // Then try MAILBOX for good balance
+    for (uint32_t i = 0; i < present_mode_count; i++) {
+        if (present_modes[i] == VK_PRESENT_MODE_MAILBOX_KHR) {
+            printf("Using VK_PRESENT_MODE_MAILBOX_KHR\n");
+            return present_modes[i];
+        }
+    }
+    
+    // Fall back to FIFO (always available)
+    printf("Using VK_PRESENT_MODE_FIFO_KHR (VSync)\n");
     return VK_PRESENT_MODE_FIFO_KHR;
 }
 
@@ -361,10 +379,25 @@ static int create_swapchain(SDL_Window *window, VulkanRenderer *vk) {
     VkPresentModeKHR present_mode = choose_swap_present_mode(present_modes, present_mode_count);
     VkExtent2D extent = choose_swap_extent(window, &capabilities);
     
-    uint32_t image_count = capabilities.minImageCount + 1;
+    // Optimize image count based on present mode
+    // For IMMEDIATE mode, we only need 2 images (double buffering)
+    // For MAILBOX, we want 3 images (triple buffering)
+    // For FIFO, we use minimum + 1
+    uint32_t image_count;
+    if (present_mode == VK_PRESENT_MODE_IMMEDIATE_KHR) {
+        image_count = 2; // Double buffering for IMMEDIATE mode
+    } else if (present_mode == VK_PRESENT_MODE_MAILBOX_KHR) {
+        image_count = 3; // Triple buffering for MAILBOX mode
+    } else {
+        image_count = capabilities.minImageCount + 1; // FIFO mode
+    }
+    
+    // Ensure we don't exceed maximum
     if (capabilities.maxImageCount > 0 && image_count > capabilities.maxImageCount) {
         image_count = capabilities.maxImageCount;
     }
+    
+    printf("Using %d swapchain images\n", image_count);
     
     VkSwapchainCreateInfoKHR create_info = {0};
     create_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
@@ -529,7 +562,8 @@ static int create_framebuffers(VulkanRenderer *vk) {
 static int create_command_pool(VulkanRenderer *vk) {
     VkCommandPoolCreateInfo pool_info = {0};
     pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    // Add TRANSIENT flag for better performance when command buffers are short-lived
+    pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
     pool_info.queueFamilyIndex = vk->graphics_family_index;
     
     if (vkCreateCommandPool(vk->device, &pool_info, NULL, &vk->command_pool) != VK_SUCCESS) {
@@ -685,10 +719,21 @@ int vulkan_init(SDL_Window *window, VulkanRenderer *vk_renderer) {
 
 // Begin frame rendering
 int vulkan_begin_frame(VulkanRenderer *vk_renderer, uint32_t *image_index) {
-    vkWaitForFences(vk_renderer->device, 1, &vk_renderer->in_flight_fences[vk_renderer->current_frame], 
-                    VK_TRUE, UINT64_MAX);
+    // Use a timeout instead of infinite wait to prevent stuttering
+    // 1 second timeout is reasonable - if frame takes longer, something is seriously wrong
+    VkResult fence_result = vkWaitForFences(vk_renderer->device, 1, 
+                                           &vk_renderer->in_flight_fences[vk_renderer->current_frame], 
+                                           VK_TRUE, 1000000000); // 1 second in nanoseconds
     
-    VkResult result = vkAcquireNextImageKHR(vk_renderer->device, vk_renderer->swapchain, UINT64_MAX,
+    if (fence_result == VK_TIMEOUT) {
+        printf("Warning: Fence wait timeout - GPU may be overloaded\n");
+        return 0;
+    } else if (fence_result != VK_SUCCESS) {
+        printf("Failed to wait for fence: %d\n", fence_result);
+        return 0;
+    }
+    
+    VkResult result = vkAcquireNextImageKHR(vk_renderer->device, vk_renderer->swapchain, 1000000000, // 1 second timeout
                                            vk_renderer->image_available_semaphores[vk_renderer->current_frame],
                                            VK_NULL_HANDLE, image_index);
     
