@@ -2821,9 +2821,8 @@ int main(int argc, char *argv[]) {
     SDL_SetHint(SDL_HINT_WINDOWS_RAWKEYBOARD, "1");
     #endif
     
-    // Don't force VSync - let it be controlled by present mode in Vulkan
-    // or be optional for users. Forcing VSync causes FPS drops when UI windows are open.
-    // Users can set SDL_HINT_RENDER_VSYNC=1 if they want VSync.
+    // Enable adaptive VSync if available (reduces latency while preventing tearing)
+    SDL_SetHint(SDL_HINT_RENDER_VSYNC, "1");
     
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) return 1;
     if (TTF_Init() == -1) return 1;
