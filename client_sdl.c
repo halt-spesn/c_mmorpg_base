@@ -266,7 +266,7 @@ int documentation_scroll = 0;
 
 int show_role_list = 0;
 int role_list_scroll = 0;
-struct { int id; char name[32]; int role; } staff_list[50];
+StaffEntry staff_list[50];
 int staff_count = 0;
 SDL_Rect btn_staff_list_rect;
 
@@ -277,7 +277,7 @@ char input_sanction_reason[64] = "";
 char input_ban_time[16] = "";
 
 int show_my_warnings = 0;
-struct { char reason[64]; char date[32]; } my_warning_list[20];
+WarningEntry my_warning_list[20];
 int my_warning_count = 0;
 int warnings_scroll = 0;
 
