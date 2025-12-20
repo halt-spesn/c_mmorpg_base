@@ -2876,6 +2876,13 @@ int y_start = auth_box.y + 80;
 int main(int argc, char *argv[]) {
     setbuf(stdout, NULL);
     
+    // Add startup message to verify logging works
+    ALOG("=== C MMO Client Starting ===\n");
+    ALOG("Build info: %s %s\n", __DATE__, __TIME__);
+    #ifdef __ANDROID__
+    ALOG("Platform: Android\n");
+    #endif
+    
     // Load config early to get rendering backend preference and GPU settings
     // This must happen before any SDL initialization
     load_config();
@@ -3026,7 +3033,9 @@ int main(int argc, char *argv[]) {
     // SDL_WINDOW_VULKAN is only for direct Vulkan usage without SDL_Renderer
 
     SDL_Window *window = SDL_CreateWindow("C MMO Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, win_w, win_h, win_flags);
-    if (!window) { printf("Window creation failed: %s\n", SDL_GetError()); return 1; }
+    if (!window) { ALOG("Window creation failed: %s\n", SDL_GetError()); return 1; }
+    
+    ALOG("SDL Window created successfully\n");
     
     // Create SDL_Renderer for game content rendering
     // SDL will use the hinted backend (Vulkan if requested) or auto-select best available
@@ -3035,19 +3044,21 @@ int main(int argc, char *argv[]) {
     // Small delay to allow macOS to properly initialize window compositing
     SDL_Delay(100);
     // Use software renderer for compatibility with older hardware on macOS
-    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
+    ALOG("Creating software renderer for macOS\n");
+    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     #else
     // Use accelerated renderer without forcing VSync
     // VSync can be controlled via SDL_HINT_RENDER_VSYNC if desired
     // Not forcing VSync prevents frame drops when UI windows are open
+    ALOG("Creating accelerated renderer\n");
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     #endif
     
     if (!renderer) { 
-        printf("Renderer creation failed: %s\n", SDL_GetError()); 
+        ALOG("Renderer creation failed: %s\n", SDL_GetError()); 
         #ifdef USE_VULKAN
         if (use_vulkan) {
-            printf("Vulkan renderer not available, falling back to OpenGL\n");
+            ALOG("Vulkan renderer not available, falling back to OpenGL\n");
             // Clear the hint and try again with default renderer
             SDL_SetHint(SDL_HINT_RENDER_DRIVER, NULL);
             use_vulkan = 0;
@@ -3056,7 +3067,7 @@ int main(int argc, char *argv[]) {
         }
         #endif
         if (!renderer) {
-            printf("Failed to create any renderer\n");
+            ALOG("Failed to create any renderer\n");
             return 1;
         }
     }
@@ -3064,20 +3075,20 @@ int main(int argc, char *argv[]) {
     // Check which rendering backend SDL chose
     SDL_RendererInfo info;
     if (SDL_GetRendererInfo(renderer, &info) == 0) {
-        printf("SDL Renderer backend: %s\n", info.name);
+        ALOG("SDL Renderer backend: %s\n", info.name);
         
         #ifdef USE_VULKAN
         // Verify backend matches user request
         int is_vulkan = (strstr(info.name, "vulkan") || strstr(info.name, "Vulkan")) ? 1 : 0;
         
         if (use_vulkan && !is_vulkan) {
-            printf("Warning: Vulkan requested but SDL chose %s - Vulkan may not be available on this system\n", info.name);
+            ALOG("Warning: Vulkan requested but SDL chose %s - Vulkan may not be available on this system\n", info.name);
             use_vulkan = 0;
             render_backend = RENDER_BACKEND_OPENGL;
         } else if (is_vulkan) {
             use_vulkan = 1;
             render_backend = RENDER_BACKEND_VULKAN;
-            printf("Vulkan rendering active through SDL\n");
+            ALOG("Vulkan rendering active through SDL\n");
             
             // Probe Vulkan device name if not already done
             if (!vk_probe_done) {
@@ -3498,13 +3509,9 @@ int main(int argc, char *argv[]) {
                 #endif
 
                 // Touch scrolling support for all scrollable windows
-                if (is_settings_open && SDL_PointInRect(&(SDL_Point){tx, ty}, &settings_view_port)) {
-                    scroll_touch_id = event.tfinger.fingerId;
-                    scroll_last_y = ty;
-                    scroll_window_id = 0; // Settings
-                    printf("[FINGERDOWN] Settings scroll touch started\n");
-                }
-                else if (show_documentation) {
+                // Check each window independently to see if touch is within its bounds
+                // This allows overlay windows (docs, contributors, etc.) to work even when settings is open
+                if (show_documentation) {
                     SDL_Rect win = {w/2 - 225, h/2 - 250, 450, 500};
                     SDL_Rect content_area = {win.x + 10, win.y + 50, win.w - 20, win.h - 60};
                     if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
@@ -3522,6 +3529,16 @@ int main(int argc, char *argv[]) {
                         scroll_last_y = ty;
                         scroll_window_id = 2; // Contributors
                         printf("[FINGERDOWN] Contributors scroll touch started\n");
+                    }
+                }
+                else if (show_role_list) {
+                    SDL_Rect win = {w/2 - 200, h/2 - 225, 400, 450};
+                    SDL_Rect content_area = {win.x + 10, win.y + 50, win.w - 20, win.h - 60};
+                    if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
+                        scroll_touch_id = event.tfinger.fingerId;
+                        scroll_last_y = ty;
+                        scroll_window_id = 6; // Role list
+                        printf("[FINGERDOWN] Staff list scroll touch started\n");
                     }
                 }
                 else if (show_friend_list) {
@@ -3554,16 +3571,6 @@ int main(int argc, char *argv[]) {
                         printf("[FINGERDOWN] Warnings scroll touch started\n");
                     }
                 }
-                else if (show_role_list) {
-                    SDL_Rect win = {w/2 - 200, h/2 - 225, 400, 450};
-                    SDL_Rect content_area = {win.x + 10, win.y + 50, win.w - 20, win.h - 60};
-                    if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
-                        scroll_touch_id = event.tfinger.fingerId;
-                        scroll_last_y = ty;
-                        scroll_window_id = 6; // Role list
-                        printf("[FINGERDOWN] Staff list scroll touch started\n");
-                    }
-                }
                 else if (show_blocked_list) {
                     SDL_Rect win = {w/2 - 150, h/2 - 200, 300, 400};
                     SDL_Rect content_area = {win.x + 10, win.y + 45, win.w - 20, win.h - 50};
@@ -3573,6 +3580,12 @@ int main(int argc, char *argv[]) {
                         scroll_window_id = 7; // Blocked list
                         printf("[FINGERDOWN] Blocked list scroll touch started\n");
                     }
+                }
+                else if (is_settings_open && SDL_PointInRect(&(SDL_Point){tx, ty}, &settings_view_port)) {
+                    scroll_touch_id = event.tfinger.fingerId;
+                    scroll_last_y = ty;
+                    scroll_window_id = 0; // Settings
+                    printf("[FINGERDOWN] Settings scroll touch started\n");
                 }
                 // Game-specific touch handling only in STATE_GAME
                 else if (client_state == STATE_GAME) {
