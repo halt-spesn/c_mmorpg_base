@@ -1651,17 +1651,23 @@ void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
     const char *video_drv = SDL_GetCurrentVideoDriver();
     snprintf(lines[line_count++], 128, "VideoDrv: %s", video_drv ? video_drv : "Unknown");
     if (renderer_str) snprintf(lines[line_count++], 128, "GPU: %s", renderer_str); else snprintf(lines[line_count++], 128, "GPU: Unknown");
+    
+    // Only show GL renderer info if we're actually using OpenGL backend
+    int is_gl_backend = (strstr(renderer_str, "opengl") || strstr(renderer_str, "OpenGL")) ? 1 : 0;
+    
     void *glctx = SDL_GL_GetCurrentContext();
-    if (glctx) {
+    if (glctx && is_gl_backend) {
         const char *gl_renderer = (const char*)glGetString(GL_RENDERER);
         const char *gl_vendor   = (const char*)glGetString(GL_VENDOR);
         if (gl_renderer && strlen(gl_renderer) > 0) snprintf(lines[line_count++], 128, "GL Renderer: %s", gl_renderer);
         if (gl_vendor   && strlen(gl_vendor)   > 0) snprintf(lines[line_count++], 128, "GL Vendor: %s", gl_vendor);
-    } else {
+    } else if (is_gl_backend && !glctx) {
+        // OpenGL backend but no context - show cached info
         if (gl_renderer_cache[0]) snprintf(lines[line_count++], 128, "GL Renderer: %s", gl_renderer_cache);
         if (gl_vendor_cache[0])   snprintf(lines[line_count++], 128, "GL Vendor: %s", gl_vendor_cache);
-        else snprintf(lines[line_count++], 128, "GL Renderer: N/A (non-GL backend)");
+        else snprintf(lines[line_count++], 128, "GL Renderer: N/A");
     }
+    // Note: For Vulkan/other non-GL backends, we don't show GL renderer info
     SDL_version compiled; SDL_VERSION(&compiled); snprintf(lines[line_count++], 128, "SDL: %d.%d.%d", compiled.major, compiled.minor, compiled.patch);
     #ifndef _WIN32
     struct utsname buffer; 
