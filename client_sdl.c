@@ -595,7 +595,8 @@ void load_config() {
         
         // Apply render backend preference if present (and not overridden by command line)
         #ifdef USE_VULKAN
-        if (count >= 15 && backend == RENDER_BACKEND_VULKAN) {
+        #define CONFIG_FIELD_RENDER_BACKEND 15
+        if (count >= CONFIG_FIELD_RENDER_BACKEND && backend == RENDER_BACKEND_VULKAN) {
             // Only apply config if command line didn't already set it
             if (render_backend == RENDER_BACKEND_OPENGL) {
                 render_backend = RENDER_BACKEND_VULKAN;

@@ -784,59 +784,96 @@ int vulkan_end_frame(VulkanRenderer *vk_renderer, uint32_t image_index) {
 
 // Handle window resize
 void vulkan_handle_resize(VulkanRenderer *vk_renderer) {
-    // Simple implementation: just mark as resized
-    // The swapchain will be recreated on the next frame when acquisition fails
-    // For a more complete implementation, store SDL_Window pointer in VulkanRenderer
-    // and fully recreate the swapchain here
-    printf("Window resize detected - swapchain will be recreated\n");
-    vk_renderer->framebuffer_resized = 0;
+    // Window resize handling: flag is checked in end_frame and cleared there
+    // The flag stays set until the next successful frame presentation
+    // This ensures the swapchain is properly recreated
+    printf("Window resize detected - swapchain will be recreated on next frame\n");
+    // Note: framebuffer_resized flag is cleared in vulkan_end_frame after handling
 }
 
 // Cleanup Vulkan resources
 void vulkan_cleanup(VulkanRenderer *vk_renderer) {
-    vkDeviceWaitIdle(vk_renderer->device);
+    if (vk_renderer->device) {
+        vkDeviceWaitIdle(vk_renderer->device);
+    }
     
     // Destroy sync objects
-    for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        vkDestroySemaphore(vk_renderer->device, vk_renderer->image_available_semaphores[i], NULL);
-        vkDestroySemaphore(vk_renderer->device, vk_renderer->render_finished_semaphores[i], NULL);
-        vkDestroyFence(vk_renderer->device, vk_renderer->in_flight_fences[i], NULL);
+    if (vk_renderer->image_available_semaphores && vk_renderer->device) {
+        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+            if (vk_renderer->image_available_semaphores[i]) {
+                vkDestroySemaphore(vk_renderer->device, vk_renderer->image_available_semaphores[i], NULL);
+            }
+        }
+    }
+    if (vk_renderer->render_finished_semaphores && vk_renderer->device) {
+        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+            if (vk_renderer->render_finished_semaphores[i]) {
+                vkDestroySemaphore(vk_renderer->device, vk_renderer->render_finished_semaphores[i], NULL);
+            }
+        }
+    }
+    if (vk_renderer->in_flight_fences && vk_renderer->device) {
+        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+            if (vk_renderer->in_flight_fences[i]) {
+                vkDestroyFence(vk_renderer->device, vk_renderer->in_flight_fences[i], NULL);
+            }
+        }
     }
     free(vk_renderer->image_available_semaphores);
     free(vk_renderer->render_finished_semaphores);
     free(vk_renderer->in_flight_fences);
     
     // Destroy command pool
-    vkDestroyCommandPool(vk_renderer->device, vk_renderer->command_pool, NULL);
+    if (vk_renderer->command_pool && vk_renderer->device) {
+        vkDestroyCommandPool(vk_renderer->device, vk_renderer->command_pool, NULL);
+    }
     free(vk_renderer->command_buffers);
     
     // Destroy framebuffers
-    for (uint32_t i = 0; i < vk_renderer->swapchain_image_count; i++) {
-        vkDestroyFramebuffer(vk_renderer->device, vk_renderer->framebuffers[i], NULL);
+    if (vk_renderer->framebuffers && vk_renderer->device) {
+        for (uint32_t i = 0; i < vk_renderer->swapchain_image_count; i++) {
+            if (vk_renderer->framebuffers[i]) {
+                vkDestroyFramebuffer(vk_renderer->device, vk_renderer->framebuffers[i], NULL);
+            }
+        }
     }
     free(vk_renderer->framebuffers);
     
     // Destroy render pass
-    vkDestroyRenderPass(vk_renderer->device, vk_renderer->render_pass, NULL);
+    if (vk_renderer->render_pass && vk_renderer->device) {
+        vkDestroyRenderPass(vk_renderer->device, vk_renderer->render_pass, NULL);
+    }
     
     // Destroy image views
-    for (uint32_t i = 0; i < vk_renderer->swapchain_image_count; i++) {
-        vkDestroyImageView(vk_renderer->device, vk_renderer->swapchain_image_views[i], NULL);
+    if (vk_renderer->swapchain_image_views && vk_renderer->device) {
+        for (uint32_t i = 0; i < vk_renderer->swapchain_image_count; i++) {
+            if (vk_renderer->swapchain_image_views[i]) {
+                vkDestroyImageView(vk_renderer->device, vk_renderer->swapchain_image_views[i], NULL);
+            }
+        }
     }
     free(vk_renderer->swapchain_image_views);
     free(vk_renderer->swapchain_images);
     
     // Destroy swapchain
-    vkDestroySwapchainKHR(vk_renderer->device, vk_renderer->swapchain, NULL);
+    if (vk_renderer->swapchain && vk_renderer->device) {
+        vkDestroySwapchainKHR(vk_renderer->device, vk_renderer->swapchain, NULL);
+    }
     
     // Destroy device
-    vkDestroyDevice(vk_renderer->device, NULL);
+    if (vk_renderer->device) {
+        vkDestroyDevice(vk_renderer->device, NULL);
+    }
     
     // Destroy surface
-    vkDestroySurfaceKHR(vk_renderer->instance, vk_renderer->surface, NULL);
+    if (vk_renderer->surface && vk_renderer->instance) {
+        vkDestroySurfaceKHR(vk_renderer->instance, vk_renderer->surface, NULL);
+    }
     
     // Destroy instance
-    vkDestroyInstance(vk_renderer->instance, NULL);
+    if (vk_renderer->instance) {
+        vkDestroyInstance(vk_renderer->instance, NULL);
+    }
     
     printf("Vulkan renderer cleaned up\n");
 }
