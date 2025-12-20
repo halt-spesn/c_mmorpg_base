@@ -1,9 +1,47 @@
 # Vulkan and SDL Renderer Performance Optimizations
 
 ## Summary
-This document describes the performance optimizations made to improve FPS and reduce stuttering, especially on systems using Vulkan rendering.
+This document describes the performance optimizations made to improve FPS and reduce stuttering, especially on systems using Vulkan rendering. **Latest update:** Fixed FPS drops and ping spikes when UI windows are open.
 
 ## Changes Made
+
+### 0. Removed Forced VSync 🎯 (Latest Fix - Addresses All User Issues)
+**Problem:** Forced VSync caused FPS drops when UI windows opened and ping spikes  
+**Solution:** Remove SDL_RENDERER_PRESENTVSYNC, let Vulkan present mode control timing  
+**Impact:** Stable FPS regardless of UI state, no more ping spikes
+
+**Issues Fixed:**
+- ✅ FPS no longer drops when opening docs, settings, staff list, etc.
+- ✅ Ping remains stable regardless of UI state
+- ✅ Higher FPS on NVIDIA GPUs with Vulkan
+- ✅ Main thread no longer blocks on rendering, network processes normally
+
+**Before:**
+```c
+// Forced VSync caused blocking
+Uint32 flags = SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC;
+renderer = SDL_CreateRenderer(window, -1, flags);
+SDL_SetHint(SDL_HINT_RENDER_VSYNC, "1");
+// ... in main loop:
+render_game();
+// No delay - VSync handles timing (but blocks!)
+```
+
+**After:**
+```c
+// No forced VSync, free running with cap
+renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+// No VSync hint set - optional for users
+// ... in main loop:
+render_game();
+SDL_Delay(4); // ~250 FPS cap, non-blocking
+```
+
+**Why This Works:**
+- Vulkan IMMEDIATE present mode handles frame pacing without blocking
+- SDL_Delay(4) prevents CPU waste but doesn't block like VSync
+- Heavy UI rendering (lots of text) no longer causes frame drops
+- Main thread stays responsive for network packet processing
 
 ### 1. Vulkan Fence Wait Timeout ⚡ (Critical Fix)
 **Problem:** Infinite wait on GPU fences caused hangs and stuttering  
@@ -88,13 +126,22 @@ render_game();
 SDL_Delay(16); // Crude timing, wastes CPU
 ```
 
-**After:**
+**After (OLD - caused issues):**
 ```c
 Uint32 flags = SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC;
 SDL_CreateRenderer(window, -1, flags);
 // ...
 render_game();
 // No delay needed - VSync handles timing
+```
+
+**After (FIXED - current version):**
+```c
+// No forced VSync
+SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+// ...
+render_game();
+SDL_Delay(4); // ~250 FPS cap, non-blocking
 ```
 
 ### 6. GPU Detection and Diagnostics 🔍
@@ -118,21 +165,25 @@ Performance tip: If you experience tearing, the renderer is using IMMEDIATE mode
 ## Expected Performance Gains
 
 ### Vulkan Backend
-- **FPS:** 30-50% increase on systems with IMMEDIATE mode
+- **FPS:** 30-50% increase with IMMEDIATE mode
 - **Frame Time:** Much more consistent (no stuttering)
 - **CPU Usage:** 5-10% reduction
 - **Input Latency:** Significantly reduced
+- **UI Performance:** ✨ **No FPS drops when opening windows**
+- **Network:** ✨ **Stable ping regardless of UI state**
 
 ### OpenGL Backend
 - **Frame Timing:** More consistent
 - **CPU Usage:** 5-10% reduction
+- **UI Performance:** ✨ **Stable FPS with UI windows**
 
 ## Systems Most Likely to Benefit
 
-✅ **NVIDIA GPUs** - Excellent Vulkan support, IMMEDIATE mode widely available  
+✅ **NVIDIA GPUs** - Excellent Vulkan support, IMMEDIATE mode, no more FPS drops  
 ✅ **AMD GPUs** - Good Vulkan support, IMMEDIATE mode often available  
 ✅ **Linux Systems** - Generally better Vulkan driver support than Windows  
 ✅ **Lower-End GPUs** - Timeout handling prevents hangs under load  
+✅ **All Systems** - ✨ **No more ping spikes or FPS drops with UI windows**
 
 ## About Screen Tearing
 
@@ -179,17 +230,31 @@ To verify the improvements:
    - Enable FPS counter in settings
    - Compare before/after values
    - Should see 30-50% improvement with IMMEDIATE mode
+   - ✨ **Open UI windows (docs, settings, staff list) - FPS should stay stable**
 
-3. **Check for Stuttering:**
+3. **Check Ping:**
+   - Monitor ping indicator in game
+   - ✨ **Open UI windows - ping should remain stable (no spikes)**
+   - Previous version had ping spikes to 30-180ms with UI windows
+
+4. **Check for Stuttering:**
    - Move around the game world
    - Rapid camera movements
    - Should be much smoother now
 
-4. **Verify GPU Usage:**
+5. **Verify GPU Usage:**
    - Use tools like `nvidia-smi` or `radeontop`
    - GPU should be utilized more efficiently
 
 ## Troubleshooting
+
+### Issue: FPS drops when opening UI windows ✅ FIXED
+**Previous Cause:** Forced VSync blocked main thread during heavy UI rendering  
+**Solution:** This is now fixed - VSync is no longer forced. FPS should remain stable.
+
+### Issue: Ping spikes when opening UI windows ✅ FIXED
+**Previous Cause:** Main thread blocked on VSync, network packets not processed  
+**Solution:** This is now fixed - main thread no longer blocks on rendering.
 
 ### Issue: "Fence wait timeout" messages
 **Cause:** GPU is overloaded or driver issues  
@@ -207,11 +272,17 @@ To verify the improvements:
 **Cause:** System may not support IMMEDIATE mode  
 **Solution:** Check console output to see which present mode was selected. If using FIFO (VSync), this is expected behavior.
 
+### Issue: Want VSync enabled
+**Cause:** VSync is no longer forced (to prevent FPS drops with UI)  
+**Solution:** Set environment variable before running: `SDL_HINT_RENDER_VSYNC=1 ./client`
+
 ## Future Improvements
 
 Potential areas for further optimization:
 - [ ] Add config option to choose present mode manually
+- [ ] Add config option to enable/disable VSync in SDL renderer
 - [ ] Implement dynamic present mode switching based on FPS
+- [ ] Cache UI text textures to reduce render_text overhead
 - [ ] Add texture streaming for large maps
 - [ ] Implement LOD system for distant objects
 - [ ] Multi-threaded rendering preparation
