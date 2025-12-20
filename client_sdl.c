@@ -2805,9 +2805,14 @@ int main(int argc, char *argv[]) {
     // Configure NVIDIA Prime GPU selection on Linux if enabled in config
     #if !defined(_WIN32) && !defined(__APPLE__)
     if (config_use_nvidia_gpu) {
-        setenv("__NV_PRIME_RENDER_OFFLOAD", "1", 1);
-        setenv("__GLX_VENDOR_LIBRARY_NAME", "nvidia", 1);
+        if (setenv("__NV_PRIME_RENDER_OFFLOAD", "1", 1) != 0) {
+            printf("Warning: Failed to set __NV_PRIME_RENDER_OFFLOAD environment variable\n");
+        }
+        if (setenv("__GLX_VENDOR_LIBRARY_NAME", "nvidia", 1) != 0) {
+            printf("Warning: Failed to set __GLX_VENDOR_LIBRARY_NAME environment variable\n");
+        }
         printf("NVIDIA GPU selection enabled from config\n");
+        // Request accelerated visual for proper GPU selection (works for both OpenGL and Vulkan)
         SDL_GL_SetAttribute(SDL_GL_ACCELERATED_VISUAL, 1);
     }
     #endif
