@@ -426,8 +426,9 @@ void process_password_change(int index, Packet *pkt) {
     // 2. Verify current password
     sqlite3_stmt *stmt;
     char sql[256];
-    snprintf(sql, 256, "SELECT PASSWORD FROM users WHERE ID=%d;", players[index].id);
+    snprintf(sql, 256, "SELECT PASSWORD FROM users WHERE ID=?;");
     sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
+    sqlite3_bind_int(stmt, 1, players[index].id);
     
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         const char *db_pass = (const char*)sqlite3_column_text(stmt, 0);

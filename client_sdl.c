@@ -2168,7 +2168,7 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
 
         int py = pop.y + 60;
         render_text(renderer, "Current Password:", pop.x+20, py, col_white, 0);
-        render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, py+20, 240, 25}, password_current, active_field==20, !show_password_current);
+        render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, py+20, 240, 25}, password_current, active_field==FIELD_PASSWORD_CURRENT, !show_password_current);
         
         // Show checkbox for current password
         SDL_Rect btn_show_curr = {pop.x + 270, py + 25, 15, 15};
@@ -2182,7 +2182,7 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
 
         py += 70;
         render_text(renderer, "New Password:", pop.x+20, py, col_white, 0);
-        render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, py+20, 240, 25}, password_new, active_field==21, !show_password_new);
+        render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, py+20, 240, 25}, password_new, active_field==FIELD_PASSWORD_NEW, !show_password_new);
         
         // Show checkbox for new password
         SDL_Rect btn_show_new = {pop.x + 270, py + 25, 15, 15};
@@ -2196,7 +2196,7 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
 
         py += 70;
         render_text(renderer, "Confirm Password:", pop.x+20, py, col_white, 0);
-        render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, py+20, 240, 25}, password_confirm, active_field==22, !show_password_confirm);
+        render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, py+20, 240, 25}, password_confirm, active_field==FIELD_PASSWORD_CONFIRM, !show_password_confirm);
         
         // Show checkbox for confirm password
         SDL_Rect btn_show_conf = {pop.x + 270, py + 25, 15, 15};
@@ -3286,7 +3286,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             // Current password field
             SDL_Rect r_curr = {pop.x+20, py+20, 240, 25};
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &r_curr)) {
-                active_field = 20; SDL_StartTextInput(); active_input_rect = r_curr;
+                active_field = FIELD_PASSWORD_CURRENT; SDL_StartTextInput(); active_input_rect = r_curr;
                 cursor_pos = get_cursor_pos_from_click(password_current, mx, r_curr.x);
                 selection_start = cursor_pos; selection_len = 0; is_dragging = 1; return;
             }
@@ -3298,7 +3298,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             // New password field
             SDL_Rect r_new = {pop.x+20, py+20, 240, 25};
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &r_new)) {
-                active_field = 21; SDL_StartTextInput(); active_input_rect = r_new;
+                active_field = FIELD_PASSWORD_NEW; SDL_StartTextInput(); active_input_rect = r_new;
                 cursor_pos = get_cursor_pos_from_click(password_new, mx, r_new.x);
                 selection_start = cursor_pos; selection_len = 0; is_dragging = 1; return;
             }
@@ -3310,7 +3310,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             // Confirm password field
             SDL_Rect r_conf = {pop.x+20, py+20, 240, 25};
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &r_conf)) {
-                active_field = 22; SDL_StartTextInput(); active_input_rect = r_conf;
+                active_field = FIELD_PASSWORD_CONFIRM; SDL_StartTextInput(); active_input_rect = r_conf;
                 cursor_pos = get_cursor_pos_from_click(password_confirm, mx, r_conf.x);
                 selection_start = cursor_pos; selection_len = 0; is_dragging = 1; return;
             }
