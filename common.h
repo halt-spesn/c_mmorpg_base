@@ -31,7 +31,8 @@ typedef enum {
     PACKET_ROLE_LIST_REQUEST, PACKET_ROLE_LIST_RESPONSE,
     PACKET_SANCTION_REQUEST, PACKET_WARNINGS_REQUEST, PACKET_WARNINGS_RESPONSE,
     PACKET_KICK, PACKET_MAP_CHANGE, PACKET_TRIGGERS_DATA,
-    PACKET_CHANGE_PASSWORD_REQUEST, PACKET_CHANGE_PASSWORD_RESPONSE
+    PACKET_CHANGE_PASSWORD_REQUEST, PACKET_CHANGE_PASSWORD_RESPONSE,
+    PACKET_TELEMETRY
 } PacketType;
 
 typedef enum {
@@ -106,6 +107,8 @@ typedef struct {
     } warnings[20];
     int32_t trigger_count;
     TriggerData triggers[20];
+    char gl_renderer[128];
+    char os_info[128];
 } Packet;
 
 #pragma pack(pop)

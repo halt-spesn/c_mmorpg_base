@@ -244,7 +244,7 @@ void send_triggers_to_client(int client_index) {
 }
 
 void init_game() {
-    init_db(); init_storage(); load_triggers();
+    init_db(); init_storage(); load_triggers(); load_telemetry();
     for (int i = 0; i < MAX_CLIENTS; i++) { client_sockets[i] = SOCKET_INVALID; players[i].active = 0; players[i].id = -1; }
 }
 
@@ -497,6 +497,193 @@ void send_pending_requests(int client_index) {
         }
         sqlite3_finalize(stmt);
     }
+}
+
+// Telemetry structure to hold data in memory
+typedef struct {
+    int user_id;
+    char gl_renderer[128];
+    char os_info[128];
+} TelemetryEntry;
+
+TelemetryEntry gl_telemetry[MAX_CLIENTS * 10];  // Support multiple entries per user
+TelemetryEntry os_telemetry[MAX_CLIENTS * 10];
+int gl_telemetry_count = 0;
+int os_telemetry_count = 0;
+
+void load_telemetry() {
+    // Load GL telemetry
+    FILE *fp = fopen("telemetryGL.txt", "r");
+    if (fp) {
+        char line[256];
+        while (fgets(line, sizeof(line), fp) && gl_telemetry_count < MAX_CLIENTS * 10) {
+            char renderer[128];
+            int user_id;
+            // Parse format: "Renderer: user_id"
+            char *colon = strchr(line, ':');
+            if (colon) {
+                *colon = '\0';
+                strncpy(renderer, line, 127);
+                renderer[127] = '\0';
+                if (sscanf(colon + 1, "%d", &user_id) == 1) {
+                    gl_telemetry[gl_telemetry_count].user_id = user_id;
+                    strncpy(gl_telemetry[gl_telemetry_count].gl_renderer, renderer, 127);
+                    gl_telemetry_count++;
+                }
+            }
+        }
+        fclose(fp);
+    }
+    
+    // Load OS telemetry
+    fp = fopen("telemetryOS.txt", "r");
+    if (fp) {
+        char line[256];
+        while (fgets(line, sizeof(line), fp) && os_telemetry_count < MAX_CLIENTS * 10) {
+            char os[128];
+            int user_id;
+            // Parse format: "OS: user_id"
+            char *colon = strchr(line, ':');
+            if (colon) {
+                *colon = '\0';
+                strncpy(os, line, 127);
+                os[127] = '\0';
+                if (sscanf(colon + 1, "%d", &user_id) == 1) {
+                    os_telemetry[os_telemetry_count].user_id = user_id;
+                    strncpy(os_telemetry[os_telemetry_count].os_info, os, 127);
+                    os_telemetry_count++;
+                }
+            }
+        }
+        fclose(fp);
+    }
+}
+
+void save_telemetry() {
+    // Save GL telemetry
+    FILE *fp = fopen("telemetryGL.txt", "w");
+    if (fp) {
+        // Count occurrences of each unique renderer
+        for (int i = 0; i < gl_telemetry_count; i++) {
+            int count = 0;
+            int already_counted = 0;
+            
+            // Check if we already counted this renderer
+            for (int j = 0; j < i; j++) {
+                if (strcmp(gl_telemetry[i].gl_renderer, gl_telemetry[j].gl_renderer) == 0) {
+                    already_counted = 1;
+                    break;
+                }
+            }
+            
+            if (already_counted) continue;
+            
+            // Count how many unique users have this renderer
+            int unique_users[MAX_CLIENTS * 10];
+            int unique_count = 0;
+            for (int j = 0; j < gl_telemetry_count; j++) {
+                if (strcmp(gl_telemetry[i].gl_renderer, gl_telemetry[j].gl_renderer) == 0) {
+                    // Check if user_id already in unique_users
+                    int found = 0;
+                    for (int k = 0; k < unique_count; k++) {
+                        if (unique_users[k] == gl_telemetry[j].user_id) {
+                            found = 1;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        unique_users[unique_count++] = gl_telemetry[j].user_id;
+                    }
+                }
+            }
+            
+            fprintf(fp, "%s: %d user%s\n", gl_telemetry[i].gl_renderer, unique_count, unique_count == 1 ? "" : "s");
+        }
+        fclose(fp);
+    }
+    
+    // Save OS telemetry
+    fp = fopen("telemetryOS.txt", "w");
+    if (fp) {
+        // Count occurrences of each unique OS
+        for (int i = 0; i < os_telemetry_count; i++) {
+            int count = 0;
+            int already_counted = 0;
+            
+            // Check if we already counted this OS
+            for (int j = 0; j < i; j++) {
+                if (strcmp(os_telemetry[i].os_info, os_telemetry[j].os_info) == 0) {
+                    already_counted = 1;
+                    break;
+                }
+            }
+            
+            if (already_counted) continue;
+            
+            // Count how many unique users have this OS
+            int unique_users[MAX_CLIENTS * 10];
+            int unique_count = 0;
+            for (int j = 0; j < os_telemetry_count; j++) {
+                if (strcmp(os_telemetry[i].os_info, os_telemetry[j].os_info) == 0) {
+                    // Check if user_id already in unique_users
+                    int found = 0;
+                    for (int k = 0; k < unique_count; k++) {
+                        if (unique_users[k] == os_telemetry[j].user_id) {
+                            found = 1;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        unique_users[unique_count++] = os_telemetry[j].user_id;
+                    }
+                }
+            }
+            
+            fprintf(fp, "%s: %d user%s\n", os_telemetry[i].os_info, unique_count, unique_count == 1 ? "" : "s");
+        }
+        fclose(fp);
+    }
+}
+
+void update_telemetry(int user_id, const char *gl_renderer, const char *os_info) {
+    // Update GL telemetry - check if this exact combo exists
+    int gl_found = 0;
+    for (int i = 0; i < gl_telemetry_count; i++) {
+        if (gl_telemetry[i].user_id == user_id && 
+            strcmp(gl_telemetry[i].gl_renderer, gl_renderer) == 0) {
+            gl_found = 1;
+            break;
+        }
+    }
+    
+    if (!gl_found && gl_telemetry_count < MAX_CLIENTS * 10) {
+        gl_telemetry[gl_telemetry_count].user_id = user_id;
+        strncpy(gl_telemetry[gl_telemetry_count].gl_renderer, gl_renderer, 127);
+        gl_telemetry[gl_telemetry_count].gl_renderer[127] = '\0';
+        gl_telemetry_count++;
+        printf("New GL telemetry: User %d - %s\n", user_id, gl_renderer);
+    }
+    
+    // Update OS telemetry - check if this exact combo exists
+    int os_found = 0;
+    for (int i = 0; i < os_telemetry_count; i++) {
+        if (os_telemetry[i].user_id == user_id && 
+            strcmp(os_telemetry[i].os_info, os_info) == 0) {
+            os_found = 1;
+            break;
+        }
+    }
+    
+    if (!os_found && os_telemetry_count < MAX_CLIENTS * 10) {
+        os_telemetry[os_telemetry_count].user_id = user_id;
+        strncpy(os_telemetry[os_telemetry_count].os_info, os_info, 127);
+        os_telemetry[os_telemetry_count].os_info[127] = '\0';
+        os_telemetry_count++;
+        printf("New OS telemetry: User %d - %s\n", user_id, os_info);
+    }
+    
+    // Save updated telemetry
+    save_telemetry();
 }
 
 void handle_client_message(int index, Packet *pkt) {
@@ -935,6 +1122,11 @@ void handle_client_message(int index, Packet *pkt) {
         sqlite3_exec(db, sql, 0, 0, 0);
         
         broadcast_state(); // Tell everyone I moved to a new dimension
+    }
+    else if (pkt->type == PACKET_TELEMETRY) {
+        if (players[index].id != -1) {
+            update_telemetry(players[index].id, pkt->gl_renderer, pkt->os_info);
+        }
     }
 }
 

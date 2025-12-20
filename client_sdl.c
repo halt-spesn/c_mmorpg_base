@@ -910,6 +910,39 @@ int try_connect() {
     return 1;
 }
 
+void get_os_info(char *buffer, size_t size) {
+    #ifdef _WIN32
+    snprintf(buffer, size, "Windows");
+    #else
+    struct utsname u;
+    if (uname(&u) == 0) {
+        snprintf(buffer, size, "%s %s", u.sysname, u.release);
+    } else {
+        snprintf(buffer, size, "Unknown");
+    }
+    #endif
+}
+
+void send_telemetry() {
+    Packet pkt;
+    memset(&pkt, 0, sizeof(Packet));
+    pkt.type = PACKET_TELEMETRY;
+    pkt.player_id = local_player_id;
+    
+    // Get GL renderer info
+    if (gl_renderer_cache[0]) {
+        strncpy(pkt.gl_renderer, gl_renderer_cache, 127);
+        pkt.gl_renderer[127] = '\0';
+    } else {
+        strncpy(pkt.gl_renderer, "Unknown", 127);
+    }
+    
+    // Get OS info
+    get_os_info(pkt.os_info, sizeof(pkt.os_info));
+    
+    send_packet(&pkt);
+}
+
 int is_blocked(int id) {
     for(int i=0; i<blocked_count; i++) if(blocked_ids[i] == id) return 1;
     return 0;
@@ -4652,6 +4685,9 @@ int main(int argc, char *argv[]) {
                             cpkt.r = saved_r; cpkt.g = saved_g; cpkt.b = saved_b; 
                             cpkt.r2 = my_r2; cpkt.g2 = my_g2; cpkt.b2 = my_b2;
                             send_packet(&cpkt);
+                            
+                            // Send telemetry data
+                            send_telemetry();
                         }
                         else if (pkt.status == AUTH_REGISTER_SUCCESS) strcpy(auth_message, "Success! Login now.");
                         else strcpy(auth_message, "Error.");
