@@ -50,7 +50,6 @@ pthread_mutex_t state_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // --- Prototypes ---
 void broadcast_state();
-void load_telemetry();
 
 // --- Database ---
 int get_role_id_from_name(char *name) {
@@ -245,7 +244,7 @@ void send_triggers_to_client(int client_index) {
 }
 
 void init_game() {
-    init_db(); init_storage(); load_triggers(); load_telemetry();
+    init_db(); init_storage(); load_triggers();
     for (int i = 0; i < MAX_CLIENTS; i++) { client_sockets[i] = SOCKET_INVALID; players[i].active = 0; players[i].id = -1; }
 }
 
@@ -512,58 +511,8 @@ TelemetryEntry os_telemetry[MAX_CLIENTS * 10];
 int gl_telemetry_count = 0;
 int os_telemetry_count = 0;
 
-void load_telemetry() {
-    // Load GL telemetry
-    FILE *fp = fopen("telemetryGL.txt", "r");
-    if (fp) {
-        char line[256];
-        while (fgets(line, sizeof(line), fp) && gl_telemetry_count < MAX_CLIENTS * 10) {
-            char renderer[128];
-            int user_id;
-            // Parse format: "Renderer: user_id"
-            char *colon = strchr(line, ':');
-            if (colon) {
-                *colon = '\0';
-                strncpy(renderer, line, 127);
-                renderer[127] = '\0';
-                if (sscanf(colon + 1, "%d", &user_id) == 1) {
-                    gl_telemetry[gl_telemetry_count].user_id = user_id;
-                    strncpy(gl_telemetry[gl_telemetry_count].gl_renderer, renderer, 127);
-                    gl_telemetry[gl_telemetry_count].gl_renderer[127] = '\0';
-                    gl_telemetry_count++;
-                }
-            }
-        }
-        fclose(fp);
-    }
-    
-    // Load OS telemetry
-    fp = fopen("telemetryOS.txt", "r");
-    if (fp) {
-        char line[256];
-        while (fgets(line, sizeof(line), fp) && os_telemetry_count < MAX_CLIENTS * 10) {
-            char os[128];
-            int user_id;
-            // Parse format: "OS: user_id"
-            char *colon = strchr(line, ':');
-            if (colon) {
-                *colon = '\0';
-                strncpy(os, line, 127);
-                os[127] = '\0';
-                if (sscanf(colon + 1, "%d", &user_id) == 1) {
-                    os_telemetry[os_telemetry_count].user_id = user_id;
-                    strncpy(os_telemetry[os_telemetry_count].os_info, os, 127);
-                    os_telemetry[os_telemetry_count].os_info[127] = '\0';
-                    os_telemetry_count++;
-                }
-            }
-        }
-        fclose(fp);
-    }
-}
-
 void save_telemetry() {
-    // Save GL telemetry
+    // Save GL telemetry - writes aggregated user counts per renderer/OS
     FILE *fp = fopen("telemetryGL.txt", "w");
     if (fp) {
         // Count occurrences of each unique renderer

@@ -39,3 +39,4 @@ Two files are created in the server directory:
 - If the same user logs in from different hardware/OS, both entries are recorded
 - Duplicate entries (same user, same hardware) are automatically prevented
 - Files are updated in real-time as users log in
+- Telemetry data accumulates during server runtime (resets on server restart)
