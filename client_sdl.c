@@ -3781,6 +3781,13 @@ int main(int argc, char *argv[]) {
     #endif
     #endif
 
+    // Add Vulkan flag if Vulkan backend is requested
+    #ifdef USE_VULKAN
+    if (use_vulkan) {
+        win_flags |= SDL_WINDOW_VULKAN;
+    }
+    #endif
+
     SDL_Window *window = SDL_CreateWindow("C MMO Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, win_w, win_h, win_flags);
     if (!window) { printf("Window creation failed: %s\n", SDL_GetError()); return 1; }
     
