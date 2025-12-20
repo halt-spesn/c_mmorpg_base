@@ -1087,13 +1087,21 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
 
     btn_toggle_vulkan = (SDL_Rect){start_x, y, 20, 20};
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_vulkan);
-    if (config_use_vulkan) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c={btn_toggle_vulkan.x+4,btn_toggle_vulkan.y+4,12,12}; SDL_RenderFillRect(renderer,&c); }
+    if (config_use_vulkan) { 
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); 
+        SDL_Rect c={btn_toggle_vulkan.x+4,btn_toggle_vulkan.y+4,12,12}; 
+        SDL_RenderFillRect(renderer,&c); 
+    }
     render_text(renderer, "Use Vulkan (restart required)", start_x + 30, y, col_white, 0); y += 40;
 
     #if !defined(_WIN32) && !defined(__APPLE__)
     btn_toggle_nvidia_gpu = (SDL_Rect){start_x, y, 20, 20};
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_nvidia_gpu);
-    if (config_use_nvidia_gpu) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c={btn_toggle_nvidia_gpu.x+4,btn_toggle_nvidia_gpu.y+4,12,12}; SDL_RenderFillRect(renderer,&c); }
+    if (config_use_nvidia_gpu) { 
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); 
+        SDL_Rect c={btn_toggle_nvidia_gpu.x+4,btn_toggle_nvidia_gpu.y+4,12,12}; 
+        SDL_RenderFillRect(renderer,&c); 
+    }
     render_text(renderer, "Use NVIDIA GPU (restart required)", start_x + 30, y, col_white, 0); y += 40;
     #endif
 
