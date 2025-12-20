@@ -17,3 +17,25 @@ android port is available in the android/ directory - open project in android st
 
 
 port can be assigned to server with a -p flag on launch
+
+## Telemetry
+
+The server automatically collects GL renderer and OS information from connected clients to help track hardware/OS usage statistics.
+
+### Telemetry Files
+
+Two files are created in the server directory:
+
+- **telemetryGL.txt** - Lists GPU/renderer information with unique user counts
+  - Example: `Intel UHD Graphics: 1 user`, `NVIDIA GeForce RTX 3060: 3 users`
+
+- **telemetryOS.txt** - Lists operating system information with unique user counts
+  - Example: `Windows: 2 users`, `Linux 5.15.0: 1 user`
+
+### How It Works
+
+- Telemetry data is automatically sent when a user successfully logs in
+- Each unique combination of user ID + GL renderer/OS is tracked separately
+- If the same user logs in from different hardware/OS, both entries are recorded
+- Duplicate entries (same user, same hardware) are automatically prevented
+- Files are updated in real-time as users log in
