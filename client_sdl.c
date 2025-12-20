@@ -2821,8 +2821,9 @@ int main(int argc, char *argv[]) {
     SDL_SetHint(SDL_HINT_WINDOWS_RAWKEYBOARD, "1");
     #endif
     
-    // Enable adaptive VSync if available (reduces latency while preventing tearing)
-    SDL_SetHint(SDL_HINT_RENDER_VSYNC, "1");
+    // Don't force VSync - let it be controlled by present mode in Vulkan
+    // or be optional for users. Forcing VSync causes FPS drops when UI windows are open.
+    // Users can set SDL_HINT_RENDER_VSYNC=1 if they want VSync.
     
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) return 1;
     if (TTF_Init() == -1) return 1;
@@ -2902,10 +2903,10 @@ int main(int argc, char *argv[]) {
     // Use software renderer for compatibility with older hardware on macOS
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
     #else
-    // Use accelerated renderer with VSync enabled for smooth frame pacing
-    // VSync will be handled by the renderer (Vulkan, OpenGL, etc.)
-    Uint32 renderer_flags = SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC;
-    renderer = SDL_CreateRenderer(window, -1, renderer_flags);
+    // Use accelerated renderer without forcing VSync
+    // VSync can be controlled via SDL_HINT_RENDER_VSYNC if desired
+    // Not forcing VSync prevents frame drops when UI windows are open
+    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     #endif
     
     if (!renderer) { 
@@ -2917,7 +2918,7 @@ int main(int argc, char *argv[]) {
             SDL_SetHint(SDL_HINT_RENDER_DRIVER, NULL);
             use_vulkan = 0;
             render_backend = RENDER_BACKEND_OPENGL;
-            renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+            renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
         }
         #endif
         if (!renderer) {
@@ -4051,8 +4052,9 @@ int main(int argc, char *argv[]) {
         // SDL automatically uses best rendering backend (OpenGL, OpenGL ES, or Vulkan on Linux)
         if (client_state == STATE_AUTH) render_auth_screen(renderer); else render_game(renderer);
         
-        // No SDL_Delay needed - VSync (SDL_RENDERER_PRESENTVSYNC) handles frame timing
-        // This provides smooth, consistent frame pacing without CPU busy-waiting
+        // Small delay to prevent excessive CPU usage (allows ~250 FPS cap)
+        // This is much less aggressive than VSync and won't cause FPS drops with UI windows
+        SDL_Delay(4);
     }
     
     if(tex_map) SDL_DestroyTexture(tex_map); if(tex_player) SDL_DestroyTexture(tex_player);
