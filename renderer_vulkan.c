@@ -195,6 +195,8 @@ static int select_physical_device(VkInstance instance, VkSurfaceKHR surface,
         return 0;
     }
     
+    printf("Found %d GPU(s) with Vulkan support\n", device_count);
+    
     VkPhysicalDevice *devices = malloc(sizeof(VkPhysicalDevice) * device_count);
     if (!devices) {
         printf("Failed to allocate memory for physical devices\n");
@@ -203,9 +205,18 @@ static int select_physical_device(VkInstance instance, VkSurfaceKHR surface,
     vkEnumeratePhysicalDevices(instance, &device_count, devices);
     
     for (uint32_t i = 0; i < device_count; i++) {
+        // Get device properties for logging
+        VkPhysicalDeviceProperties properties;
+        vkGetPhysicalDeviceProperties(devices[i], &properties);
+        printf("GPU %d: %s (API version: %d.%d.%d)\n", i, properties.deviceName,
+               VK_VERSION_MAJOR(properties.apiVersion),
+               VK_VERSION_MINOR(properties.apiVersion),
+               VK_VERSION_PATCH(properties.apiVersion));
+        
         if (check_device_extension_support(devices[i]) &&
             find_queue_families(devices[i], surface, graphics_family, present_family)) {
             *physical_device = devices[i];
+            printf("Selected GPU: %s\n", properties.deviceName);
             free(devices);
             return 1;
         }
@@ -714,6 +725,8 @@ int vulkan_init(SDL_Window *window, VulkanRenderer *vk_renderer) {
     vk_renderer->framebuffer_resized = 0;
     
     printf("Vulkan renderer initialized successfully!\n");
+    printf("Performance tip: If you experience tearing, the renderer is using IMMEDIATE mode for maximum FPS.\n");
+    printf("                 This is normal and provides the best performance.\n");
     return 1;
 }
 
