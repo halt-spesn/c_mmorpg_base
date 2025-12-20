@@ -2876,6 +2876,11 @@ int main(int argc, char *argv[]) {
         SDL_SetHint(SDL_HINT_RENDER_DRIVER, "vulkan");
         printf("Setting SDL to use Vulkan renderer\n");
         
+        // Explicitly disable VSync for Vulkan to prevent FPS drops and ping spikes
+        // SDL's Vulkan renderer may have its own VSync behavior that needs to be disabled
+        SDL_SetHint(SDL_HINT_RENDER_VSYNC, "0");
+        printf("Disabling VSync for Vulkan renderer\n");
+        
         // Handle NVIDIA PRIME GPU selection for Vulkan on Linux
         #if !defined(_WIN32) && !defined(__APPLE__)
         const char *nv_offload = getenv("__NV_PRIME_RENDER_OFFLOAD");
@@ -4052,9 +4057,9 @@ int main(int argc, char *argv[]) {
         // SDL automatically uses best rendering backend (OpenGL, OpenGL ES, or Vulkan on Linux)
         if (client_state == STATE_AUTH) render_auth_screen(renderer); else render_game(renderer);
         
-        // Small delay to prevent excessive CPU usage (allows ~250 FPS cap)
-        // This is much less aggressive than VSync and won't cause FPS drops with UI windows
-        SDL_Delay(4);
+        // Minimal delay to prevent excessive CPU usage while keeping high FPS
+        // 1ms allows ~1000 FPS cap but prevents CPU spinning
+        SDL_Delay(1);
     }
     
     if(tex_map) SDL_DestroyTexture(tex_map); if(tex_player) SDL_DestroyTexture(tex_player);
