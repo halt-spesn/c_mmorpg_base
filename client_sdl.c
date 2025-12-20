@@ -259,6 +259,8 @@ SDL_Rect btn_documentation_rect;
 
 SDL_Texture *cached_contributors_tex = NULL;
 SDL_Texture *cached_documentation_tex = NULL;
+SDL_Texture *cached_role_list_tex = NULL;
+int cached_staff_count = -1; // Track when to invalidate cache
 int contributors_tex_w = 0, contributors_tex_h = 0;
 int documentation_tex_w = 0, documentation_tex_h = 0;
 int contributors_scroll = 0;
@@ -738,43 +740,99 @@ void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
 }
 
 void render_role_list(SDL_Renderer *renderer, int w, int h) {
-    if (!show_role_list) return;
+    if (!show_role_list) {
+        // Clean up cache when window is closed
+        if (cached_role_list_tex) {
+            SDL_DestroyTexture(cached_role_list_tex);
+            cached_role_list_tex = NULL;
+            cached_staff_count = -1;
+        }
+        return;
+    }
 
     SDL_Rect win = {w/2 - 200, h/2 - 225, 400, 450};
     
-    SDL_SetRenderDrawColor(renderer, 30, 30, 40, 255); SDL_RenderFillRect(renderer, &win);
-    SDL_SetRenderDrawColor(renderer, 200, 200, 255, 255); SDL_RenderDrawRect(renderer, &win);
-
-    render_text(renderer, "Server Staff List", win.x + 200, win.y + 15, col_cyan, 1);
-
-    SDL_Rect btn_close = {win.x + 360, win.y + 5, 30, 30};
-    SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_close);
-    render_text(renderer, "X", btn_close.x + 10, btn_close.y + 5, col_white, 0);
-
-    // Setup clipping for scrollable content
-    SDL_Rect content_area = {win.x + 10, win.y + 50, win.w - 20, win.h - 60};
-    SDL_RenderSetClipRect(renderer, &content_area);
-
-    int y = win.y + 50 - role_list_scroll; // Apply scroll offset
+    // Invalidate cache if staff count changed
+    if (cached_staff_count != staff_count) {
+        if (cached_role_list_tex) {
+            SDL_DestroyTexture(cached_role_list_tex);
+            cached_role_list_tex = NULL;
+        }
+        cached_staff_count = staff_count;
+    }
     
-    if (staff_count == 0) {
-        render_text(renderer, "Loading...", win.x + 200, y + 20, col_white, 1);
+    // Create cached texture if needed (performance optimization for mobile)
+    if (!cached_role_list_tex) {
+        // Create a target texture
+        cached_role_list_tex = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, 
+                                                 SDL_TEXTUREACCESS_TARGET, 400, 450);
+        if (cached_role_list_tex) {
+            SDL_SetTextureBlendMode(cached_role_list_tex, SDL_BLENDMODE_BLEND);
+            
+            // Render to texture
+            SDL_SetRenderTarget(renderer, cached_role_list_tex);
+            SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0); 
+            SDL_RenderClear(renderer);
+            
+            // Background
+            SDL_Rect bg = {0, 0, 400, 450};
+            SDL_SetRenderDrawColor(renderer, 30, 30, 40, 255); 
+            SDL_RenderFillRect(renderer, &bg);
+            SDL_SetRenderDrawColor(renderer, 200, 200, 255, 255); 
+            SDL_RenderDrawRect(renderer, &bg);
+
+            // Title
+            render_text(renderer, "Server Staff List", 200, 15, col_cyan, 1);
+
+            // Render staff entries
+            int y = 50;
+            
+            if (staff_count == 0) {
+                render_text(renderer, "Loading...", 200, y + 20, col_white, 1);
+            }
+
+            for (int i = 0; i < staff_count; i++) {
+                char buffer[128];
+                const char* role_name = get_role_name(staff_list[i].role);
+                SDL_Color c = get_role_color(staff_list[i].role);
+
+                // Format: [ROLE] Name (ID: X)
+                snprintf(buffer, 128, "[%s] %s (ID: %d)", role_name, staff_list[i].name, staff_list[i].id);
+                
+                render_text(renderer, buffer, 20, y, c, 0);
+                y += 25;
+            }
+            
+            // Reset render target
+            SDL_SetRenderTarget(renderer, NULL);
+        }
     }
-
-    for (int i = 0; i < staff_count; i++) {
-        char buffer[128];
-        const char* role_name = get_role_name(staff_list[i].role);
-        SDL_Color c = get_role_color(staff_list[i].role);
-
-        // Format: [ROLE] Name (ID: X)
-        snprintf(buffer, 128, "[%s] %s (ID: %d)", role_name, staff_list[i].name, staff_list[i].id);
+    
+    // Draw the window with cached content
+    SDL_SetRenderDrawColor(renderer, 30, 30, 40, 255); 
+    SDL_RenderFillRect(renderer, &win);
+    SDL_SetRenderDrawColor(renderer, 200, 200, 255, 255); 
+    SDL_RenderDrawRect(renderer, &win);
+    
+    // Draw cached texture with scrolling support
+    if (cached_role_list_tex) {
+        // Setup clipping for scrollable content area
+        SDL_Rect content_area = {win.x + 10, win.y + 50, win.w - 20, win.h - 60};
+        SDL_RenderSetClipRect(renderer, &content_area);
         
-        render_text(renderer, buffer, win.x + 20, y, c, 0);
-        y += 25;
+        // Draw with scroll offset
+        SDL_Rect src = {0, 0, 400, 450};
+        SDL_Rect dst = {win.x, win.y - role_list_scroll, 400, 450};
+        SDL_RenderCopy(renderer, cached_role_list_tex, &src, &dst);
+        
+        SDL_RenderSetClipRect(renderer, NULL);
     }
-
-    // Reset clipping
-    SDL_RenderSetClipRect(renderer, NULL);
+    
+    // Draw close button on top (not cached since it needs to be interactive)
+    SDL_Rect btn_close = {win.x + 360, win.y + 5, 30, 30};
+    SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); 
+    SDL_RenderFillRect(renderer, &btn_close);
+    render_text(renderer, "X", btn_close.x + 10, btn_close.y + 5, col_white, 0);
 }
 
 void process_slider_drag(int mx) {
@@ -1746,58 +1804,96 @@ void render_documentation(SDL_Renderer *renderer, int w, int h) {
     // Fixed size window: 450x500 (smaller for better fit on various screens)
     SDL_Rect win = {w/2 - 225, h/2 - 250, 450, 500};
     
-    // Background
+    // Create cached texture if needed (performance optimization for mobile)
+    if (!cached_documentation_tex) {
+        // Create a target texture for the static content
+        cached_documentation_tex = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, 
+                                                     SDL_TEXTUREACCESS_TARGET, 450, 500);
+        if (cached_documentation_tex) {
+            SDL_SetTextureBlendMode(cached_documentation_tex, SDL_BLENDMODE_BLEND);
+            
+            // Render to texture
+            SDL_SetRenderTarget(renderer, cached_documentation_tex);
+            SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0); 
+            SDL_RenderClear(renderer);
+            
+            // Background
+            SDL_Rect bg = {0, 0, 450, 500};
+            SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255); 
+            SDL_RenderFillRect(renderer, &bg);
+            SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255); 
+            SDL_RenderDrawRect(renderer, &bg);
+
+            // Title
+            render_text(renderer, "Game Documentation", 225, 15, col_green, 1);
+
+            // Render content starting at fixed position (scrolling handled later)
+            int start_x = 20;
+            int y = 60;
+
+            // 1. Text Formatting
+            render_text(renderer, "#Text Formatting#", start_x, y, col_yellow, 0); y += 30;
+            render_text(renderer, "Style: *Italic*, #Bold#, ~Strike~", start_x, y, col_white, 0); y += 25;
+            render_raw_text(renderer, "Usage: wrap text in symbols (*, #, ~)", start_x, y, (SDL_Color){150,150,150,255}, 0); y += 35;
+
+            // 2. Colors
+            render_text(renderer, "#Colors#", start_x, y, col_yellow, 0); y += 30;
+            render_text(renderer, "^1Red ^2Green ^3Blue ^4Yellow ^5Cyan ^6Magenta", start_x, y, col_white, 0); y += 25;
+            render_text(renderer, "^7White ^8Gray ^9Black", start_x, y, col_white, 0); y += 25;
+            render_raw_text(renderer, "Usage: type ^ (caret) + number", start_x, y, (SDL_Color){150,150,150,255}, 0); y += 35;
+
+            // 3. Shortcuts & Editing
+            render_text(renderer, "#Shortcuts & Editing#", start_x, y, col_yellow, 0); y += 30;
+            render_text(renderer, "- Select: Shift + Arrows OR Mouse Drag", start_x, y, col_white, 0); y += 25;
+            #if !defined(__ANDROID__) && !defined(__IPHONEOS__)
+            render_text(renderer, "- Copy/Paste: Ctrl+C, Ctrl+V, Ctrl+X", start_x, y, col_white, 0); y += 25;
+            #else
+            render_text(renderer, "- Copy/Paste: Use context menu", start_x, y, col_white, 0); y += 25;
+            #endif
+            render_text(renderer, "- Select All: Ctrl+A", start_x, y, col_white, 0); y += 25;
+            render_text(renderer, "- Cursor: Click to move, Arrows to nav", start_x, y, col_white, 0); y += 35;
+
+            // 4. Chat Commands
+            render_text(renderer, "#Chat Commands#", start_x, y, col_yellow, 0); y += 30;
+            render_text(renderer, "Admin Commands (requires Admin role):", start_x, y, (SDL_Color){255,150,150,255}, 0); y += 25;
+            render_text(renderer, "- /unban <ID>", start_x + 10, y, col_white, 0); y += 20;
+            render_raw_text(renderer, "  Removes ban from player ID", start_x + 10, y, (SDL_Color){180,180,180,255}, 0); y += 25;
+            render_text(renderer, "- /unwarn <ID>", start_x + 10, y, col_white, 0); y += 20;
+            render_raw_text(renderer, "  Removes last warning from player ID", start_x + 10, y, (SDL_Color){180,180,180,255}, 0); y += 25;
+            render_text(renderer, "- /role <ID> <LEVEL>", start_x + 10, y, col_white, 0); y += 20;
+            render_raw_text(renderer, "  Sets role (0=Player, 1=Admin, 2=Dev, 3=Contrib, 4=VIP)", start_x + 10, y, (SDL_Color){180,180,180,255}, 0); y += 35;
+            
+            // Store content height for scrolling
+            documentation_tex_w = 450;
+            documentation_tex_h = y; // Actual content height
+            
+            // Reset render target
+            SDL_SetRenderTarget(renderer, NULL);
+        }
+    }
+    
+    // Draw the window with cached content
+    // Background and border are drawn fresh each frame for proper positioning
     SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255); 
     SDL_RenderFillRect(renderer, &win);
     SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255); 
     SDL_RenderDrawRect(renderer, &win);
-
-    // Title
-    render_text(renderer, "Game Documentation", win.x + 225, win.y + 15, col_green, 1);
-
-    // Setup clipping for scrollable content
-    SDL_Rect content_area = {win.x + 10, win.y + 50, win.w - 20, win.h - 60};
-    SDL_RenderSetClipRect(renderer, &content_area);
-
-    int start_x = win.x + 20;
-    int y = win.y + 60 - documentation_scroll;
-
-    // 1. Text Formatting
-    render_text(renderer, "#Text Formatting#", start_x, y, col_yellow, 0); y += 30;
-    render_text(renderer, "Style: *Italic*, #Bold#, ~Strike~", start_x, y, col_white, 0); y += 25;
-    render_raw_text(renderer, "Usage: wrap text in symbols (*, #, ~)", start_x, y, (SDL_Color){150,150,150,255}, 0); y += 35;
-
-    // 2. Colors
-    render_text(renderer, "#Colors#", start_x, y, col_yellow, 0); y += 30;
-    render_text(renderer, "^1Red ^2Green ^3Blue ^4Yellow ^5Cyan ^6Magenta", start_x, y, col_white, 0); y += 25;
-    render_text(renderer, "^7White ^8Gray ^9Black", start_x, y, col_white, 0); y += 25;
-    render_raw_text(renderer, "Usage: type ^ (caret) + number", start_x, y, (SDL_Color){150,150,150,255}, 0); y += 35;
-
-    // 3. Shortcuts & Editing
-    render_text(renderer, "#Shortcuts & Editing#", start_x, y, col_yellow, 0); y += 30;
-    render_text(renderer, "- Select: Shift + Arrows OR Mouse Drag", start_x, y, col_white, 0); y += 25;
-    #if !defined(__ANDROID__) && !defined(__IPHONEOS__)
-    render_text(renderer, "- Copy/Paste: Ctrl+C, Ctrl+V, Ctrl+X", start_x, y, col_white, 0); y += 25;
-    #else
-    render_text(renderer, "- Copy/Paste: Use context menu", start_x, y, col_white, 0); y += 25;
-    #endif
-    render_text(renderer, "- Select All: Ctrl+A", start_x, y, col_white, 0); y += 25;
-    render_text(renderer, "- Cursor: Click to move, Arrows to nav", start_x, y, col_white, 0); y += 35;
-
-    // 4. Chat Commands
-    render_text(renderer, "#Chat Commands#", start_x, y, col_yellow, 0); y += 30;
-    render_text(renderer, "Admin Commands (requires Admin role):", start_x, y, (SDL_Color){255,150,150,255}, 0); y += 25;
-    render_text(renderer, "- /unban <ID>", start_x + 10, y, col_white, 0); y += 20;
-    render_raw_text(renderer, "  Removes ban from player ID", start_x + 10, y, (SDL_Color){180,180,180,255}, 0); y += 25;
-    render_text(renderer, "- /unwarn <ID>", start_x + 10, y, col_white, 0); y += 20;
-    render_raw_text(renderer, "  Removes last warning from player ID", start_x + 10, y, (SDL_Color){180,180,180,255}, 0); y += 25;
-    render_text(renderer, "- /role <ID> <LEVEL>", start_x + 10, y, col_white, 0); y += 20;
-    render_raw_text(renderer, "  Sets role (0=Player, 1=Admin, 2=Dev, 3=Contrib, 4=VIP)", start_x + 10, y, (SDL_Color){180,180,180,255}, 0); y += 35;
-
-    // Disable clipping
-    SDL_RenderSetClipRect(renderer, NULL);
     
-    // Draw close button on top
+    // Draw cached texture with scrolling support
+    if (cached_documentation_tex) {
+        // Setup clipping for scrollable content area
+        SDL_Rect content_area = {win.x + 10, win.y + 50, win.w - 20, win.h - 60};
+        SDL_RenderSetClipRect(renderer, &content_area);
+        
+        // Draw with scroll offset
+        SDL_Rect src = {0, 0, 450, 500};
+        SDL_Rect dst = {win.x, win.y - documentation_scroll, 450, 500};
+        SDL_RenderCopy(renderer, cached_documentation_tex, &src, &dst);
+        
+        SDL_RenderSetClipRect(renderer, NULL);
+    }
+    
+    // Draw close button on top (not cached since it needs to be interactive)
     SDL_Rect btn_close = {win.x + win.w - 40, win.y + 5, 30, 30};
     SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); 
     SDL_RenderFillRect(renderer, &btn_close);
@@ -2785,6 +2881,9 @@ int main(int argc, char *argv[]) {
     
     // Parse command line arguments for rendering backend (overrides config)
     #ifdef USE_VULKAN
+    printf("Vulkan support compiled in (USE_VULKAN defined)\n");
+    printf("config_use_vulkan = %d, use_vulkan = %d\n", config_use_vulkan, use_vulkan);
+    
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--vulkan") == 0 || strcmp(argv[i], "-vk") == 0) {
             use_vulkan = 1;
@@ -2800,6 +2899,18 @@ int main(int argc, char *argv[]) {
         render_backend = RENDER_BACKEND_VULKAN;
         printf("Vulkan rendering backend enabled from config\n");
     }
+    
+    // On Android, provide clear status message
+    #ifdef __ANDROID__
+    if (use_vulkan) {
+        printf("Android: Vulkan renderer will be requested\n");
+    } else {
+        printf("Android: OpenGL ES renderer will be used (Vulkan not enabled in config)\n");
+        printf("Android: To enable Vulkan, set the toggle in Settings menu\n");
+    }
+    #endif
+    #else
+    printf("Vulkan support not compiled (USE_VULKAN not defined)\n");
     #endif
     
     // 1. Init SDL & Libraries
@@ -4104,6 +4215,7 @@ int main(int argc, char *argv[]) {
     if(tex_map) SDL_DestroyTexture(tex_map); if(tex_player) SDL_DestroyTexture(tex_player);
     if(cached_contributors_tex) SDL_DestroyTexture(cached_contributors_tex);
     if(cached_documentation_tex) SDL_DestroyTexture(cached_documentation_tex);
+    if(cached_role_list_tex) SDL_DestroyTexture(cached_role_list_tex);
     if(bgm) Mix_FreeMusic(bgm); Mix_CloseAudio();
     if(sock > 0) close(sock); 
     TTF_CloseFont(font); TTF_Quit(); IMG_Quit();
