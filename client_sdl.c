@@ -86,6 +86,7 @@ RenderBackend render_backend = RENDER_BACKEND_OPENGL; // Default to OpenGL
 #ifdef USE_VULKAN
 VulkanRenderer vk_renderer;
 int use_vulkan = 0; // Runtime flag for Vulkan usage
+int backend_set_by_cmdline = 0; // Track if backend was explicitly set via command line
 #endif
 
 
@@ -599,16 +600,14 @@ void load_config() {
             pending_game_zoom = game_zoom; // Initialize pending to match current
         }
         
-        // Apply render backend preference if present (and not overridden by command line)
+        // Apply render backend preference if present (only when explicitly set via command line)
+        // Note: We don't auto-apply config backend to preserve default OpenGL behavior
+        // Users must explicitly use --vulkan flag to enable Vulkan
         #ifdef USE_VULKAN
         #define CONFIG_FIELD_RENDER_BACKEND 15
-        if (count >= CONFIG_FIELD_RENDER_BACKEND && backend == RENDER_BACKEND_VULKAN) {
-            // Only apply config if command line didn't already set it
-            if (render_backend == RENDER_BACKEND_OPENGL) {
-                render_backend = RENDER_BACKEND_VULKAN;
-                use_vulkan = 1;
-            }
-        }
+        // Config backend preference is read but not automatically applied
+        // This ensures default behavior (OpenGL) when no command-line flag is given
+        (void)backend; // Suppress unused warning if config has backend field
         #endif
         
         fclose(fp);
@@ -3728,6 +3727,7 @@ int main(int argc, char *argv[]) {
         if (strcmp(argv[i], "--vulkan") == 0 || strcmp(argv[i], "-vk") == 0) {
             use_vulkan = 1;
             render_backend = RENDER_BACKEND_VULKAN;
+            backend_set_by_cmdline = 1;
             printf("Vulkan rendering backend requested\n");
         }
     }
