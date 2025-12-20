@@ -3725,8 +3725,8 @@ int main(int argc, char *argv[]) {
     if (nv_offload && glx_vendor && strcmp(nv_offload, "1") == 0 && strcmp(glx_vendor, "nvidia") == 0) {
         // Disable EGL to ensure GLX is used with NVIDIA Prime offloading
         // EGL may not properly respect __NV_PRIME_RENDER_OFFLOAD on some systems
-        SDL_SetHint(SDL_HINT_VIDEO_X11_FORCE_EGL, "0");
-        SDL_SetHint(SDL_HINT_VIDEODRIVER, "x11");
+        //SDL_SetHint(SDL_HINT_VIDEO_X11_FORCE_EGL, "0");
+        //SDL_SetHint(SDL_HINT_VIDEODRIVER, "x11");
         // Also ensure we request an accelerated visual for proper GPU selection
         SDL_GL_SetAttribute(SDL_GL_ACCELERATED_VISUAL, 1);
     }
