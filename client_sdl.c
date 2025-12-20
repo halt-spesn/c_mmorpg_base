@@ -2625,17 +2625,20 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         }
     }
 
-    // Check for player clicks in game world (convert scaled UI coords to game world coords)
+    // Check for player clicks in game world
     // mx, my are in UI coordinate space (divided by ui_scale)
-    // Game world is scaled by game_zoom
-    // So we need to: multiply by ui_scale to get screen coords, then divide by game_zoom to get game world coords
-    int game_mx = (int)((mx * ui_scale) / game_zoom);
-    int game_my = (int)((my * ui_scale) / game_zoom);
+    // We need to convert UI coordinates to game world coordinates:
+    // 1. Multiply by ui_scale to get screen pixels
+    // 2. Divide by game_zoom to account for zoom scaling
+    // 3. Add camera offset to get world coordinates
+    int game_mx = (int)((mx * ui_scale) / game_zoom) + cam_x;
+    int game_my = (int)((my * ui_scale) / game_zoom) + cam_y;
     
     int clicked = 0;
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (local_players[i].active) {
-            SDL_Rect r = { (int)local_players[i].x - cam_x, (int)local_players[i].y - cam_y, PLAYER_WIDTH, PLAYER_HEIGHT };
+            // Player rect in world coordinates (no camera offset)
+            SDL_Rect r = { (int)local_players[i].x, (int)local_players[i].y, PLAYER_WIDTH, PLAYER_HEIGHT };
             if (SDL_PointInRect(&(SDL_Point){game_mx, game_my}, &r)) { selected_player_id = local_players[i].id; clicked = 1; }
         }
     }
@@ -2821,8 +2824,38 @@ int main(int argc, char *argv[]) {
     SDL_SetHint(SDL_HINT_WINDOWS_RAWKEYBOARD, "1");
     #endif
     
+    // Set SDL hint to prefer Vulkan renderer if requested (MUST be before SDL_Init)
+    #ifdef USE_VULKAN
+    if (use_vulkan) {
+        // Tell SDL to use Vulkan renderer backend
+        SDL_SetHint(SDL_HINT_RENDER_DRIVER, "vulkan");
+        printf("Setting SDL to use Vulkan renderer\n");
+        
+        // Explicitly disable VSync for Vulkan to prevent FPS drops and ping spikes
+        // SDL's Vulkan renderer may have its own VSync behavior that needs to be disabled
+        SDL_SetHint(SDL_HINT_RENDER_VSYNC, "0");
+        printf("Disabling VSync for Vulkan renderer\n");
+        
+        // Handle NVIDIA PRIME GPU selection for Vulkan on Linux
+        #if !defined(_WIN32) && !defined(__APPLE__) && !defined(__ANDROID__)
+        const char *nv_offload = getenv("__NV_PRIME_RENDER_OFFLOAD");
+        const char *glx_vendor = getenv("__GLX_VENDOR_LIBRARY_NAME");
+        if (nv_offload && glx_vendor && strcmp(nv_offload, "1") == 0 && strcmp(glx_vendor, "nvidia") == 0) {
+            // When NVIDIA PRIME is requested, set Vulkan-specific environment variables
+            // This ensures Vulkan uses the NVIDIA GPU instead of Intel iGPU
+            setenv("__NV_PRIME_RENDER_OFFLOAD_PROVIDER", "NVIDIA-G0", 0);
+            setenv("__VK_LAYER_NV_optimus", "NVIDIA_only", 0);
+            printf("NVIDIA PRIME detected - configuring Vulkan to use NVIDIA GPU\n");
+        }
+        #endif
+    } else {
+        // Enable adaptive VSync for non-Vulkan backends
+        SDL_SetHint(SDL_HINT_RENDER_VSYNC, "1");
+    }
+    #else
     // Enable adaptive VSync if available (reduces latency while preventing tearing)
     SDL_SetHint(SDL_HINT_RENDER_VSYNC, "1");
+    #endif
     
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) return 1;
     if (TTF_Init() == -1) return 1;
@@ -2866,33 +2899,6 @@ int main(int argc, char *argv[]) {
     // Add HIGHDPI flag on macOS to help with window decoration rendering
     win_flags |= SDL_WINDOW_ALLOW_HIGHDPI;
     #endif
-    #endif
-
-    // Set SDL hint to prefer Vulkan renderer if requested
-    #ifdef USE_VULKAN
-    if (use_vulkan) {
-        // Tell SDL to use Vulkan renderer backend
-        SDL_SetHint(SDL_HINT_RENDER_DRIVER, "vulkan");
-        printf("Setting SDL to use Vulkan renderer\n");
-        
-        // Explicitly disable VSync for Vulkan to prevent FPS drops and ping spikes
-        // SDL's Vulkan renderer may have its own VSync behavior that needs to be disabled
-        SDL_SetHint(SDL_HINT_RENDER_VSYNC, "0");
-        printf("Disabling VSync for Vulkan renderer\n");
-        
-        // Handle NVIDIA PRIME GPU selection for Vulkan on Linux
-        #if !defined(_WIN32) && !defined(__APPLE__)
-        const char *nv_offload = getenv("__NV_PRIME_RENDER_OFFLOAD");
-        const char *glx_vendor = getenv("__GLX_VENDOR_LIBRARY_NAME");
-        if (nv_offload && glx_vendor && strcmp(nv_offload, "1") == 0 && strcmp(glx_vendor, "nvidia") == 0) {
-            // When NVIDIA PRIME is requested, set Vulkan-specific environment variables
-            // This ensures Vulkan uses the NVIDIA GPU instead of Intel iGPU
-            setenv("__NV_PRIME_RENDER_OFFLOAD_PROVIDER", "NVIDIA-G0", 0);
-            setenv("__VK_LAYER_NV_optimus", "NVIDIA_only", 0);
-            printf("NVIDIA PRIME detected - configuring Vulkan to use NVIDIA GPU\n");
-        }
-        #endif
-    }
     #endif
 
     SDL_Window *window = SDL_CreateWindow("C MMO Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, win_w, win_h, win_flags);
