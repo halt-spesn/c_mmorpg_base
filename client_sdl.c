@@ -3357,7 +3357,7 @@ int main(int argc, char *argv[]) {
                         }
                     }
                     show_mobile_text_menu = 0;
-                    return;
+                    continue;
                 }
                 
                 // Start long press detection for text fields
