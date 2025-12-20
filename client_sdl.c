@@ -1094,7 +1094,7 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     }
     render_text(renderer, "Use Vulkan (restart required)", start_x + 30, y, col_white, 0); y += 40;
 
-    #if !defined(_WIN32) && !defined(__APPLE__)
+    #if !defined(_WIN32) && !defined(__APPLE__) && !defined(__ANDROID__)
     btn_toggle_nvidia_gpu = (SDL_Rect){start_x, y, 20, 20};
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_nvidia_gpu);
     if (config_use_nvidia_gpu) { 
@@ -2504,7 +2504,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_coords)) { show_coords = !show_coords; save_config(); return; }
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_unread)) { show_unread_counter = !show_unread_counter; save_config(); return; }
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_vulkan)) { config_use_vulkan = !config_use_vulkan; save_config(); return; }
-            #if !defined(_WIN32) && !defined(__APPLE__)
+            #if !defined(_WIN32) && !defined(__APPLE__) && !defined(__ANDROID__)
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_nvidia_gpu)) { config_use_nvidia_gpu = !config_use_nvidia_gpu; save_config(); return; }
             #endif
 
@@ -2803,7 +2803,7 @@ int main(int argc, char *argv[]) {
     #endif
     
     // Configure NVIDIA Prime GPU selection on Linux if enabled in config
-    #if !defined(_WIN32) && !defined(__APPLE__)
+    #if !defined(_WIN32) && !defined(__APPLE__) && !defined(__ANDROID__)
     if (config_use_nvidia_gpu) {
         if (setenv("__NV_PRIME_RENDER_OFFLOAD", "1", 1) != 0) {
             printf("Warning: Failed to set __NV_PRIME_RENDER_OFFLOAD environment variable\n");
