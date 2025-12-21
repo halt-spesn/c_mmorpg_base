@@ -430,6 +430,7 @@ SDL_Color get_status_color(int status);
 int scale_ui(int value);
 SDL_Rect scale_rect(int x, int y, int w, int h);
 SDL_Color get_color_from_code(char code);
+void reload_font_for_ui_scale(void);
 void render_raw_text(SDL_Renderer *renderer, const char *text, int x, int y, SDL_Color color, int center);
 void remove_last_utf8_char(char *str);
 void render_text_gradient(SDL_Renderer *renderer, const char *text, int x, int y, SDL_Color c1, SDL_Color c2, int center);

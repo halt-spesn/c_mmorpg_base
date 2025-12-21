@@ -48,6 +48,32 @@ SDL_Rect scale_rect(int x, int y, int w, int h) {
     return (SDL_Rect){scale_ui(x), scale_ui(y), scale_ui(w), scale_ui(h)};
 }
 
+void reload_font_for_ui_scale(void) {
+    // Close existing font
+    if (font) {
+        TTF_CloseFont(font);
+        font = NULL;
+    }
+    
+    // Calculate scaled font size
+    // Base font size is FONT_SIZE (14), scale it with ui_scale
+    int scaled_font_size = (int)(FONT_SIZE * ui_scale);
+    
+    // Ensure minimum readable size
+    if (scaled_font_size < 8) scaled_font_size = 8;
+    
+    // Reload font at scaled size
+    font = TTF_OpenFont(FONT_PATH, scaled_font_size);
+    if (!font) {
+        printf("Failed to reload font at size %d: %s\n", scaled_font_size, TTF_GetError());
+        // Fallback to default size if scaled size fails
+        font = TTF_OpenFont(FONT_PATH, FONT_SIZE);
+        if (!font) {
+            printf("Critical: Font could not be loaded: %s\n", TTF_GetError());
+        }
+    }
+}
+
 SDL_Color get_color_from_code(char code) {
     switch(code) {
         case '1': return (SDL_Color){255, 50, 50, 255};
