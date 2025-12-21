@@ -17,3 +17,15 @@ android port is available in the android/ directory - open project in android st
 
 
 port can be assigned to server with a -p flag on launch
+
+
+## Mobile Features (iOS/Android)
+
+### Text Formatting Menu
+On mobile devices, long-press (hold for 500ms) on any text input field to show a context menu with:
+- **Cut**: Copy and delete selected text
+- **Copy**: Copy selected text to clipboard
+- **Paste**: Insert clipboard text
+- **Clear**: Delete selected text or clear field
+
+The menu works on all text fields including username, password, IP, chat, and settings fields.
