@@ -38,8 +38,9 @@ public class MainActivity extends SDLActivity {
      * Called from native C code via JNI.
      */
     public static void openFilePicker() {
-        final MainActivity activity = (MainActivity) mSingleton;
-        if (activity != null) {
+        // Safe cast with type checking
+        if (mSingleton != null && mSingleton instanceof MainActivity) {
+            final MainActivity activity = (MainActivity) mSingleton;
             activity.runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
@@ -55,6 +56,8 @@ public class MainActivity extends SDLActivity {
                     }
                 }
             });
+        } else {
+            Log.e(TAG, "MainActivity instance not available");
         }
     }
     
@@ -88,7 +91,7 @@ public class MainActivity extends SDLActivity {
                             Log.w(TAG, "Could not determine file size, will validate during read");
                         }
                         
-                        // MAX_AVATAR_SIZE is 16384 bytes
+                        // MAX_AVATAR_SIZE is defined in common.h as 16384 bytes
                         final int MAX_AVATAR_SIZE = 16384;
                         if (fileSize > MAX_AVATAR_SIZE) {
                             Log.e(TAG, "File too large: " + fileSize + " bytes (max: " + MAX_AVATAR_SIZE + ")");

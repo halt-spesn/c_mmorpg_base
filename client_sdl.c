@@ -1134,7 +1134,8 @@ void open_file_picker_for_avatar() {
     jobject activity = (jobject)SDL_AndroidGetActivity();
     
     if (env && activity) {
-        jclass clazz = (*env)->GetObjectClass(env, activity);
+        // Get the MainActivity class (not the object class)
+        jclass clazz = (*env)->FindClass(env, "com/mmo/client/MainActivity");
         if (clazz) {
             jmethodID method = (*env)->GetStaticMethodID(env, clazz, "openFilePicker", "()V");
             if (method) {
@@ -1144,6 +1145,8 @@ void open_file_picker_for_avatar() {
                 printf("Failed to find openFilePicker method\n");
             }
             (*env)->DeleteLocalRef(env, clazz);
+        } else {
+            printf("Failed to find MainActivity class\n");
         }
         (*env)->DeleteLocalRef(env, activity);
     } else {
