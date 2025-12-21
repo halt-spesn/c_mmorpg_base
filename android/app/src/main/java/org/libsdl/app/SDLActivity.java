@@ -1908,6 +1908,7 @@ class DummyEdit extends View implements View.OnKeyListener {
         setFocusableInTouchMode(true);
         setFocusable(true);
         setOnKeyListener(this);
+        setLongClickable(true);
     }
 
     @Override
@@ -1935,6 +1936,56 @@ class DummyEdit extends View implements View.OnKeyListener {
             }
         }
         return super.onKeyPreIme(keyCode, event);
+    }
+
+    @Override
+    public boolean onTextContextMenuItem(int id) {
+        // Handle cut/copy/paste operations
+        boolean handled = false;
+        
+        switch (id) {
+            case android.R.id.cut:
+                if (ic != null) {
+                    CharSequence selected = ic.getSelectedText(0);
+                    if (selected != null && selected.length() > 0) {
+                        SDLActivity.mClipboardHandler.clipboardSetText(selected.toString());
+                        ic.deleteSurroundingText(0, selected.length());
+                        handled = true;
+                    }
+                }
+                break;
+                
+            case android.R.id.copy:
+                if (ic != null) {
+                    CharSequence selected = ic.getSelectedText(0);
+                    if (selected != null && selected.length() > 0) {
+                        SDLActivity.mClipboardHandler.clipboardSetText(selected.toString());
+                        handled = true;
+                    }
+                }
+                break;
+                
+            case android.R.id.paste:
+                String clipText = SDLActivity.mClipboardHandler.clipboardGetText();
+                if (clipText != null && ic != null) {
+                    ic.commitText(clipText, 1);
+                    handled = true;
+                }
+                break;
+                
+            case android.R.id.selectAll:
+                // Signal text selection for the entire content
+                if (ic != null) {
+                    Editable editable = ic.getEditable();
+                    if (editable != null) {
+                        ic.setSelection(0, editable.length());
+                        handled = true;
+                    }
+                }
+                break;
+        }
+        
+        return handled || super.onTextContextMenuItem(id);
     }
 
     @Override
