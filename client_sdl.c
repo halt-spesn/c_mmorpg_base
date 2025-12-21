@@ -3178,9 +3178,7 @@ int main(int argc, char *argv[]) {
     
     // Load font at scaled size based on loaded config
     // ui_scale was loaded from config earlier via load_config()
-    // Calculate scaled font size (same logic as reload_font_for_ui_scale)
-    int scaled_font_size = (int)(FONT_SIZE * ui_scale + 0.5f);
-    if (scaled_font_size < MIN_FONT_SIZE) scaled_font_size = MIN_FONT_SIZE;
+    int scaled_font_size = calculate_scaled_font_size();
     
     font = TTF_OpenFont(FONT_PATH, scaled_font_size);
     if (!font) { 

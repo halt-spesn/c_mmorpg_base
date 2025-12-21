@@ -48,6 +48,17 @@ SDL_Rect scale_rect(int x, int y, int w, int h) {
     return (SDL_Rect){scale_ui(x), scale_ui(y), scale_ui(w), scale_ui(h)};
 }
 
+int calculate_scaled_font_size(void) {
+    // Calculate scaled font size with proper rounding
+    // Base font size is FONT_SIZE (14), scale it with ui_scale
+    int scaled_font_size = (int)(FONT_SIZE * ui_scale + 0.5f);
+    
+    // Ensure minimum readable size
+    if (scaled_font_size < MIN_FONT_SIZE) scaled_font_size = MIN_FONT_SIZE;
+    
+    return scaled_font_size;
+}
+
 void reload_font_for_ui_scale(void) {
     // Close existing font
     if (font) {
@@ -55,12 +66,8 @@ void reload_font_for_ui_scale(void) {
         font = NULL;
     }
     
-    // Calculate scaled font size with proper rounding
-    // Base font size is FONT_SIZE (14), scale it with ui_scale
-    int scaled_font_size = (int)(FONT_SIZE * ui_scale + 0.5f);
-    
-    // Ensure minimum readable size
-    if (scaled_font_size < MIN_FONT_SIZE) scaled_font_size = MIN_FONT_SIZE;
+    // Calculate scaled font size
+    int scaled_font_size = calculate_scaled_font_size();
     
     // Reload font at scaled size
     font = TTF_OpenFont(FONT_PATH, scaled_font_size);
