@@ -1144,6 +1144,7 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     if (show_unread_counter) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c={btn_toggle_unread.x+4,btn_toggle_unread.y+4,12,12}; SDL_RenderFillRect(renderer,&c); }
     render_text(renderer, "Show Unread Counter", start_x + 30, y, col_white, 0); y += 40;
 
+    #ifndef __ANDROID__
     btn_toggle_vulkan = (SDL_Rect){start_x, y, 20, 20};
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_vulkan);
     if (config_use_vulkan) { 
@@ -1152,6 +1153,7 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
         SDL_RenderFillRect(renderer,&c); 
     }
     render_text(renderer, "Use Vulkan (restart required)", start_x + 30, y, col_white, 0); y += 40;
+    #endif
 
     #if !defined(_WIN32) && !defined(__APPLE__) && !defined(__ANDROID__)
     btn_toggle_nvidia_gpu = (SDL_Rect){start_x, y, 20, 20};
@@ -2608,7 +2610,9 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_fps)) { show_fps = !show_fps; save_config(); return; }
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_coords)) { show_coords = !show_coords; save_config(); return; }
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_unread)) { show_unread_counter = !show_unread_counter; save_config(); return; }
+            #ifndef __ANDROID__
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_vulkan)) { config_use_vulkan = !config_use_vulkan; save_config(); return; }
+            #endif
             #if !defined(_WIN32) && !defined(__APPLE__) && !defined(__ANDROID__)
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_nvidia_gpu)) { config_use_nvidia_gpu = !config_use_nvidia_gpu; save_config(); return; }
             #endif
@@ -2892,6 +2896,15 @@ int main(int argc, char *argv[]) {
     ALOG("Vulkan support compiled in (USE_VULKAN defined)\n");
     ALOG("config_use_vulkan = %d, use_vulkan = %d\n", config_use_vulkan, use_vulkan);
     
+    #ifdef __ANDROID__
+    // Disable Vulkan on Android due to SDL2 limitations
+    // SDL's Vulkan renderer backend is not functional on Android despite being compiled
+    if (config_use_vulkan) {
+        ALOG("Android: Vulkan is disabled on Android due to SDL2 limitations\n");
+        config_use_vulkan = 0;
+        use_vulkan = 0;
+    }
+    #else
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--vulkan") == 0 || strcmp(argv[i], "-vk") == 0) {
             use_vulkan = 1;
@@ -2907,14 +2920,16 @@ int main(int argc, char *argv[]) {
         render_backend = RENDER_BACKEND_VULKAN;
         ALOG("Vulkan rendering backend enabled from config\n");
     }
+    #endif
     
     // On Android, provide clear status message
     #ifdef __ANDROID__
+    ALOG("Android: OpenGL ES renderer will be used (Vulkan disabled on Android)\n");
+    #else
     if (use_vulkan) {
-        ALOG("Android: Vulkan renderer will be requested\n");
+        ALOG("Vulkan rendering backend will be used\n");
     } else {
-        ALOG("Android: OpenGL ES renderer will be used (Vulkan not enabled in config)\n");
-        ALOG("Android: To enable Vulkan, set the toggle in Settings menu\n");
+        ALOG("OpenGL renderer will be used\n");
     }
     #endif
     #else
