@@ -19,12 +19,31 @@ static void (*g_image_selected_callback)(const uint8_t* data, size_t size) = NUL
         
         // Start accessing the security-scoped resource
         if ([url startAccessingSecurityScopedResource]) {
-            NSData *imageData = [NSData dataWithContentsOfURL:url];
-            [url stopAccessingSecurityScopedResource];
-            
-            if (imageData && g_image_selected_callback) {
-                g_image_selected_callback((const uint8_t*)[imageData bytes], [imageData length]);
-            }
+            // Load image data asynchronously to avoid blocking UI
+            dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                NSError *error = nil;
+                NSDictionary *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:[url path] error:&error];
+                
+                if (attributes) {
+                    unsigned long long fileSize = [attributes fileSize];
+                    // MAX_AVATAR_SIZE is 16384 bytes
+                    const NSUInteger MAX_AVATAR_SIZE = 16384;
+                    
+                    if (fileSize > MAX_AVATAR_SIZE) {
+                        NSLog(@"File too large: %llu bytes (max: %lu)", fileSize, (unsigned long)MAX_AVATAR_SIZE);
+                        [url stopAccessingSecurityScopedResource];
+                        return;
+                    }
+                }
+                
+                NSData *imageData = [NSData dataWithContentsOfURL:url];
+                [url stopAccessingSecurityScopedResource];
+                
+                if (imageData && g_image_selected_callback) {
+                    // Call callback on main thread or from background - callback handles threading
+                    g_image_selected_callback((const uint8_t*)[imageData bytes], [imageData length]);
+                }
+            });
         }
     }
 }
@@ -36,6 +55,7 @@ static void (*g_image_selected_callback)(const uint8_t* data, size_t size) = NUL
 @end
 
 static FilePickerDelegate *g_delegate = nil;
+static dispatch_once_t g_delegate_once;
 
 // C function to set the callback
 void ios_set_image_callback(void (*callback)(const uint8_t* data, size_t size)) {
@@ -44,6 +64,11 @@ void ios_set_image_callback(void (*callback)(const uint8_t* data, size_t size)) 
 
 // C function to open the file picker
 void ios_open_file_picker(void) {
+    // Thread-safe delegate initialization
+    dispatch_once(&g_delegate_once, ^{
+        g_delegate = [[FilePickerDelegate alloc] init];
+    });
+    
     dispatch_async(dispatch_get_main_queue(), ^{
         // Get the key window (compatible with iOS 13+)
         UIWindow *keyWindow = nil;
@@ -79,11 +104,6 @@ void ios_open_file_picker(void) {
                 NSArray *documentTypes = @[@"public.image"];
                 documentPicker = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:documentTypes
                                                                                        inMode:UIDocumentPickerModeImport];
-            }
-            
-            // Create delegate if needed
-            if (!g_delegate) {
-                g_delegate = [[FilePickerDelegate alloc] init];
             }
             
             documentPicker.delegate = g_delegate;

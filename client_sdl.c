@@ -959,6 +959,11 @@ void render_fancy_slider(SDL_Renderer *renderer, SDL_Rect *rect, float pct, SDL_
 // JNI callback function to receive selected image data from Java
 JNIEXPORT void JNICALL
 Java_com_mmo_client_MainActivity_nativeOnImageSelected(JNIEnv* env, jobject obj, jbyteArray data, jint size) {
+    if (!sock || sock <= 0) {
+        printf("Error: Invalid socket, cannot upload avatar\n");
+        return;
+    }
+    
     if (size > 0 && size <= MAX_AVATAR_SIZE) {
         // Get the byte array from Java
         jbyte* imageBytes = (*env)->GetByteArrayElements(env, data, NULL);
@@ -988,6 +993,11 @@ Java_com_mmo_client_MainActivity_nativeOnImageSelected(JNIEnv* env, jobject obj,
 #ifdef __IPHONEOS__
 // iOS callback function to receive selected image data
 static void ios_image_selected_callback(const uint8_t* data, size_t size) {
+    if (!sock || sock <= 0) {
+        printf("Error: Invalid socket, cannot upload avatar\n");
+        return;
+    }
+    
     if (size > 0 && size <= MAX_AVATAR_SIZE) {
         // Send avatar upload packet
         Packet pkt;

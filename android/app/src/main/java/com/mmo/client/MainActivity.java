@@ -68,23 +68,64 @@ public class MainActivity extends SDLActivity {
         if (requestCode == PICK_IMAGE_REQUEST && resultCode == RESULT_OK) {
             if (data != null && data.getData() != null) {
                 Uri uri = data.getData();
+                InputStream inputStream = null;
                 try {
-                    InputStream inputStream = getContentResolver().openInputStream(uri);
+                    inputStream = getContentResolver().openInputStream(uri);
                     if (inputStream != null) {
+                        // Check file size first to avoid OutOfMemoryError
+                        long fileSize = -1;
+                        try {
+                            android.database.Cursor cursor = getContentResolver().query(uri, null, null, null, null);
+                            if (cursor != null) {
+                                int sizeIndex = cursor.getColumnIndex(android.provider.OpenableColumns.SIZE);
+                                if (sizeIndex >= 0) {
+                                    cursor.moveToFirst();
+                                    fileSize = cursor.getLong(sizeIndex);
+                                }
+                                cursor.close();
+                            }
+                        } catch (Exception e) {
+                            Log.w(TAG, "Could not determine file size, will validate during read");
+                        }
+                        
+                        // MAX_AVATAR_SIZE is 16384 bytes
+                        final int MAX_AVATAR_SIZE = 16384;
+                        if (fileSize > MAX_AVATAR_SIZE) {
+                            Log.e(TAG, "File too large: " + fileSize + " bytes (max: " + MAX_AVATAR_SIZE + ")");
+                            return;
+                        }
+                        
                         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
                         byte[] temp = new byte[1024];
                         int bytesRead;
+                        int totalRead = 0;
+                        
                         while ((bytesRead = inputStream.read(temp)) != -1) {
+                            // Validate size during read as well
+                            if (totalRead + bytesRead > MAX_AVATAR_SIZE) {
+                                Log.e(TAG, "File exceeds maximum size during read");
+                                return;
+                            }
                             buffer.write(temp, 0, bytesRead);
+                            totalRead += bytesRead;
                         }
+                        
                         byte[] imageData = buffer.toByteArray();
-                        inputStream.close();
                         
                         // Send the image data to native code
                         nativeOnImageSelected(imageData, imageData.length);
                     }
                 } catch (Exception e) {
                     Log.e(TAG, "Error reading file: " + e.getMessage());
+                } finally {
+                    // Ensure stream is closed even on error
+                    if (inputStream != null) {
+                        try {
+                            inputStream.close();
+                        } catch (Exception e) {
+                            Log.w(TAG, "Error closing stream: " + e.getMessage());
+                        }
+                    }
                 }
             }
         }
