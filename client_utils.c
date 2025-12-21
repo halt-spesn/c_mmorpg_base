@@ -57,10 +57,11 @@ void reload_font_for_ui_scale(void) {
     
     // Calculate scaled font size with proper rounding
     // Base font size is FONT_SIZE (14), scale it with ui_scale
-    int scaled_font_size = (int)(FONT_SIZE * ui_scale + 0.5f);
+    // Cast to float for consistent precision, then round and cast to int
+    int scaled_font_size = (int)((float)FONT_SIZE * ui_scale + 0.5f);
     
     // Ensure minimum readable size
-    if (scaled_font_size < 8) scaled_font_size = 8;
+    if (scaled_font_size < MIN_FONT_SIZE) scaled_font_size = MIN_FONT_SIZE;
     
     // Reload font at scaled size
     font = TTF_OpenFont(FONT_PATH, scaled_font_size);

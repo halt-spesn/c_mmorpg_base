@@ -65,6 +65,7 @@
 #define PLAYER_FILE "player.png"
 #define FONT_PATH "DejaVuSans.ttf"
 #define FONT_SIZE 14
+#define MIN_FONT_SIZE 8
 #define SCROLL_SPEED 30
 
 // --- Rendering Backend ---
