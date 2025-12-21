@@ -55,9 +55,9 @@ void reload_font_for_ui_scale(void) {
         font = NULL;
     }
     
-    // Calculate scaled font size
+    // Calculate scaled font size with proper rounding
     // Base font size is FONT_SIZE (14), scale it with ui_scale
-    int scaled_font_size = (int)(FONT_SIZE * ui_scale);
+    int scaled_font_size = (int)(FONT_SIZE * ui_scale + 0.5f);
     
     // Ensure minimum readable size
     if (scaled_font_size < 8) scaled_font_size = 8;
@@ -65,11 +65,13 @@ void reload_font_for_ui_scale(void) {
     // Reload font at scaled size
     font = TTF_OpenFont(FONT_PATH, scaled_font_size);
     if (!font) {
-        printf("Failed to reload font at size %d: %s\n", scaled_font_size, TTF_GetError());
+        printf("Failed to reload font '%s' at size %d (ui_scale=%.2f): %s\n", 
+               FONT_PATH, scaled_font_size, ui_scale, TTF_GetError());
         // Fallback to default size if scaled size fails
         font = TTF_OpenFont(FONT_PATH, FONT_SIZE);
         if (!font) {
-            printf("Critical: Font could not be loaded: %s\n", TTF_GetError());
+            printf("Critical: Font '%s' could not be loaded at default size: %s\n", 
+                   FONT_PATH, TTF_GetError());
         }
     }
 }
