@@ -63,8 +63,8 @@ void save_config(void) {
                 r = local_players[i].r; g = local_players[i].g; b = local_players[i].b;
             }
         }
-        // Config format: r g b r2 g2 b2 afk_min debug fps coords vol unread ui_scale zoom backend use_vk use_nv
-        fprintf(fp, "%d %d %d %d %d %d %d %d %d %d %d %d %.2f %.2f %d %d %d\n", 
+        // Config format: r g b r2 g2 b2 afk_min debug fps coords vol unread ui_scale zoom backend use_vk use_nv lang
+        fprintf(fp, "%d %d %d %d %d %d %d %d %d %d %d %d %.2f %.2f %d %d %d %d\n", 
             r, g, b,                          // Name color (start)
             my_r2, my_g2, my_b2,              // Name color (end)
             afk_timeout_minutes,              // AFK timeout
@@ -74,7 +74,8 @@ void save_config(void) {
             game_zoom,                        // Game zoom
             render_backend,                   // Rendering backend
             config_use_vulkan,                // Vulkan preference
-            config_use_nvidia_gpu             // NVIDIA GPU preference
+            config_use_nvidia_gpu,            // NVIDIA GPU preference
+            current_language                  // Language preference
         );
         fclose(fp);
     }
@@ -96,11 +97,11 @@ void load_config(void) {
         fp = fopen(path, "r");
     }
     if (fp) {
-        int dbg=0, fps=0, crd=0, vol=64, unread=1, backend=0, use_vk=0, use_nv=0;
+        int dbg=0, fps=0, crd=0, vol=64, unread=1, backend=0, use_vk=0, use_nv=0, lang=0;
         float scale=1.0f, zoom=1.0f;
         
-        // Config format: r g b r2 g2 b2 afk_min debug fps coords vol unread ui_scale zoom backend use_vk use_nv
-        int count = fscanf(fp, "%d %d %d %d %d %d %d %d %d %d %d %d %f %f %d %d %d", 
+        // Config format: r g b r2 g2 b2 afk_min debug fps coords vol unread ui_scale zoom backend use_vk use_nv lang
+        int count = fscanf(fp, "%d %d %d %d %d %d %d %d %d %d %d %d %f %f %d %d %d %d", 
             &saved_r, &saved_g, &saved_b,       // Name color (start)
             &my_r2, &my_g2, &my_b2,             // Name color (end)
             &afk_timeout_minutes,               // AFK timeout
@@ -110,7 +111,8 @@ void load_config(void) {
             &zoom,                              // Game zoom
             &backend,                           // Rendering backend
             &use_vk,                            // Vulkan preference
-            &use_nv                             // NVIDIA GPU preference
+            &use_nv,                            // NVIDIA GPU preference
+            &lang                               // Language preference
         );
         
         if (count >= 11) {
@@ -145,6 +147,10 @@ void load_config(void) {
         
         if (count >= 17) {
             config_use_nvidia_gpu = use_nv;
+        }
+        
+        if (count >= 18) {
+            set_language((Language)lang);
         }
         
         #ifdef USE_VULKAN

@@ -22,7 +22,7 @@ SERVER_OUT = server
 SERVER_LDFLAGS = -lsqlite3 -lm -lpthread -ferror-limit=0
 
 # --- CLIENT CONFIG ---
-CLIENT_SRC = client_sdl.c client_network.c client_config.c client_audio.c client_utils.c client_input.c $(VULKAN_SRC)
+CLIENT_SRC = client_sdl.c client_network.c client_config.c client_audio.c client_utils.c client_input.c localization.c $(VULKAN_SRC)
 CLIENT_OUT = client
 
 # 1. client compilation flags
