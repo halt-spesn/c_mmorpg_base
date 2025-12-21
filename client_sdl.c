@@ -2701,7 +2701,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             
             // Language cycle button
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_cycle_language)) {
-                current_language = (current_language + 1) % LANG_COUNT;
+                current_language = (current_language + 1) % GAME_LANG_COUNT;
                 save_config();
                 return;
             }

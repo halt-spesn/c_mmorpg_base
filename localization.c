@@ -2,11 +2,11 @@
 #include <string.h>
 
 // Current language (default: English)
-Language current_language = LANG_ENGLISH;
+Language current_language = GAME_LANG_ENGLISH;
 
 // Translation table
-static const char* translations[LANG_COUNT][STR_COUNT] = {
-    // LANG_ENGLISH
+static const char* translations[GAME_LANG_COUNT][STR_COUNT] = {
+    // GAME_LANG_ENGLISH
     {
         "Settings",                         // STR_SETTINGS
         "Show Debug Info",                  // STR_SHOW_DEBUG_INFO
@@ -114,7 +114,7 @@ static const char* translations[LANG_COUNT][STR_COUNT] = {
         "Del",                              // STR_DEL
         "+ ID",                             // STR_PLUS_ID
     },
-    // LANG_UKRAINIAN
+    // GAME_LANG_UKRAINIAN
     {
         "Налаштування",                     // STR_SETTINGS
         "Показати інформацію налагодження", // STR_SHOW_DEBUG_INFO
@@ -225,24 +225,24 @@ static const char* translations[LANG_COUNT][STR_COUNT] = {
 };
 
 // Language names
-static const char* language_names[LANG_COUNT] = {
+static const char* language_names[GAME_LANG_COUNT] = {
     "English",
     "Українська"
 };
 
 const char* get_string(StringID id) {
     if (id >= STR_COUNT) return "";
-    if (current_language >= LANG_COUNT) return "";
+    if (current_language >= GAME_LANG_COUNT) return "";
     return translations[current_language][id];
 }
 
 const char* get_language_name(Language lang) {
-    if (lang >= LANG_COUNT) return "Unknown";
+    if (lang >= GAME_LANG_COUNT) return "Unknown";
     return language_names[lang];
 }
 
 void set_language(Language lang) {
-    if (lang < LANG_COUNT) {
+    if (lang < GAME_LANG_COUNT) {
         current_language = lang;
     }
 }

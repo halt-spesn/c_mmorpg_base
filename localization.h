@@ -3,9 +3,9 @@
 
 // Supported languages
 typedef enum {
-    LANG_ENGLISH = 0,
-    LANG_UKRAINIAN = 1,
-    LANG_COUNT = 2
+    GAME_LANG_ENGLISH = 0,
+    GAME_LANG_UKRAINIAN = 1,
+    GAME_LANG_COUNT = 2
 } Language;
 
 // String IDs for all UI text
