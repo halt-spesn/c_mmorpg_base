@@ -257,6 +257,8 @@ int mobile_text_menu_x = 0;
 int mobile_text_menu_y = 0;
 Uint32 long_press_start_time = 0;
 int long_press_active = 0;
+int long_press_start_x = 0;
+int long_press_start_y = 0;
 #endif
 
 int show_documentation = 0;
@@ -1771,6 +1773,11 @@ void render_auth_screen(SDL_Renderer *renderer) {
         SDL_SetRenderDrawColor(renderer, 0, 100, 0, 255); SDL_RenderFillRect(renderer, &btn_add_profile);
         render_text(renderer, get_string(STR_SAVE_CURRENT), btn_add_profile.x + 105, btn_add_profile.y + 5, col_white, 1);
     }
+    
+    #if defined(__ANDROID__) || defined(__IPHONEOS__)
+    render_mobile_text_menu(renderer);
+    #endif
+    
     SDL_RenderPresent(renderer);
 }
 
@@ -2023,6 +2030,48 @@ void render_mobile_controls(SDL_Renderer *renderer, int h) {
 }
 
 #if defined(__ANDROID__) || defined(__IPHONEOS__)
+// Helper function to get the buffer and max length for the currently active field
+static char* get_active_field_buffer(int *max_len_out) {
+    if (is_chat_open) {
+        if (max_len_out) *max_len_out = 60;
+        return input_buffer;
+    }
+    
+    if (max_len_out) *max_len_out = 31; // Default for most fields
+    
+    switch (active_field) {
+        case FIELD_AUTH_USERNAME: return auth_username;
+        case FIELD_AUTH_PASSWORD: return auth_password;
+        case FIELD_IP: 
+            if (max_len_out) *max_len_out = 63;
+            return input_ip;
+        case FIELD_PORT: 
+            if (max_len_out) *max_len_out = 5;
+            return input_port;
+        case FIELD_NICK_NEW: return nick_new;
+        case FIELD_NICK_CONFIRM: return nick_confirm;
+        case FIELD_NICK_PASS: return nick_pass;
+        case FIELD_PASSWORD_CURRENT:
+        case FIELD_PASSWORD_NEW:
+        case FIELD_PASSWORD_CONFIRM:
+            if (max_len_out) *max_len_out = 63;
+            if (active_field == FIELD_PASSWORD_CURRENT) return password_current;
+            if (active_field == FIELD_PASSWORD_NEW) return password_new;
+            return password_confirm;
+        case FIELD_FRIEND_ID:
+            if (max_len_out) *max_len_out = 8;
+            return input_friend_id;
+        case FIELD_SANCTION_REASON:
+            if (max_len_out) *max_len_out = 63;
+            return input_sanction_reason;
+        case FIELD_BAN_TIME:
+            if (max_len_out) *max_len_out = 15;
+            return input_ban_time;
+        default:
+            return NULL;
+    }
+}
+
 void render_mobile_text_menu(SDL_Renderer *renderer) {
     if (!show_mobile_text_menu) return;
     
@@ -3524,13 +3573,7 @@ int main(int argc, char *argv[]) {
                     if (SDL_PointInRect(&(SDL_Point){tx, ty}, &btn_cut)) {
                         // Cut: Copy and delete
                         if (selection_len != 0 && (is_chat_open || active_field >= 0)) {
-                            char *buffer = is_chat_open ? input_buffer : 
-                                          (active_field == 10 ? nick_new :
-                                           active_field == 11 ? nick_confirm :
-                                           active_field == 12 ? nick_pass :
-                                           active_field == FIELD_PASSWORD_CURRENT ? password_current :
-                                           active_field == FIELD_PASSWORD_NEW ? password_new :
-                                           active_field == FIELD_PASSWORD_CONFIRM ? password_confirm : NULL);
+                            char *buffer = get_active_field_buffer(NULL);
                             if (buffer) {
                                 int start = selection_start;
                                 int slen = selection_len;
@@ -3549,13 +3592,7 @@ int main(int argc, char *argv[]) {
                     } else if (SDL_PointInRect(&(SDL_Point){tx, ty}, &btn_copy)) {
                         // Copy
                         if (selection_len != 0 && (is_chat_open || active_field >= 0)) {
-                            char *buffer = is_chat_open ? input_buffer : 
-                                          (active_field == 10 ? nick_new :
-                                           active_field == 11 ? nick_confirm :
-                                           active_field == 12 ? nick_pass :
-                                           active_field == FIELD_PASSWORD_CURRENT ? password_current :
-                                           active_field == FIELD_PASSWORD_NEW ? password_new :
-                                           active_field == FIELD_PASSWORD_CONFIRM ? password_confirm : NULL);
+                            char *buffer = get_active_field_buffer(NULL);
                             if (buffer) {
                                 int start = selection_start;
                                 int slen = selection_len;
@@ -3575,14 +3612,8 @@ int main(int argc, char *argv[]) {
                         if (SDL_HasClipboardText() && (is_chat_open || active_field >= 0)) {
                             char *text = SDL_GetClipboardText();
                             if (text) {
-                                char *buffer = is_chat_open ? input_buffer : 
-                                              (active_field == 10 ? nick_new :
-                                               active_field == 11 ? nick_confirm :
-                                               active_field == 12 ? nick_pass :
-                                               active_field == FIELD_PASSWORD_CURRENT ? password_current :
-                                               active_field == FIELD_PASSWORD_NEW ? password_new :
-                                               active_field == FIELD_PASSWORD_CONFIRM ? password_confirm : NULL);
-                                int max_len = (is_chat_open ? 60 : (active_field >= FIELD_PASSWORD_CURRENT && active_field <= FIELD_PASSWORD_CONFIRM ? 63 : 31));
+                                int max_len = 0;
+                                char *buffer = get_active_field_buffer(&max_len);
                                 
                                 if (buffer) {
                                     if (selection_len != 0) delete_selection(buffer);
@@ -3600,13 +3631,7 @@ int main(int argc, char *argv[]) {
                     } else if (SDL_PointInRect(&(SDL_Point){tx, ty}, &btn_clear)) {
                         // Clear selection or all text
                         if (is_chat_open || active_field >= 0) {
-                            char *buffer = is_chat_open ? input_buffer : 
-                                          (active_field == 10 ? nick_new :
-                                           active_field == 11 ? nick_confirm :
-                                           active_field == 12 ? nick_pass :
-                                           active_field == FIELD_PASSWORD_CURRENT ? password_current :
-                                           active_field == FIELD_PASSWORD_NEW ? password_new :
-                                           active_field == FIELD_PASSWORD_CONFIRM ? password_confirm : NULL);
+                            char *buffer = get_active_field_buffer(NULL);
                             if (buffer) {
                                 if (selection_len != 0) {
                                     delete_selection(buffer);
@@ -3627,6 +3652,8 @@ int main(int argc, char *argv[]) {
                 if (is_chat_open || active_field >= 0) {
                     long_press_start_time = SDL_GetTicks();
                     long_press_active = 1;
+                    long_press_start_x = tx;
+                    long_press_start_y = ty;
                 }
                 #endif
 
@@ -3758,6 +3785,21 @@ int main(int argc, char *argv[]) {
                 }
             }
             else if (event.type == SDL_FINGERMOTION) {
+                #if defined(__ANDROID__) || defined(__IPHONEOS__)
+                // Cancel long press if finger moves too much (drag detection)
+                if (long_press_active) {
+                    int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
+                    int tx = (int)((event.tfinger.x * w) / ui_scale);
+                    int ty = (int)((event.tfinger.y * h) / ui_scale);
+                    int dx = abs(tx - long_press_start_x);
+                    int dy = abs(ty - long_press_start_y);
+                    // Cancel if moved more than 10 pixels in any direction
+                    if (dx > 10 || dy > 10) {
+                        long_press_active = 0;
+                    }
+                }
+                #endif
+                
                 if (event.tfinger.fingerId == scroll_touch_id) {
                     int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
                     int ty = (int)((event.tfinger.y * h) / ui_scale);
