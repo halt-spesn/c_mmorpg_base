@@ -9,6 +9,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		9FIOS0022EF2C9C3003F5008 /* ios_file_picker.m in Sources */ = {isa = PBXBuildFile; fileRef = 9FIOS0012EF2C9C2003F5007 /* ios_file_picker.m */; platformFilter = ios; };
+
 		9F3ABCF22EF2FD7C0036A5E8 /* CoreText.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F3ABCF12EF2FD7C0036A5E8 /* CoreText.framework */; };
 		9F3ABCF42EF2FD850036A5E8 /* ImageIO.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F3ABCF32EF2FD850036A5E8 /* ImageIO.framework */; };
 		9F3ABCF62EF2FD930036A5E8 /* MobileCoreServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F3ABCF52EF2FD930036A5E8 /* MobileCoreServices.framework */; platformFilter = ios; };
@@ -138,6 +140,7 @@
 			children = (
 				9F8778D02EF2C8F5003F57C3 /* mmotest */,
 				9F8778EC2EF2C9C2003F57C3 /* client_sdl.c */,
+				9FIOS0012EF2C9C2003F5007 /* ios_file_picker.m */,
 				9FCLIENT02EF2C9C2003F5001 /* client_network.c */,
 				9FCLIENT02EF2C9C2003F5002 /* client_config.c */,
 				9FCLIENT02EF2C9C2003F5003 /* client_audio.c */,
@@ -284,6 +287,7 @@
 				9FCLIENT42EF2C9C3003F5004 /* client_utils.c in Sources */,
 				9FCLIENT52EF2C9C3003F5005 /* client_input.c in Sources */,
 				9FLOCAL12EF2C9C3003F5006 /* localization.c in Sources */,
+				9FIOS0022EF2C9C3003F5008 /* ios_file_picker.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

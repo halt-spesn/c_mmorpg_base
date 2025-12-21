@@ -18,6 +18,11 @@ typedef int NSInteger;
 #define NSWindowTabbingModeDisallowed 2
 #endif
 
+#ifdef __ANDROID__
+#include <jni.h>
+#include <SDL2/SDL_system.h>
+#endif
+
 #include "client.h"
 
 // --- Global Variable Definitions ---
@@ -950,6 +955,68 @@ void render_fancy_slider(SDL_Renderer *renderer, SDL_Rect *rect, float pct, SDL_
     SDL_RenderDrawRect(renderer, &knob);
 }
 
+#ifdef __ANDROID__
+// JNI callback function to receive selected image data from Java
+JNIEXPORT void JNICALL
+Java_com_mmo_client_MainActivity_nativeOnImageSelected(JNIEnv* env, jobject obj, jbyteArray data, jint size) {
+    if (!sock || sock <= 0) {
+        printf("Error: Invalid socket, cannot upload avatar\n");
+        return;
+    }
+    
+    if (size > 0 && size <= MAX_AVATAR_SIZE) {
+        // Get the byte array from Java
+        jbyte* imageBytes = (*env)->GetByteArrayElements(env, data, NULL);
+        if (imageBytes != NULL) {
+            // Send avatar upload packet
+            Packet pkt;
+            memset(&pkt, 0, sizeof(Packet));
+            pkt.type = PACKET_AVATAR_UPLOAD;
+            pkt.image_size = size;
+            
+            // Send packet header first
+            send_all(sock, &pkt, sizeof(Packet));
+            // Then send image data
+            send_all(sock, (uint8_t*)imageBytes, size);
+            
+            // Release the byte array
+            (*env)->ReleaseByteArrayElements(env, data, imageBytes, JNI_ABORT);
+            
+            printf("Avatar uploaded: %d bytes\n", size);
+        }
+    } else {
+        printf("Invalid avatar size: %d bytes (max: %d)\n", size, MAX_AVATAR_SIZE);
+    }
+}
+#endif
+
+#ifdef __IPHONEOS__
+// iOS callback function to receive selected image data
+static void ios_image_selected_callback(const uint8_t* data, size_t size) {
+    if (!sock || sock <= 0) {
+        printf("Error: Invalid socket, cannot upload avatar\n");
+        return;
+    }
+    
+    if (size > 0 && size <= MAX_AVATAR_SIZE) {
+        // Send avatar upload packet
+        Packet pkt;
+        memset(&pkt, 0, sizeof(Packet));
+        pkt.type = PACKET_AVATAR_UPLOAD;
+        pkt.image_size = size;
+        
+        // Send packet header first
+        send_all(sock, &pkt, sizeof(Packet));
+        // Then send image data
+        send_all(sock, (uint8_t*)data, size);
+        
+        printf("Avatar uploaded: %d bytes\n", (int)size);
+    } else {
+        printf("Invalid avatar size: %zu bytes (max: %d)\n", size, MAX_AVATAR_SIZE);
+    }
+}
+#endif
+
 // Platform-specific file picker for avatar selection
 void open_file_picker_for_avatar() {
     #if defined(_WIN32)
@@ -1057,14 +1124,34 @@ void open_file_picker_for_avatar() {
     }
     
     #elif defined(__IPHONEOS__)
-    // iOS: File picker requires UIKit integration (would need Objective-C wrapper)
-    // For now, show a message
-    printf("iOS file picker not yet implemented - requires UIKit integration\n");
+    // iOS: Use UIKit document picker
+    ios_set_image_callback(ios_image_selected_callback);
+    ios_open_file_picker();
     
     #elif defined(__ANDROID__)
-    // Android: File picker requires JNI integration
-    // For now, show a message
-    printf("Android file picker not yet implemented - requires JNI integration\n");
+    // Android: Call Java method via JNI to open file picker
+    JNIEnv* env = (JNIEnv*)SDL_AndroidGetJNIEnv();
+    jobject activity = (jobject)SDL_AndroidGetActivity();
+    
+    if (env && activity) {
+        // Get the MainActivity class (not the object class)
+        jclass clazz = (*env)->FindClass(env, "com/mmo/client/MainActivity");
+        if (clazz) {
+            jmethodID method = (*env)->GetStaticMethodID(env, clazz, "openFilePicker", "()V");
+            if (method) {
+                (*env)->CallStaticVoidMethod(env, clazz, method);
+                printf("Android file picker opened\n");
+            } else {
+                printf("Failed to find openFilePicker method\n");
+            }
+            (*env)->DeleteLocalRef(env, clazz);
+        } else {
+            printf("Failed to find MainActivity class\n");
+        }
+        (*env)->DeleteLocalRef(env, activity);
+    } else {
+        printf("Failed to get JNI environment or activity\n");
+    }
     
     #else
     // Linux/other: Try zenity as fallback
