@@ -45,23 +45,41 @@ void ios_set_image_callback(void (*callback)(const uint8_t* data, size_t size)) 
 // C function to open the file picker
 void ios_open_file_picker(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
-        UIViewController *rootViewController = [[[UIApplication sharedApplication] keyWindow] rootViewController];
+        // Get the key window (compatible with iOS 13+)
+        UIWindow *keyWindow = nil;
+        if (@available(iOS 13.0, *)) {
+            NSSet *connectedScenes = [UIApplication sharedApplication].connectedScenes;
+            for (UIScene *scene in connectedScenes) {
+                if ([scene isKindOfClass:[UIWindowScene class]]) {
+                    UIWindowScene *windowScene = (UIWindowScene *)scene;
+                    for (UIWindow *window in windowScene.windows) {
+                        if (window.isKeyWindow) {
+                            keyWindow = window;
+                            break;
+                        }
+                    }
+                }
+                if (keyWindow) break;
+            }
+        } else {
+            keyWindow = [UIApplication sharedApplication].keyWindow;
+        }
+        
+        UIViewController *rootViewController = keyWindow.rootViewController;
         
         if (rootViewController) {
-            // Create document picker for images
-            NSArray *contentTypes;
+            UIDocumentPickerViewController *documentPicker = nil;
             
             if (@available(iOS 14.0, *)) {
                 // Use UTType for iOS 14+
-                contentTypes = @[UTTypeImage];
+                NSArray<UTType *> *contentTypes = @[UTTypeImage];
+                documentPicker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:contentTypes];
             } else {
                 // Fallback for older iOS versions
-                contentTypes = @[@"public.image"];
+                NSArray *documentTypes = @[@"public.image"];
+                documentPicker = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:documentTypes
+                                                                                       inMode:UIDocumentPickerModeImport];
             }
-            
-            UIDocumentPickerViewController *documentPicker = 
-                [[UIDocumentPickerViewController alloc] initWithDocumentTypes:contentTypes
-                                                                       inMode:UIDocumentPickerModeImport];
             
             // Create delegate if needed
             if (!g_delegate) {

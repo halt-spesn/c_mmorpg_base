@@ -9,8 +9,6 @@
 -->
 <plist version="1.0">
 <dict>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>This app needs access to your photo library to select an avatar image.</string>
 	<key>UISupportsDocumentBrowser</key>
 	<true/>
 </dict>
