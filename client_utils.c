@@ -57,8 +57,7 @@ void reload_font_for_ui_scale(void) {
     
     // Calculate scaled font size with proper rounding
     // Base font size is FONT_SIZE (14), scale it with ui_scale
-    // Cast to float for consistent precision, then round and cast to int
-    int scaled_font_size = (int)((float)FONT_SIZE * ui_scale + 0.5f);
+    int scaled_font_size = (int)(FONT_SIZE * ui_scale + 0.5f);
     
     // Ensure minimum readable size
     if (scaled_font_size < MIN_FONT_SIZE) scaled_font_size = MIN_FONT_SIZE;

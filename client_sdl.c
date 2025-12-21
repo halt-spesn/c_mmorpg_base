@@ -3175,11 +3175,15 @@ int main(int argc, char *argv[]) {
         }
         gl_probe_done = 1;
     }
+    
+    // Load font at default size first, then reload at scaled size
+    // Initial load ensures font exists before attempting scaled load
     font = TTF_OpenFont(FONT_PATH, FONT_SIZE);
     if (!font) { printf("Font missing: %s\n", FONT_PATH); return 1; }
     
-    // Reload font at scaled size based on loaded config
+    // Now reload font at scaled size based on loaded config
     // ui_scale was loaded from config earlier, so apply it to font
+    // Note: reload_font_for_ui_scale() handles the case where ui_scale == 1.0
     reload_font_for_ui_scale();
     
     #if defined(__APPLE__) && !defined(__IPHONEOS__)
