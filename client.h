@@ -462,6 +462,13 @@ void render_role_list(SDL_Renderer *renderer, int w, int h);
 void process_slider_drag(int mx);
 void render_fancy_slider(SDL_Renderer *renderer, SDL_Rect *rect, float pct, SDL_Color fill_col);
 void open_file_picker_for_avatar(void);
+
+#ifdef __IPHONEOS__
+// iOS file picker functions (implemented in ios_file_picker.m)
+void ios_set_image_callback(void (*callback)(const uint8_t* data, size_t size));
+void ios_open_file_picker(void);
+#endif
+
 void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h);
 void render_friend_list(SDL_Renderer *renderer, int w, int h);
 void render_popup(SDL_Renderer *renderer, int w, int h);
