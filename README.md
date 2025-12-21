@@ -1,6 +1,9 @@
 game coded by gemini, gpt-5.1-codex-max, claude sonnet 4.5.
 
 
+**Features:**
+- localization support (english and ukrainian) - see LOCALIZATION.md for details
+
 current issues: game(unable to walk), server(won't launch) does not runs in wine; window decors on mac os are black
 
 
