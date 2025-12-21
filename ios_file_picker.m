@@ -40,7 +40,8 @@ static void (*g_image_selected_callback)(const uint8_t* data, size_t size) = NUL
                 [url stopAccessingSecurityScopedResource];
                 
                 if (imageData && g_image_selected_callback) {
-                    // Call callback on main thread or from background - callback handles threading
+                    // Invoke callback from background thread
+                    // The callback in client_sdl.c handles any necessary thread synchronization
                     g_image_selected_callback((const uint8_t*)[imageData bytes], [imageData length]);
                 }
             });
