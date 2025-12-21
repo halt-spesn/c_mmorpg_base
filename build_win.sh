@@ -36,6 +36,9 @@ cp triggers.txt windows_release/
 # 4. Copy font
 cp DejaVuSans.ttf windows_release/DejaVuSans.ttf
 
+#copy music
+cp -r music/ windows_release/
+
 # 5. Copy DLL libs from win_libs
 # SDL2
 cp win_libs/SDL2-*/x86_64-w64-mingw32/bin/*.dll windows_release/
