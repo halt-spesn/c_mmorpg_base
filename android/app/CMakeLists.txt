@@ -19,6 +19,7 @@ add_library(client SHARED
     ${CMAKE_CURRENT_SOURCE_DIR}/../../client_audio.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../client_utils.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../client_input.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../localization.c
 )
 
 # Define the path to the prebuilt SDL2 libraries

@@ -22,6 +22,7 @@
 		9FCLIENT32EF2C9C3003F5003 /* client_audio.c in Sources */ = {isa = PBXBuildFile; fileRef = 9FCLIENT02EF2C9C2003F5003 /* client_audio.c */; };
 		9FCLIENT42EF2C9C3003F5004 /* client_utils.c in Sources */ = {isa = PBXBuildFile; fileRef = 9FCLIENT02EF2C9C2003F5004 /* client_utils.c */; };
 		9FCLIENT52EF2C9C3003F5005 /* client_input.c in Sources */ = {isa = PBXBuildFile; fileRef = 9FCLIENT02EF2C9C2003F5005 /* client_input.c */; };
+		9FLOCAL12EF2C9C3003F5006 /* localization.c in Sources */ = {isa = PBXBuildFile; fileRef = 9FLOCAL02EF2C9C2003F5006 /* localization.c */; };
 		9F8778F62EF2CA78003F57C3 /* OpenGLES.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8778F52EF2CA78003F57C3 /* OpenGLES.framework */; platformFilter = ios; };
 		9F8778F82EF2CA85003F57C3 /* AudioToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8778F72EF2CA85003F57C3 /* AudioToolbox.framework */; };
 		9F8778FA2EF2CA8A003F57C3 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F8778F92EF2CA8A003F57C3 /* AVFoundation.framework */; };
@@ -62,6 +63,8 @@
 		9FCLIENT02EF2C9C2003F5003 /* client_audio.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = client_audio.c; sourceTree = "<group>"; };
 		9FCLIENT02EF2C9C2003F5004 /* client_utils.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = client_utils.c; sourceTree = "<group>"; };
 		9FCLIENT02EF2C9C2003F5005 /* client_input.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = client_input.c; sourceTree = "<group>"; };
+		9FLOCAL02EF2C9C2003F5006 /* localization.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = localization.c; sourceTree = "<group>"; };
+		9FLOCAL02EF2C9C2003F5007 /* localization.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = localization.h; sourceTree = "<group>"; };
 		9FCLIENT02EF2C9C2003F5006 /* client.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = client.h; sourceTree = "<group>"; };
 		9F8778EE2EF2C9C9003F57C3 /* common.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = common.h; sourceTree = "<group>"; };
 		9F8778EF2EF2C9DA003F57C3 /* music */ = {isa = PBXFileReference; lastKnownFileType = folder; path = music; sourceTree = "<group>"; };
@@ -140,6 +143,8 @@
 				9FCLIENT02EF2C9C2003F5003 /* client_audio.c */,
 				9FCLIENT02EF2C9C2003F5004 /* client_utils.c */,
 				9FCLIENT02EF2C9C2003F5005 /* client_input.c */,
+				9FLOCAL02EF2C9C2003F5006 /* localization.c */,
+				9FLOCAL02EF2C9C2003F5007 /* localization.h */,
 				9FCLIENT02EF2C9C2003F5006 /* client.h */,
 				9F8778EE2EF2C9C9003F57C3 /* common.h */,
 				9F8778F32EF2C9FF003F57C3 /* DejaVuSans.ttf */,
@@ -278,6 +283,7 @@
 				9FCLIENT32EF2C9C3003F5003 /* client_audio.c in Sources */,
 				9FCLIENT42EF2C9C3003F5004 /* client_utils.c in Sources */,
 				9FCLIENT52EF2C9C3003F5005 /* client_input.c in Sources */,
+				9FLOCAL12EF2C9C3003F5006 /* localization.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
