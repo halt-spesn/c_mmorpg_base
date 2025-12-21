@@ -241,6 +241,7 @@ int config_use_vulkan = 0;
 int config_use_nvidia_gpu = 0;
 SDL_Rect btn_toggle_vulkan;
 SDL_Rect btn_toggle_nvidia_gpu;
+SDL_Rect btn_cycle_language;
 
 #if defined(__ANDROID__) || defined(__IPHONEOS__)
 int keyboard_height = 0;
@@ -1113,7 +1114,7 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     
     SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255); SDL_RenderFillRect(renderer, &settings_win);
     SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255); SDL_RenderDrawRect(renderer, &settings_win);
-    render_text(renderer, "Settings", settings_win.x + 175, settings_win.y + 10, col_white, 1);
+    render_text(renderer, get_string(STR_SETTINGS), settings_win.x + 175, settings_win.y + 10, col_white, 1);
 
     // 2. Setup Clipping Region (Content Area)
     settings_view_port = (SDL_Rect){settings_win.x + 10, settings_win.y + 40, settings_win.w - 20, settings_win.h - 50};
@@ -1127,22 +1128,22 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     btn_toggle_debug = (SDL_Rect){start_x, y, 20, 20};
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_debug);
     if (show_debug_info) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c={btn_toggle_debug.x+4,btn_toggle_debug.y+4,12,12}; SDL_RenderFillRect(renderer,&c); }
-    render_text(renderer, "Show Debug Info", start_x + 30, y, col_white, 0); y += 40;
+    render_text(renderer, get_string(STR_SHOW_DEBUG_INFO), start_x + 30, y, col_white, 0); y += 40;
 
     btn_toggle_fps = (SDL_Rect){start_x, y, 20, 20};
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_fps);
     if (show_fps) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c={btn_toggle_fps.x+4,btn_toggle_fps.y+4,12,12}; SDL_RenderFillRect(renderer,&c); }
-    render_text(renderer, "Show FPS", start_x + 30, y, col_white, 0); y += 40;
+    render_text(renderer, get_string(STR_SHOW_FPS), start_x + 30, y, col_white, 0); y += 40;
 
     btn_toggle_coords = (SDL_Rect){start_x, y, 20, 20};
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_coords);
     if (show_coords) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c={btn_toggle_coords.x+4,btn_toggle_coords.y+4,12,12}; SDL_RenderFillRect(renderer,&c); }
-    render_text(renderer, "Show Coordinates", start_x + 30, y, col_white, 0); y += 40;
+    render_text(renderer, get_string(STR_SHOW_COORDINATES), start_x + 30, y, col_white, 0); y += 40;
 
     btn_toggle_unread = (SDL_Rect){start_x, y, 20, 20};
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderFillRect(renderer, &btn_toggle_unread);
     if (show_unread_counter) { SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_Rect c={btn_toggle_unread.x+4,btn_toggle_unread.y+4,12,12}; SDL_RenderFillRect(renderer,&c); }
-    render_text(renderer, "Show Unread Counter", start_x + 30, y, col_white, 0); y += 40;
+    render_text(renderer, get_string(STR_SHOW_UNREAD_COUNTER), start_x + 30, y, col_white, 0); y += 40;
 
     #ifndef __ANDROID__
     btn_toggle_vulkan = (SDL_Rect){start_x, y, 20, 20};
@@ -1152,7 +1153,7 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
         SDL_Rect c={btn_toggle_vulkan.x+4,btn_toggle_vulkan.y+4,12,12}; 
         SDL_RenderFillRect(renderer,&c); 
     }
-    render_text(renderer, "Use Vulkan (restart required)", start_x + 30, y, col_white, 0); y += 40;
+    render_text(renderer, get_string(STR_USE_VULKAN), start_x + 30, y, col_white, 0); y += 40;
     #endif
 
     #if !defined(_WIN32) && !defined(__APPLE__) && !defined(__ANDROID__)
@@ -1163,44 +1164,44 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
         SDL_Rect c={btn_toggle_nvidia_gpu.x+4,btn_toggle_nvidia_gpu.y+4,12,12}; 
         SDL_RenderFillRect(renderer,&c); 
     }
-    render_text(renderer, "Use NVIDIA GPU (restart required)", start_x + 30, y, col_white, 0); y += 40;
+    render_text(renderer, get_string(STR_USE_NVIDIA_GPU), start_x + 30, y, col_white, 0); y += 40;
     #endif
 
     // -- Buttons --
     btn_view_blocked = (SDL_Rect){start_x, y, 300, 30};
     SDL_SetRenderDrawColor(renderer, 200, 50, 50, 255); SDL_RenderFillRect(renderer, &btn_view_blocked);
-    render_text(renderer, "Manage Blocked Players", btn_view_blocked.x + 150, btn_view_blocked.y + 5, col_white, 1);
+    render_text(renderer, get_string(STR_MANAGE_BLOCKED_PLAYERS), btn_view_blocked.x + 150, btn_view_blocked.y + 5, col_white, 1);
     y += 40;
 
-    char id_str[32]; snprintf(id_str, 32, "My ID: %d", local_player_id);
+    char id_str[32]; snprintf(id_str, 32, get_string(STR_MY_ID), local_player_id);
     render_text(renderer, id_str, settings_win.x + 175, y, (SDL_Color){150, 150, 255, 255}, 1);
     y += 25;
 
     int my_status = 0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) my_status = local_players[i].status;
     btn_cycle_status = (SDL_Rect){start_x, y, 300, 30};
     SDL_SetRenderDrawColor(renderer, 50, 50, 100, 255); SDL_RenderFillRect(renderer, &btn_cycle_status);
-    char status_str[64]; snprintf(status_str, 64, "Status: %s", status_names[my_status]);
+    char status_str[64]; snprintf(status_str, 64, get_string(STR_STATUS), status_names[my_status]);
     render_text(renderer, status_str, btn_cycle_status.x + 150, btn_cycle_status.y + 5, get_status_color(my_status), 1);
     y += 40;
 
     SDL_Rect btn_nick = {start_x, y, 300, 30};
     SDL_SetRenderDrawColor(renderer, 100, 50, 150, 255); SDL_RenderFillRect(renderer, &btn_nick);
-    render_text(renderer, "Change Nickname", btn_nick.x + 150, btn_nick.y + 5, col_white, 1);
+    render_text(renderer, get_string(STR_CHANGE_NICKNAME), btn_nick.x + 150, btn_nick.y + 5, col_white, 1);
     y += 40;
 
     btn_change_avatar = (SDL_Rect){start_x, y, 300, 30};
     SDL_SetRenderDrawColor(renderer, 50, 150, 100, 255); SDL_RenderFillRect(renderer, &btn_change_avatar);
-    render_text(renderer, "Change Avatar", btn_change_avatar.x + 150, btn_change_avatar.y + 5, col_white, 1);
+    render_text(renderer, get_string(STR_CHANGE_AVATAR), btn_change_avatar.x + 150, btn_change_avatar.y + 5, col_white, 1);
     y += 40;
 
     btn_change_password = (SDL_Rect){start_x, y, 300, 30};
     SDL_SetRenderDrawColor(renderer, 150, 50, 100, 255); SDL_RenderFillRect(renderer, &btn_change_password);
-    render_text(renderer, "Change Password", btn_change_password.x + 150, btn_change_password.y + 5, col_white, 1);
+    render_text(renderer, get_string(STR_CHANGE_PASSWORD), btn_change_password.x + 150, btn_change_password.y + 5, col_white, 1);
     y += 40;
   
     
 
-    render_text(renderer, "Name Color (Start)", settings_win.x + 175, y, (SDL_Color){my_r, my_g, my_b, 255}, 1); 
+    render_text(renderer, get_string(STR_NAME_COLOR_START), settings_win.x + 175, y, (SDL_Color){my_r, my_g, my_b, 255}, 1); 
     y += 25; // Header Gap
     
     slider_r = (SDL_Rect){start_x + 30, y, 240, 15};
@@ -1216,7 +1217,7 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     y += 50; // Extra gap before next section title
 
     // -- Color Sliders 2 (End) --
-    render_text(renderer, "Name Color (End)", settings_win.x + 175, y, (SDL_Color){my_r2, my_g2, my_b2, 255}, 1); 
+    render_text(renderer, get_string(STR_NAME_COLOR_END), settings_win.x + 175, y, (SDL_Color){my_r2, my_g2, my_b2, 255}, 1); 
     y += 25;
 
     slider_r2 = (SDL_Rect){start_x + 30, y, 240, 15};
@@ -1232,14 +1233,14 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     y += 50; // Extra gap
 
     // -- Volume --
-    render_text(renderer, "Music Volume", settings_win.x + 175, y, col_white, 1); 
+    render_text(renderer, get_string(STR_MUSIC_VOLUME), settings_win.x + 175, y, col_white, 1); 
     y += 25;
     slider_volume = (SDL_Rect){start_x + 30, y, 240, 15};
     render_fancy_slider(renderer, &slider_volume, music_volume/128.0f, (SDL_Color){0, 200, 255, 255}); 
     y += 50;
 
     // -- AFK --
-    char afk_str[64]; snprintf(afk_str, 64, "Auto-AFK: %d min", afk_timeout_minutes);
+    char afk_str[64]; snprintf(afk_str, 64, get_string(STR_AUTO_AFK), afk_timeout_minutes);
     render_text(renderer, afk_str, settings_win.x + 175, y, col_white, 1); 
     y += 25;
     
@@ -1254,7 +1255,7 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     // -- UI Scale --
     // Show pending scale if dragging, otherwise show current scale
     float display_scale = (active_slider == SLIDER_UI_SCALE) ? pending_ui_scale : ui_scale;
-    char scale_str[64]; snprintf(scale_str, 64, "UI Scale: %.1fx", display_scale);
+    char scale_str[64]; snprintf(scale_str, 64, get_string(STR_UI_SCALE), display_scale);
     render_text(renderer, scale_str, settings_win.x + 175, y, col_white, 1); 
     y += 25;
     
@@ -1269,7 +1270,7 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     // -- Game World Zoom --
     // Show pending zoom if dragging, otherwise show current zoom
     float display_zoom = (active_slider == SLIDER_GAME_ZOOM) ? pending_game_zoom : game_zoom;
-    char zoom_str[64]; snprintf(zoom_str, 64, "Game Zoom: %.1fx", display_zoom);
+    char zoom_str[64]; snprintf(zoom_str, 64, get_string(STR_GAME_ZOOM), display_zoom);
     render_text(renderer, zoom_str, settings_win.x + 175, y, col_white, 1); 
     y += 25;
     
@@ -1284,7 +1285,7 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
    // -- Disconnect --
     btn_disconnect_rect = (SDL_Rect){start_x, y, 300, 30};
     SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_disconnect_rect);
-    render_text(renderer, "Disconnect / Logout", btn_disconnect_rect.x + 150, btn_disconnect_rect.y + 5, col_white, 1); 
+    render_text(renderer, get_string(STR_DISCONNECT_LOGOUT), btn_disconnect_rect.x + 150, btn_disconnect_rect.y + 5, col_white, 1); 
     y += 40;
 
     // --- Docs / Staff / Credits Row ---
@@ -1293,25 +1294,33 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
     // 1. Docs
     btn_documentation_rect = (SDL_Rect){start_x, y, btn_w, 30};
     SDL_SetRenderDrawColor(renderer, 0, 100, 150, 255); SDL_RenderFillRect(renderer, &btn_documentation_rect);
-    render_text(renderer, "Docs", btn_documentation_rect.x + 47, btn_documentation_rect.y + 5, col_white, 1);
+    render_text(renderer, get_string(STR_DOCS), btn_documentation_rect.x + 47, btn_documentation_rect.y + 5, col_white, 1);
 
     // 2. Staff
     btn_staff_list_rect = (SDL_Rect){start_x + 100, y, btn_w, 30};
     SDL_SetRenderDrawColor(renderer, 150, 100, 0, 255); SDL_RenderFillRect(renderer, &btn_staff_list_rect);
-    render_text(renderer, "Staff", btn_staff_list_rect.x + 47, btn_staff_list_rect.y + 5, col_white, 1);
+    render_text(renderer, get_string(STR_STAFF), btn_staff_list_rect.x + 47, btn_staff_list_rect.y + 5, col_white, 1);
 
     // 3. Credits
     btn_contributors_rect = (SDL_Rect){start_x + 200, y, btn_w, 30};
     SDL_SetRenderDrawColor(renderer, 0, 150, 100, 255); SDL_RenderFillRect(renderer, &btn_contributors_rect);
-    render_text(renderer, "Credits", btn_contributors_rect.x + 47, btn_contributors_rect.y + 5, col_white, 1);
+    render_text(renderer, get_string(STR_CREDITS), btn_contributors_rect.x + 47, btn_contributors_rect.y + 5, col_white, 1);
     
     y += 40; // Move down for next row
 
     // --- My Warnings Button ---
     btn_my_warnings = (SDL_Rect){start_x, y, 300, 30};
     SDL_SetRenderDrawColor(renderer, 200, 100, 0, 255); SDL_RenderFillRect(renderer, &btn_my_warnings);
-    render_text(renderer, "View My Warnings", btn_my_warnings.x + 150, btn_my_warnings.y + 5, col_white, 1);
+    render_text(renderer, get_string(STR_VIEW_MY_WARNINGS), btn_my_warnings.x + 150, btn_my_warnings.y + 5, col_white, 1);
 
+    y += 45; // Gap after button
+    
+    // --- Language Button ---
+    btn_cycle_language = (SDL_Rect){start_x, y, 300, 30};
+    SDL_SetRenderDrawColor(renderer, 100, 100, 200, 255); SDL_RenderFillRect(renderer, &btn_cycle_language);
+    char lang_str[64]; snprintf(lang_str, 64, "%s: %s", get_string(STR_LANGUAGE), get_language_name(current_language));
+    render_text(renderer, lang_str, btn_cycle_language.x + 150, btn_cycle_language.y + 5, col_white, 1);
+    
     y += 45; // Gap after button
 
     // CALCULATE CONTENT HEIGHT
@@ -1587,7 +1596,7 @@ void render_auth_screen(SDL_Renderer *renderer) {
     SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255); SDL_RenderFillRect(renderer, &auth_box);
     SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255); SDL_RenderDrawRect(renderer, &auth_box);
     
-    render_text(renderer, "C-MMO Login", auth_box.x + 200, auth_box.y + 20, col_white, 1);
+    render_text(renderer, get_string(STR_C_MMO_LOGIN), auth_box.x + 200, auth_box.y + 20, col_white, 1);
     render_text(renderer, auth_message, auth_box.x + 200, auth_box.y + 50, col_red, 1);
 
     int y_start = auth_box.y + 80;
@@ -1602,11 +1611,11 @@ void render_auth_screen(SDL_Renderer *renderer) {
 
     // 3. Username
     y_start += 90;
-    render_text(renderer, "Username:", auth_box.x + 20, y_start, col_white, 0);
+    render_text(renderer, get_string(STR_USERNAME), auth_box.x + 20, y_start, col_white, 0);
     render_input_with_cursor(renderer, (SDL_Rect){auth_box.x + 130, y_start - 5, 200, 25}, auth_username, active_field == 0, 0);
 
     // 4. Password
-    render_text(renderer, "Password:", auth_box.x + 20, y_start + 50, col_white, 0);
+    render_text(renderer, get_string(STR_PASSWORD), auth_box.x + 20, y_start + 50, col_white, 0);
     render_input_with_cursor(renderer, (SDL_Rect){auth_box.x + 130, y_start + 45, 200, 25}, auth_password, active_field == 1, !show_password);
     
     btn_show_pass = (SDL_Rect){auth_box.x + 340, y_start + 50, 15, 15};
@@ -1621,9 +1630,9 @@ void render_auth_screen(SDL_Renderer *renderer) {
     btn_open_profiles = (SDL_Rect){auth_box.x+210, auth_box.y+340, 170, 30};
 
     SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_login);
-    render_text(renderer, "Login", btn_login.x + 80, btn_login.y + 10, col_white, 1);
+    render_text(renderer, get_string(STR_LOGIN), btn_login.x + 80, btn_login.y + 10, col_white, 1);
     SDL_SetRenderDrawColor(renderer, 0, 0, 150, 255); SDL_RenderFillRect(renderer, &btn_register);
-    render_text(renderer, "Register", btn_register.x + 80, btn_register.y + 10, col_white, 1);
+    render_text(renderer, get_string(STR_REGISTER), btn_register.x + 80, btn_register.y + 10, col_white, 1);
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_open_servers);
     render_text(renderer, "Saved Servers", btn_open_servers.x + 90, btn_open_servers.y + 5, col_white, 1);
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_open_profiles);
@@ -2142,7 +2151,7 @@ void render_game(SDL_Renderer *renderer) {
 
     btn_settings_toggle = (SDL_Rect){230, scaled_h-40, 100, 30};
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_settings_toggle);
-    render_text(renderer, "Settings", btn_settings_toggle.x+50, btn_settings_toggle.y+5, col_white, 1);
+    render_text(renderer, get_string(STR_SETTINGS), btn_settings_toggle.x+50, btn_settings_toggle.y+5, col_white, 1);
 
  // 6. Draw Chat Overlay
     if(is_chat_open) {
@@ -2688,6 +2697,13 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             }
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_my_warnings)) {
                 show_my_warnings = 1; my_warning_count = 0; Packet req; req.type = PACKET_WARNINGS_REQUEST; send_packet(&req); return;
+            }
+            
+            // Language cycle button
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_cycle_language)) {
+                current_language = (current_language + 1) % LANG_COUNT;
+                save_config();
+                return;
             }
         }
         return; 

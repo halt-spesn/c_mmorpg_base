@@ -52,6 +52,7 @@
 
 #include "common.h"
 #include <dirent.h>
+#include "localization.h"
 
 // Vulkan support (optional)
 #ifdef USE_VULKAN
@@ -293,6 +294,7 @@ extern int show_unread_counter;
 extern SDL_Rect btn_toggle_unread;
 extern SDL_Rect btn_toggle_vulkan;
 extern SDL_Rect btn_toggle_nvidia_gpu;
+extern SDL_Rect btn_cycle_language;
 
 extern char gl_renderer_cache[128];
 extern char gl_vendor_cache[128];
