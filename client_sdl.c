@@ -3175,8 +3175,17 @@ int main(int argc, char *argv[]) {
         }
         gl_probe_done = 1;
     }
-    font = TTF_OpenFont(FONT_PATH, FONT_SIZE);
-    if (!font) { printf("Font missing: %s\n", FONT_PATH); return 1; }
+    
+    // Load font at scaled size based on loaded config
+    // ui_scale was loaded from config earlier via load_config()
+    int scaled_font_size = calculate_scaled_font_size();
+    
+    font = TTF_OpenFont(FONT_PATH, scaled_font_size);
+    if (!font) { 
+        printf("Font missing: %s (tried size %d)\n", FONT_PATH, scaled_font_size); 
+        return 1; 
+    }
+    
     #if defined(__APPLE__) && !defined(__IPHONEOS__)
     // Additional hints for macOS window decoration rendering
     SDL_SetHint(SDL_HINT_VIDEO_MAC_FULLSCREEN_SPACES, "0");
@@ -3970,6 +3979,7 @@ int main(int argc, char *argv[]) {
                 // Apply pending UI scale change on release
                 if (active_slider == SLIDER_UI_SCALE && pending_ui_scale != ui_scale) {
                     ui_scale = pending_ui_scale;
+                    reload_font_for_ui_scale(); // Reload font at new scale to prevent distortion
                     save_config();
                 }
                 // Apply pending game zoom change on release
