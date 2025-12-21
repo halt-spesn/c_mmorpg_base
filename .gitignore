@@ -10,6 +10,8 @@ configs.txt
 profiles.txt
 telemetryGL.txt
 telemetryOS.txt
+telemetryGL_raw.txt
+telemetryOS_raw.txt
 windows_release
 game_client.exe
 # Android

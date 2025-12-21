@@ -11,7 +11,7 @@ mkdir -p windows_release
 echo "Creating folder windows_release..."
 
 # Compile Command
-x86_64-w64-mingw32-gcc client_sdl.c client_network.c client_config.c client_audio.c client_utils.c client_input.c renderer_vulkan.c -o windows_release/game_client.exe \
+x86_64-w64-mingw32-gcc client_sdl.c client_network.c client_config.c client_audio.c client_utils.c client_input.c renderer_vulkan.c localization.c -o windows_release/game_client.exe \
     -DUSE_VULKAN \
     -I$SDL2_PATH/include/SDL2 \
     -I$SDL2_PATH/include \
@@ -53,7 +53,7 @@ else
     echo "libwinpthread-1.dll not found. Game may not launch."
 fi
 
-# 6. Thread library
+# 6. sqlite3
 if [ -f /usr/x86_64-w64-mingw32/bin/libsqlite3-0.dll ]; then
     cp /usr/x86_64-w64-mingw32/bin/libsqlite3-0.dll windows_release/
     cp /usr/x86_64-w64-mingw32/bin/libssp-0.dll windows_release/
