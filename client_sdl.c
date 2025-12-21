@@ -473,7 +473,7 @@ void add_chat_message(Packet *pkt) {
 void render_hud(SDL_Renderer *renderer, int screen_w, int screen_h) {
     int y = 10; char buf[64];
     if (show_fps) {
-        snprintf(buf, 64, "FPS: %d", current_fps);
+        snprintf(buf, 64, get_string(STR_FPS), current_fps);
         int w, h; TTF_SizeText(font, buf, &w, &h); SDL_Rect bg = {10, y, w+4, h};
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 150); SDL_RenderFillRect(renderer, &bg);
         render_text(renderer, buf, 12, y, col_green, 0); y += 20;
@@ -506,10 +506,10 @@ void render_inbox(SDL_Renderer *renderer, int w, int h) {
     SDL_Rect win = {w - 320, 60, 300, 300};
     SDL_SetRenderDrawColor(renderer, 30, 30, 40, 255); SDL_RenderFillRect(renderer, &win);
     SDL_SetRenderDrawColor(renderer, 100, 100, 255, 255); SDL_RenderDrawRect(renderer, &win);
-    render_text(renderer, "Pending Requests", win.x + 80, win.y + 10, col_yellow, 0);
+    render_text(renderer, get_string(STR_PENDING_REQUESTS), win.x + 80, win.y + 10, col_yellow, 0);
 
     if (inbox_count == 0) {
-        render_text(renderer, "No new requests.", win.x + 80, win.y + 40, col_white, 0);
+        render_text(renderer, get_string(STR_NO_NEW_REQUESTS), win.x + 80, win.y + 40, col_white, 0);
         return;
     }
     
@@ -530,12 +530,12 @@ void render_inbox(SDL_Renderer *renderer, int w, int h) {
             // Accept
             SDL_Rect btn_acc = {row.x+160, row.y+25, 50, 20};
             SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_acc);
-            render_text(renderer, "Yes", btn_acc.x+10, btn_acc.y+2, col_white, 0);
+            render_text(renderer, get_string(STR_YES), btn_acc.x+10, btn_acc.y+2, col_white, 0);
 
             // Deny
             SDL_Rect btn_deny = {row.x+220, row.y+25, 50, 20};
             SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_deny);
-            render_text(renderer, "No", btn_deny.x+15, btn_deny.y+2, col_white, 0);
+            render_text(renderer, get_string(STR_NO), btn_deny.x+15, btn_deny.y+2, col_white, 0);
         }
         y += 55;
     }
@@ -551,7 +551,7 @@ void render_add_friend_popup(SDL_Renderer *renderer, int w, int h) {
     SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255); SDL_RenderFillRect(renderer, &pop);
     SDL_SetRenderDrawColor(renderer, 0, 200, 0, 255); SDL_RenderDrawRect(renderer, &pop);
     
-    render_text(renderer, "Add Friend by ID", pop.x+80, pop.y+10, col_green, 0);
+    render_text(renderer, get_string(STR_ADD_FRIEND_BY_ID), pop.x+80, pop.y+10, col_green, 0);
     
     // --- NEW: Status Message ---
     // If message starts with "Error", render in Red, otherwise Yellow
@@ -564,11 +564,11 @@ void render_add_friend_popup(SDL_Renderer *renderer, int w, int h) {
 
     SDL_Rect btn_ok = {pop.x+50, pop.y+130, 80, 30};
     SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_ok);
-    render_text(renderer, "Add", btn_ok.x+25, btn_ok.y+5, col_white, 0);
+    render_text(renderer, get_string(STR_ADD), btn_ok.x+25, btn_ok.y+5, col_white, 0);
 
     SDL_Rect btn_cancel = {pop.x+170, pop.y+130, 80, 30};
     SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_cancel);
-    render_text(renderer, "Cancel", btn_cancel.x+15, btn_cancel.y+5, col_white, 0);
+    render_text(renderer, get_string(STR_CANCEL), btn_cancel.x+15, btn_cancel.y+5, col_white, 0);
 }
 
 
@@ -579,31 +579,31 @@ void render_sanction_popup(SDL_Renderer *renderer, int w, int h) {
     SDL_SetRenderDrawColor(renderer, 40, 0, 0, 255); SDL_RenderFillRect(renderer, &win);
     SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); SDL_RenderDrawRect(renderer, &win);
 
-    render_text(renderer, "Sanction Player", win.x + 150, win.y + 10, col_red, 1);
+    render_text(renderer, get_string(STR_SANCTION_PLAYER), win.x + 150, win.y + 10, col_red, 1);
 
     // Mode Toggle (Warn / Ban)
     SDL_Rect btn_warn = {win.x + 20, win.y + 40, 120, 30};
     SDL_Rect btn_ban = {win.x + 160, win.y + 40, 120, 30};
     
     SDL_SetRenderDrawColor(renderer, sanction_mode==0?200:50, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_warn);
-    render_text(renderer, "WARN", btn_warn.x + 60, btn_warn.y + 5, col_white, 1);
+    render_text(renderer, get_string(STR_WARN), btn_warn.x + 60, btn_warn.y + 5, col_white, 1);
     
     SDL_SetRenderDrawColor(renderer, sanction_mode==1?200:50, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_ban);
-    render_text(renderer, "BAN", btn_ban.x + 60, btn_ban.y + 5, col_white, 1);
+    render_text(renderer, get_string(STR_BAN), btn_ban.x + 60, btn_ban.y + 5, col_white, 1);
 
     int y = win.y + 90;
     
     // Reason Input
-    render_text(renderer, "Reason:", win.x + 20, y, col_white, 0);
+    render_text(renderer, get_string(STR_REASON), win.x + 20, y, col_white, 0);
     render_input_with_cursor(renderer, (SDL_Rect){win.x + 20, y+25, 260, 30}, input_sanction_reason, active_field == 30, 0);
     y += 70;
 
     // Time Input (Ban Only)
     if (sanction_mode == 1) {
-        render_text(renderer, "Time (1h, 1d, 1w):", win.x + 20, y, col_white, 0);
+        render_text(renderer, get_string(STR_TIME_FORMAT), win.x + 20, y, col_white, 0);
         render_input_with_cursor(renderer, (SDL_Rect){win.x + 20, y+25, 100, 30}, input_ban_time, active_field == 31, 0);
     } else {
-        render_text(renderer, "(3 Warns = Auto Ban)", win.x + 150, y+20, col_yellow, 1);
+        render_text(renderer, get_string(STR_THREE_WARNS_AUTO_BAN), win.x + 150, y+20, col_yellow, 1);
     }
 
     // Submit / Cancel
@@ -611,10 +611,10 @@ void render_sanction_popup(SDL_Renderer *renderer, int w, int h) {
     SDL_Rect btn_cancel = {win.x + 160, win.y + 240, 120, 30};
     
     SDL_SetRenderDrawColor(renderer, 200, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_submit);
-    render_text(renderer, "EXECUTE", btn_submit.x + 60, btn_submit.y + 5, col_white, 1);
+    render_text(renderer, get_string(STR_EXECUTE), btn_submit.x + 60, btn_submit.y + 5, col_white, 1);
     
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_cancel);
-    render_text(renderer, "Cancel", btn_cancel.x + 60, btn_cancel.y + 5, col_white, 1);
+    render_text(renderer, get_string(STR_CANCEL), btn_cancel.x + 60, btn_cancel.y + 5, col_white, 1);
 }
 
 void render_my_warnings(SDL_Renderer *renderer, int w, int h) {
@@ -624,14 +624,14 @@ void render_my_warnings(SDL_Renderer *renderer, int w, int h) {
     SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255); SDL_RenderFillRect(renderer, &win);
     SDL_SetRenderDrawColor(renderer, 255, 165, 0, 255); SDL_RenderDrawRect(renderer, &win);
 
-    render_text(renderer, "My Warnings", win.x + 200, win.y + 10, col_yellow, 1);
+    render_text(renderer, get_string(STR_MY_WARNINGS), win.x + 200, win.y + 10, col_yellow, 1);
     
     SDL_Rect btn_close = {win.x + 360, win.y + 5, 30, 30};
     SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_close);
-    render_text(renderer, "X", btn_close.x + 10, btn_close.y + 5, col_white, 0);
+    render_text(renderer, get_string(STR_X_CLOSE), btn_close.x + 10, btn_close.y + 5, col_white, 0);
 
     if (my_warning_count == 0) {
-        render_text(renderer, "No warnings on record.", win.x + 200, win.y + 70, col_green, 1);
+        render_text(renderer, get_string(STR_NO_WARNINGS), win.x + 200, win.y + 70, col_green, 1);
         return;
     }
     
@@ -661,7 +661,7 @@ void render_my_warnings(SDL_Renderer *renderer, int w, int h) {
 void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
     if (!show_debug_info) return;
     char lines[14][128]; int line_count = 0;
-    snprintf(lines[line_count++], 128, "Ping: %d ms", current_ping);
+    snprintf(lines[line_count++], 128, get_string(STR_PING), current_ping);
     snprintf(lines[line_count++], 128, "Server IP: %s", server_ip);
     float px=0, py=0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { px=local_players[i].x; py=local_players[i].y; }
     snprintf(lines[line_count++], 128, "Pos: %.1f, %.1f", px, py);
@@ -784,13 +784,13 @@ void render_role_list(SDL_Renderer *renderer, int w, int h) {
             SDL_RenderDrawRect(renderer, &bg);
 
             // Title
-            render_text(renderer, "Server Staff List", 200, 15, col_cyan, 1);
+            render_text(renderer, get_string(STR_SERVER_STAFF_LIST), 200, 15, col_cyan, 1);
 
             // Render staff entries
             int y = 50;
             
             if (staff_count == 0) {
-                render_text(renderer, "Loading...", 200, y + 20, col_white, 1);
+                render_text(renderer, get_string(STR_LOADING), 200, y + 20, col_white, 1);
             }
 
             for (int i = 0; i < staff_count; i++) {
@@ -834,7 +834,7 @@ void render_role_list(SDL_Renderer *renderer, int w, int h) {
     SDL_Rect btn_close = {win.x + 360, win.y + 5, 30, 30};
     SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); 
     SDL_RenderFillRect(renderer, &btn_close);
-    render_text(renderer, "X", btn_close.x + 10, btn_close.y + 5, col_white, 0);
+    render_text(renderer, get_string(STR_X_CLOSE), btn_close.x + 10, btn_close.y + 5, col_white, 0);
 }
 
 void process_slider_drag(int mx) {
@@ -1335,19 +1335,19 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
         SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255); SDL_RenderFillRect(renderer, &pop);
         SDL_SetRenderDrawColor(renderer, 200, 200, 0, 255); SDL_RenderDrawRect(renderer, &pop);
         
-        render_text(renderer, "Change Nickname", pop.x+150, pop.y+10, col_yellow, 1);
+        render_text(renderer, get_string(STR_CHANGE_NICKNAME), pop.x+150, pop.y+10, col_yellow, 1);
         render_text(renderer, auth_message, pop.x+150, pop.y+35, col_red, 1);
 
         int py = pop.y + 60;
-        render_text(renderer, "New Name:", pop.x+20, py, col_white, 0);
+        render_text(renderer, get_string(STR_NEW_NAME), pop.x+20, py, col_white, 0);
         render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, py+20, 260, 25}, nick_new, active_field==10, 0);
 
         py += 60;
-        render_text(renderer, "Type 'CONFIRM':", pop.x+20, py, col_white, 0);
+        render_text(renderer, get_string(STR_TYPE_CONFIRM), pop.x+20, py, col_white, 0);
         render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, py+20, 260, 25}, nick_confirm, active_field==11, 0);
 
         py += 60;
-        render_text(renderer, "Current Password:", pop.x+20, py, col_white, 0);
+        render_text(renderer, get_string(STR_CURRENT_PASSWORD), pop.x+20, py, col_white, 0);
         // --- FIX: Use 'py' instead of 'y' here ---
         render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, py+20, 200, 25}, nick_pass, active_field==12, !show_nick_pass); 
 
@@ -1360,15 +1360,15 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
             SDL_Rect inner = {btn_show_nick_pass.x+3, btn_show_nick_pass.y+3, 9, 9};
             SDL_RenderFillRect(renderer, &inner);
         }
-        render_text(renderer, "Show", btn_show_nick_pass.x + 20, btn_show_nick_pass.y - 2, col_white, 0);
+        render_text(renderer, get_string(STR_SHOW), btn_show_nick_pass.x + 20, btn_show_nick_pass.y - 2, col_white, 0);
         // -----------------------------------------
 
         SDL_Rect btn_submit = {pop.x+20, pop.y+240, 120, 30};
         SDL_Rect btn_cancel = {pop.x+160, pop.y+240, 120, 30};
         SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_submit);
-        render_text(renderer, "Submit", btn_submit.x+60, btn_submit.y+5, col_white, 1);
+        render_text(renderer, get_string(STR_SUBMIT), btn_submit.x+60, btn_submit.y+5, col_white, 1);
         SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_cancel);
-        render_text(renderer, "Cancel", btn_cancel.x+60, btn_cancel.y+5, col_white, 1);
+        render_text(renderer, get_string(STR_CANCEL), btn_cancel.x+60, btn_cancel.y+5, col_white, 1);
     }
     
     // --- Password Change Popup ---
@@ -1377,11 +1377,11 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
         SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255); SDL_RenderFillRect(renderer, &pop);
         SDL_SetRenderDrawColor(renderer, 200, 100, 0, 255); SDL_RenderDrawRect(renderer, &pop);
         
-        render_text(renderer, "Change Password", pop.x+175, pop.y+10, col_yellow, 1);
+        render_text(renderer, get_string(STR_CHANGE_PASSWORD), pop.x+175, pop.y+10, col_yellow, 1);
         render_text(renderer, password_message, pop.x+175, pop.y+35, col_red, 1);
 
         int py = pop.y + 60;
-        render_text(renderer, "Current Password:", pop.x+20, py, col_white, 0);
+        render_text(renderer, get_string(STR_CURRENT_PASSWORD), pop.x+20, py, col_white, 0);
         render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, py+20, 240, 25}, password_current, active_field==FIELD_PASSWORD_CURRENT, !show_password_current);
         
         // Show checkbox for current password
@@ -1392,10 +1392,10 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
             SDL_Rect inner = {btn_show_curr.x+3, btn_show_curr.y+3, 9, 9};
             SDL_RenderFillRect(renderer, &inner);
         }
-        render_text(renderer, "Show", btn_show_curr.x + 20, btn_show_curr.y - 2, col_white, 0);
+        render_text(renderer, get_string(STR_SHOW), btn_show_curr.x + 20, btn_show_curr.y - 2, col_white, 0);
 
         py += 70;
-        render_text(renderer, "New Password:", pop.x+20, py, col_white, 0);
+        render_text(renderer, get_string(STR_NEW_PASSWORD), pop.x+20, py, col_white, 0);
         render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, py+20, 240, 25}, password_new, active_field==FIELD_PASSWORD_NEW, !show_password_new);
         
         // Show checkbox for new password
@@ -1406,10 +1406,10 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
             SDL_Rect inner = {btn_show_new.x+3, btn_show_new.y+3, 9, 9};
             SDL_RenderFillRect(renderer, &inner);
         }
-        render_text(renderer, "Show", btn_show_new.x + 20, btn_show_new.y - 2, col_white, 0);
+        render_text(renderer, get_string(STR_SHOW), btn_show_new.x + 20, btn_show_new.y - 2, col_white, 0);
 
         py += 70;
-        render_text(renderer, "Confirm Password:", pop.x+20, py, col_white, 0);
+        render_text(renderer, get_string(STR_CONFIRM_PASSWORD), pop.x+20, py, col_white, 0);
         render_input_with_cursor(renderer, (SDL_Rect){pop.x+20, py+20, 240, 25}, password_confirm, active_field==FIELD_PASSWORD_CONFIRM, !show_password_confirm);
         
         // Show checkbox for confirm password
@@ -1420,14 +1420,14 @@ void render_settings_menu(SDL_Renderer *renderer, int screen_w, int screen_h) {
             SDL_Rect inner = {btn_show_conf.x+3, btn_show_conf.y+3, 9, 9};
             SDL_RenderFillRect(renderer, &inner);
         }
-        render_text(renderer, "Show", btn_show_conf.x + 20, btn_show_conf.y - 2, col_white, 0);
+        render_text(renderer, get_string(STR_SHOW), btn_show_conf.x + 20, btn_show_conf.y - 2, col_white, 0);
 
         SDL_Rect btn_submit = {pop.x+20, pop.y+340, 150, 30};
         SDL_Rect btn_cancel = {pop.x+180, pop.y+340, 150, 30};
         SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_submit);
-        render_text(renderer, "Change", btn_submit.x+75, btn_submit.y+5, col_white, 1);
+        render_text(renderer, get_string(STR_CHANGE), btn_submit.x+75, btn_submit.y+5, col_white, 1);
         SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_cancel);
-        render_text(renderer, "Cancel", btn_cancel.x+75, btn_cancel.y+5, col_white, 1);
+        render_text(renderer, get_string(STR_CANCEL), btn_cancel.x+75, btn_cancel.y+5, col_white, 1);
     }
 }
 
@@ -1437,8 +1437,8 @@ void render_friend_list(SDL_Renderer *renderer, int w, int h) {
     int max_text_w = 200; 
     for(int i=0; i<friend_count; i++) {
         char temp_str[128];
-        if (my_friends[i].is_online) snprintf(temp_str, 128, "%s (Online)", my_friends[i].username);
-        else snprintf(temp_str, 128, "%s (Last: %s)", my_friends[i].username, my_friends[i].last_login);
+        if (my_friends[i].is_online) snprintf(temp_str, 128, "%s (%s)", my_friends[i].username, get_string(STR_ONLINE));
+        else snprintf(temp_str, 128, "%s (%s: %s)", my_friends[i].username, get_string(STR_LAST), my_friends[i].last_login);
         int fw, fh; TTF_SizeText(font, temp_str, &fw, &fh);
         if (fw > max_text_w) max_text_w = fw;
     }
@@ -1449,18 +1449,18 @@ void render_friend_list(SDL_Renderer *renderer, int w, int h) {
     SDL_SetRenderDrawColor(renderer, 20, 20, 20, 255); SDL_RenderFillRect(renderer, &friend_list_win);
     SDL_SetRenderDrawColor(renderer, 0, 200, 0, 255); SDL_RenderDrawRect(renderer, &friend_list_win);
     
-    int title_w, title_h; TTF_SizeText(font, "Friends List", &title_w, &title_h);
-    render_text(renderer, "Friends List", friend_list_win.x + (win_w/2) - (title_w/2), friend_list_win.y + 10, col_green, 0);
+    int title_w, title_h; TTF_SizeText(font, get_string(STR_FRIENDS_LIST), &title_w, &title_h);
+    render_text(renderer, get_string(STR_FRIENDS_LIST), friend_list_win.x + (win_w/2) - (title_w/2), friend_list_win.y + 10, col_green, 0);
 
     // --- CLOSE BUTTON GLOBAL UPDATE ---
     btn_friend_close_rect = (SDL_Rect){friend_list_win.x + win_w - 40, friend_list_win.y + 5, 30, 30};
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_friend_close_rect);
-    render_text(renderer, "X", btn_friend_close_rect.x + 10, btn_friend_close_rect.y + 5, col_white, 1);
+    render_text(renderer, get_string(STR_X_CLOSE), btn_friend_close_rect.x + 10, btn_friend_close_rect.y + 5, col_white, 1);
     // ----------------------------------
 
     btn_friend_add_id_rect = (SDL_Rect){friend_list_win.x + 20, friend_list_win.y + 45, 100, 30};
     SDL_SetRenderDrawColor(renderer, 50, 50, 150, 255); SDL_RenderFillRect(renderer, &btn_friend_add_id_rect);
-    render_text(renderer, "+ ID", btn_friend_add_id_rect.x+30, btn_friend_add_id_rect.y+5, col_white, 0);
+    render_text(renderer, get_string(STR_PLUS_ID), btn_friend_add_id_rect.x+30, btn_friend_add_id_rect.y+5, col_white, 0);
 
     // Set up clipping for scrollable area
     SDL_Rect clip_rect = {friend_list_win.x, friend_list_win.y + 80, friend_list_win.w, friend_list_win.h - 80};
@@ -1472,13 +1472,13 @@ void render_friend_list(SDL_Renderer *renderer, int w, int h) {
         if (y_off + 30 > 80 && y_off < friend_list_win.h) {
             char display[128];
             SDL_Color text_col = col_white;
-            if (my_friends[i].is_online) { snprintf(display, 128, "%s (Online)", my_friends[i].username); text_col = col_green; } 
-            else { snprintf(display, 128, "%s (Last: %s)", my_friends[i].username, my_friends[i].last_login); text_col = (SDL_Color){150, 150, 150, 255}; }
+            if (my_friends[i].is_online) { snprintf(display, 128, "%s (%s)", my_friends[i].username, get_string(STR_ONLINE)); text_col = col_green; } 
+            else { snprintf(display, 128, "%s (%s: %s)", my_friends[i].username, get_string(STR_LAST), my_friends[i].last_login); text_col = (SDL_Color){150, 150, 150, 255}; }
             render_text(renderer, display, friend_list_win.x + 20, friend_list_win.y + y_off, text_col, 0);
 
             SDL_Rect btn_del = {friend_list_win.x + win_w - 50, friend_list_win.y + y_off, 40, 20};
             SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_del);
-            render_text(renderer, "Del", btn_del.x+8, btn_del.y+2, col_white, 0);
+            render_text(renderer, get_string(STR_DEL), btn_del.x+8, btn_del.y+2, col_white, 0);
         }
         y_off += 30;
     }
@@ -1492,13 +1492,13 @@ void render_popup(SDL_Renderer *renderer, int w, int h) {
     popup_win = (SDL_Rect){w/2-150, h/2-60, 300, 120};
     SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255); SDL_RenderFillRect(renderer, &popup_win);
     SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255); SDL_RenderDrawRect(renderer, &popup_win);
-    char msg[64]; snprintf(msg, 64, "Friend Request from %s", pending_friend_name);
+    char msg[64]; snprintf(msg, 64, get_string(STR_FRIEND_REQUEST_FROM), pending_friend_name);
     render_text(renderer, msg, popup_win.x + 150, popup_win.y + 20, col_yellow, 1);
     SDL_Rect btn_accept = {popup_win.x + 20, popup_win.y + 70, 120, 30}; SDL_Rect btn_deny = {popup_win.x + 160, popup_win.y + 70, 120, 30};
     SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_accept);
-    render_text(renderer, "Accept", btn_accept.x + 60, btn_accept.y + 5, col_white, 1);
+    render_text(renderer, get_string(STR_ACCEPT), btn_accept.x + 60, btn_accept.y + 5, col_white, 1);
     SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_deny);
-    render_text(renderer, "Deny", btn_deny.x + 60, btn_deny.y + 5, col_white, 1);
+    render_text(renderer, get_string(STR_DENY), btn_deny.x + 60, btn_deny.y + 5, col_white, 1);
 }
 
 void render_profile(SDL_Renderer *renderer) {
@@ -1558,25 +1558,25 @@ void render_profile(SDL_Renderer *renderer) {
     for(int i=0; i<friend_count; i++) if(my_friends[i].id == selected_player_id) is_friend = 1;
 
     SDL_Rect btn = {profile_win.x + 20, start_y, btn_w, 30}; 
-    if (!is_friend) { SDL_SetRenderDrawColor(renderer, 0, 100, 0, 255); SDL_RenderFillRect(renderer, &btn); render_text(renderer, "+ Add Friend", btn.x + (btn_w/2) - 40, btn.y + 5, col_white, 0); } 
-    else { SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn); render_text(renderer, "- Remove", btn.x + (btn_w/2) - 30, btn.y + 5, col_white, 0); }
+    if (!is_friend) { SDL_SetRenderDrawColor(renderer, 0, 100, 0, 255); SDL_RenderFillRect(renderer, &btn); render_text(renderer, get_string(STR_ADD_FRIEND), btn.x + (btn_w/2) - 40, btn.y + 5, col_white, 0); } 
+    else { SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn); render_text(renderer, get_string(STR_REMOVE), btn.x + (btn_w/2) - 30, btn.y + 5, col_white, 0); }
     btn_add_friend = btn;
 
     btn_send_pm = (SDL_Rect){profile_win.x + 20, start_y + 40, btn_w, 30};
     SDL_SetRenderDrawColor(renderer, 100, 0, 100, 255); SDL_RenderFillRect(renderer, &btn_send_pm);
-    render_text(renderer, "Message", btn_send_pm.x + (btn_w/2) - 30, btn_send_pm.y + 5, col_white, 0);
+    render_text(renderer, get_string(STR_MESSAGE), btn_send_pm.x + (btn_w/2) - 30, btn_send_pm.y + 5, col_white, 0);
 
     SDL_Rect btn_hide = {profile_win.x + 20, start_y + 80, btn_w, 30};
     int hidden = is_blocked(selected_player_id);
-    if (hidden) { SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_hide); render_text(renderer, "Unhide", btn_hide.x + (btn_w/2) - 20, btn_hide.y + 5, col_white, 0); } 
-    else { SDL_SetRenderDrawColor(renderer, 200, 50, 50, 255); SDL_RenderFillRect(renderer, &btn_hide); render_text(renderer, "Hide", btn_hide.x + (btn_w/2) - 20, btn_hide.y + 5, col_white, 0); }
+    if (hidden) { SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_hide); render_text(renderer, get_string(STR_UNHIDE), btn_hide.x + (btn_w/2) - 20, btn_hide.y + 5, col_white, 0); } 
+    else { SDL_SetRenderDrawColor(renderer, 200, 50, 50, 255); SDL_RenderFillRect(renderer, &btn_hide); render_text(renderer, get_string(STR_HIDE), btn_hide.x + (btn_w/2) - 20, btn_hide.y + 5, col_white, 0); }
     btn_hide_player_dyn = btn_hide;
 
     // --- NEW: Sanction Button (Admin Only) ---
     if (my_role >= ROLE_ADMIN) {
         btn_sanction_open = (SDL_Rect){profile_win.x + 20, start_y + 120, btn_w, 30};
         SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_sanction_open);
-        render_text(renderer, "SANCTION", btn_sanction_open.x + (btn_w/2) - 35, btn_sanction_open.y + 5, col_white, 0);
+        render_text(renderer, get_string(STR_SANCTION), btn_sanction_open.x + (btn_w/2) - 35, btn_sanction_open.y + 5, col_white, 0);
     }
 }
 
@@ -1602,11 +1602,11 @@ void render_auth_screen(SDL_Renderer *renderer) {
     int y_start = auth_box.y + 80;
 
     // 1. IP Field
-    render_text(renderer, "Server IP:", auth_box.x + 20, y_start, col_white, 0);
+    render_text(renderer, get_string(STR_SERVER_IP), auth_box.x + 20, y_start, col_white, 0);
     render_input_with_cursor(renderer, (SDL_Rect){auth_box.x + 130, y_start - 5, 200, 25}, input_ip, active_field == 2, 0);
 
     // 2. Port Field
-    render_text(renderer, "Port:", auth_box.x + 20, y_start + 40, col_white, 0);
+    render_text(renderer, get_string(STR_PORT), auth_box.x + 20, y_start + 40, col_white, 0);
     render_input_with_cursor(renderer, (SDL_Rect){auth_box.x + 130, y_start + 35, 80, 25}, input_port, active_field == 3, 0);
 
     // 3. Username
@@ -1621,7 +1621,7 @@ void render_auth_screen(SDL_Renderer *renderer) {
     btn_show_pass = (SDL_Rect){auth_box.x + 340, y_start + 50, 15, 15};
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderDrawRect(renderer, &btn_show_pass);
     if (show_password) { SDL_Rect inner = {btn_show_pass.x + 3, btn_show_pass.y + 3, btn_show_pass.w - 6, btn_show_pass.h - 6}; SDL_RenderFillRect(renderer, &inner); }
-    render_text(renderer, "Show", btn_show_pass.x + 20, btn_show_pass.y, col_white, 0);
+    render_text(renderer, get_string(STR_SHOW), btn_show_pass.x + 20, btn_show_pass.y, col_white, 0);
 
     // Buttons & Server/Profile Lists
     btn_login = (SDL_Rect){auth_box.x+20, auth_box.y+280, 160, 40};
@@ -1634,20 +1634,20 @@ void render_auth_screen(SDL_Renderer *renderer) {
     SDL_SetRenderDrawColor(renderer, 0, 0, 150, 255); SDL_RenderFillRect(renderer, &btn_register);
     render_text(renderer, get_string(STR_REGISTER), btn_register.x + 80, btn_register.y + 10, col_white, 1);
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_open_servers);
-    render_text(renderer, "Saved Servers", btn_open_servers.x + 90, btn_open_servers.y + 5, col_white, 1);
+    render_text(renderer, get_string(STR_SAVED_SERVERS), btn_open_servers.x + 90, btn_open_servers.y + 5, col_white, 1);
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_open_profiles);
-    render_text(renderer, "Saved Profiles", btn_open_profiles.x + 85, btn_open_profiles.y + 5, col_white, 1);
+    render_text(renderer, get_string(STR_SAVED_PROFILES), btn_open_profiles.x + 85, btn_open_profiles.y + 5, col_white, 1);
 
     if (show_server_list) {
         server_list_win = (SDL_Rect){scaled_w/2 - 125, scaled_h/2 - 200, 250, 400}; 
         SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255); SDL_RenderFillRect(renderer, &server_list_win);
         SDL_SetRenderDrawColor(renderer, 200, 200, 0, 255); SDL_RenderDrawRect(renderer, &server_list_win);
-        render_text(renderer, "Select Server", server_list_win.x + 125, server_list_win.y + 10, col_yellow, 1);
+        render_text(renderer, get_string(STR_SELECT_SERVER), server_list_win.x + 125, server_list_win.y + 10, col_yellow, 1);
         
         // Close button
         btn_close_servers = (SDL_Rect){server_list_win.x + 210, server_list_win.y + 5, 30, 30};
         SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_close_servers);
-        render_text(renderer, "X", btn_close_servers.x + 15, btn_close_servers.y + 5, col_white, 1);
+        render_text(renderer, get_string(STR_X_CLOSE), btn_close_servers.x + 15, btn_close_servers.y + 5, col_white, 1);
         
         int y_s = 50;
         for(int i=0; i<server_count; i++) {
@@ -1659,19 +1659,19 @@ void render_auth_screen(SDL_Renderer *renderer) {
         }
         btn_add_server = (SDL_Rect){server_list_win.x + 20, server_list_win.y + 350, 210, 30};
         SDL_SetRenderDrawColor(renderer, 0, 100, 0, 255); SDL_RenderFillRect(renderer, &btn_add_server);
-        render_text(renderer, "Save Current IP", btn_add_server.x + 105, btn_add_server.y + 5, col_white, 1);
+        render_text(renderer, get_string(STR_SAVE_CURRENT_IP), btn_add_server.x + 105, btn_add_server.y + 5, col_white, 1);
     }
     
     if (show_profile_list) {
         profile_list_win = (SDL_Rect){scaled_w/2 - 125, scaled_h/2 - 200, 250, 400}; 
         SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255); SDL_RenderFillRect(renderer, &profile_list_win);
         SDL_SetRenderDrawColor(renderer, 0, 200, 200, 255); SDL_RenderDrawRect(renderer, &profile_list_win);
-        render_text(renderer, "Select Profile", profile_list_win.x + 125, profile_list_win.y + 10, col_cyan, 1);
+        render_text(renderer, get_string(STR_SELECT_PROFILE), profile_list_win.x + 125, profile_list_win.y + 10, col_cyan, 1);
         
         // Close button
         btn_close_profiles = (SDL_Rect){profile_list_win.x + 210, profile_list_win.y + 5, 30, 30};
         SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_close_profiles);
-        render_text(renderer, "X", btn_close_profiles.x + 15, btn_close_profiles.y + 5, col_white, 1);
+        render_text(renderer, get_string(STR_X_CLOSE), btn_close_profiles.x + 15, btn_close_profiles.y + 5, col_white, 1);
         
         int y_p = 50;
         for(int i=0; i<profile_count; i++) {
@@ -1682,7 +1682,7 @@ void render_auth_screen(SDL_Renderer *renderer) {
         }
         btn_add_profile = (SDL_Rect){profile_list_win.x + 20, profile_list_win.y + 350, 210, 30};
         SDL_SetRenderDrawColor(renderer, 0, 100, 0, 255); SDL_RenderFillRect(renderer, &btn_add_profile);
-        render_text(renderer, "Save Current", btn_add_profile.x + 105, btn_add_profile.y + 5, col_white, 1);
+        render_text(renderer, get_string(STR_SAVE_CURRENT), btn_add_profile.x + 105, btn_add_profile.y + 5, col_white, 1);
     }
     SDL_RenderPresent(renderer);
 }
@@ -1695,16 +1695,16 @@ void render_blocked_list(SDL_Renderer *renderer, int w, int h) {
     SDL_SetRenderDrawColor(renderer, 20, 20, 20, 255); SDL_RenderFillRect(renderer, &blocked_win_rect);
     SDL_SetRenderDrawColor(renderer, 200, 0, 0, 255); SDL_RenderDrawRect(renderer, &blocked_win_rect);
     
-    render_text(renderer, "Blocked Players", blocked_win_rect.x + 150, blocked_win_rect.y + 10, col_red, 1);
+    render_text(renderer, get_string(STR_BLOCKED_PLAYERS), blocked_win_rect.x + 150, blocked_win_rect.y + 10, col_red, 1);
 
     // --- CLOSE BUTTON GLOBAL UPDATE ---
     btn_blocked_close_rect = (SDL_Rect){blocked_win_rect.x + 260, blocked_win_rect.y + 5, 30, 30};
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_blocked_close_rect);
-    render_text(renderer, "X", btn_blocked_close_rect.x + 15, btn_blocked_close_rect.y + 5, col_white, 1);
+    render_text(renderer, get_string(STR_X_CLOSE), btn_blocked_close_rect.x + 15, btn_blocked_close_rect.y + 5, col_white, 1);
     // ----------------------------------
 
     if (blocked_count == 0) {
-        render_text(renderer, "(No hidden players)", blocked_win_rect.x + 150, blocked_win_rect.y + 100, col_white, 1);
+        render_text(renderer, get_string(STR_NO_HIDDEN_PLAYERS), blocked_win_rect.x + 150, blocked_win_rect.y + 100, col_white, 1);
         return;
     }
     
@@ -1723,7 +1723,7 @@ void render_blocked_list(SDL_Renderer *renderer, int w, int h) {
 
             SDL_Rect btn_unblock = {blocked_win_rect.x + 200, blocked_win_rect.y + y_off, 60, 25};
             SDL_SetRenderDrawColor(renderer, 0, 100, 0, 255); SDL_RenderFillRect(renderer, &btn_unblock);
-            render_text(renderer, "Show", btn_unblock.x + 30, btn_unblock.y + 2, col_white, 1);
+            render_text(renderer, get_string(STR_UNHIDE), btn_unblock.x + 30, btn_unblock.y + 2, col_white, 1);
         }
         y_off += 35;
     }
@@ -1767,17 +1767,17 @@ void render_contributors(SDL_Renderer *renderer, int w, int h) {
             SDL_RenderDrawRect(renderer, &bg);
 
             // Content
-            render_text(renderer, "Project Contributors", 200, 15, col_cyan, 1);
+            render_text(renderer, get_string(STR_PROJECT_CONTRIBUTORS), 200, 15, col_cyan, 1);
             
             int y = 60;
             int center_x = 200;
 
-            render_text(renderer, "You, for playing this game!", center_x, y, (SDL_Color){200,200,200,255}, 1); y += 40;
-            render_text(renderer, "#Main Developer#", center_x, y, col_white, 1); y += 25;
+            render_text(renderer, get_string(STR_YOU_FOR_PLAYING), center_x, y, (SDL_Color){200,200,200,255}, 1); y += 40;
+            render_text(renderer, get_string(STR_MAIN_DEVELOPER), center_x, y, col_white, 1); y += 25;
             render_text(renderer, "HALt The Dragon", center_x, y, col_white, 1); y += 40;
-            render_text(renderer, "#AI Assistant#", center_x, y, col_white, 1); y += 25;
+            render_text(renderer, get_string(STR_AI_ASSISTANT), center_x, y, col_white, 1); y += 25;
             render_text(renderer, "Gemini", center_x, y, col_white, 1); y += 40;
-            render_text(renderer, "#Multiplayer Tests#", center_x, y, col_white, 1); y += 25;
+            render_text(renderer, get_string(STR_MULTIPLAYER_TESTS), center_x, y, col_white, 1); y += 25;
             render_text(renderer, "PugzAreCute", center_x, y, col_white, 1); y += 40;
             render_text(renderer, "#Libraries#", center_x, y, col_white, 1); y += 25;
             render_text(renderer, "SDL2, SDL_ttf, SDL_image, SDL_mixer", center_x, y, col_white, 1); y += 25;
@@ -1800,7 +1800,7 @@ void render_contributors(SDL_Renderer *renderer, int w, int h) {
     SDL_Rect btn_close = {win.x + 360, win.y + 5, 30, 30};
     SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); 
     SDL_RenderFillRect(renderer, &btn_close);
-    render_text(renderer, "X", btn_close.x + 10, btn_close.y + 5, col_white, 0);
+    render_text(renderer, get_string(STR_X_CLOSE), btn_close.x + 10, btn_close.y + 5, col_white, 0);
 }
 
 void render_documentation(SDL_Renderer *renderer, int w, int h) {
@@ -1909,7 +1909,7 @@ void render_documentation(SDL_Renderer *renderer, int w, int h) {
     SDL_Rect btn_close = {win.x + win.w - 40, win.y + 5, 30, 30};
     SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); 
     SDL_RenderFillRect(renderer, &btn_close);
-    render_text(renderer, "X", btn_close.x + 10, btn_close.y + 5, col_white, 0);
+    render_text(renderer, get_string(STR_X_CLOSE), btn_close.x + 10, btn_close.y + 5, col_white, 0);
 }
 
 
@@ -2131,7 +2131,7 @@ void render_game(SDL_Renderer *renderer) {
     // 5. Draw HUD Buttons
     btn_chat_toggle = (SDL_Rect){10, scaled_h-40, 100, 30};
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_chat_toggle);
-    render_text(renderer, is_chat_open ? "Close" : "Chat", btn_chat_toggle.x+50, btn_chat_toggle.y+5, col_white, 1);
+    render_text(renderer, is_chat_open ? get_string(STR_CLOSE) : get_string(STR_CHAT), btn_chat_toggle.x+50, btn_chat_toggle.y+5, col_white, 1);
     // --- NEW: Unread Badge ---
     if (show_unread_counter && unread_chat_count > 0 && !is_chat_open) {
         // Draw Red Box
@@ -2147,7 +2147,7 @@ void render_game(SDL_Renderer *renderer) {
 
     btn_view_friends = (SDL_Rect){120, scaled_h-40, 100, 30};
     SDL_SetRenderDrawColor(renderer, 0, 100, 0, 255); SDL_RenderFillRect(renderer, &btn_view_friends);
-    render_text(renderer, "Friends", btn_view_friends.x+50, btn_view_friends.y+5, col_white, 1);
+    render_text(renderer, get_string(STR_FRIENDS), btn_view_friends.x+50, btn_view_friends.y+5, col_white, 1);
 
     btn_settings_toggle = (SDL_Rect){230, scaled_h-40, 100, 30};
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_settings_toggle);
