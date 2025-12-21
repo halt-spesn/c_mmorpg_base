@@ -3176,15 +3176,17 @@ int main(int argc, char *argv[]) {
         gl_probe_done = 1;
     }
     
-    // Load font at default size first, then reload at scaled size
-    // Initial load ensures font exists before attempting scaled load
-    font = TTF_OpenFont(FONT_PATH, FONT_SIZE);
-    if (!font) { printf("Font missing: %s\n", FONT_PATH); return 1; }
+    // Load font at scaled size based on loaded config
+    // ui_scale was loaded from config earlier via load_config()
+    // Calculate scaled font size (same logic as reload_font_for_ui_scale)
+    int scaled_font_size = (int)(FONT_SIZE * ui_scale + 0.5f);
+    if (scaled_font_size < MIN_FONT_SIZE) scaled_font_size = MIN_FONT_SIZE;
     
-    // Now reload font at scaled size based on loaded config
-    // ui_scale was loaded from config earlier, so apply it to font
-    // Note: reload_font_for_ui_scale() handles the case where ui_scale == 1.0
-    reload_font_for_ui_scale();
+    font = TTF_OpenFont(FONT_PATH, scaled_font_size);
+    if (!font) { 
+        printf("Font missing: %s (tried size %d)\n", FONT_PATH, scaled_font_size); 
+        return 1; 
+    }
     
     #if defined(__APPLE__) && !defined(__IPHONEOS__)
     // Additional hints for macOS window decoration rendering
