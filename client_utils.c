@@ -41,7 +41,8 @@ SDL_Color get_status_color(int status) {
 }
 
 int scale_ui(int value) {
-    return (int)(value * ui_scale);
+    // Use proper rounding to prevent accumulation of size errors
+    return (int)(value * ui_scale + 0.5f);
 }
 
 SDL_Rect scale_rect(int x, int y, int w, int h) {
