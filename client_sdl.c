@@ -2378,12 +2378,20 @@ void render_game(SDL_Renderer *renderer) {
             // Calculate offset X (Prefix + Text before selection)
             char text_before[256];
             int prefix_len = snprintf(text_before, 256, "%s", prefix);
+            // Handle truncation - snprintf returns length it would have written
+            if (prefix_len >= 256) prefix_len = 255;
+            if (prefix_len < 0) prefix_len = 0;
             
             // Safely copy up to 'start' characters from input_buffer
             int copy_len = start;
             int buf_len = strlen(input_buffer);
             if (copy_len > buf_len) copy_len = buf_len;
-            if (prefix_len + copy_len >= 256) copy_len = 255 - prefix_len;
+            // Ensure we don't overflow the buffer
+            if (prefix_len >= 255) {
+                copy_len = 0;  // No room left after prefix
+            } else if (prefix_len + copy_len >= 256) {
+                copy_len = 255 - prefix_len;
+            }
             if (copy_len < 0) copy_len = 0;
             
             if (copy_len > 0) {
