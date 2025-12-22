@@ -4059,9 +4059,13 @@ int main(int argc, char *argv[]) {
                 }
                 
                 // Show text menu if text was selected via drag (for touch devices)
-                if (is_dragging && (is_chat_open || active_field >= 0) && selection_len != 0) {
-                    position_mobile_text_menu(tx, ty, scaled_w, scaled_h, ui_scale);
-                    show_mobile_text_menu = 1;
+                // This will show the menu immediately after completing a selection drag
+                if (is_dragging && (is_chat_open || active_field >= 0)) {
+                    // Show menu if any text was selected during the drag
+                    if (selection_len != 0) {
+                        position_mobile_text_menu(tx, ty, scaled_w, scaled_h, ui_scale);
+                        show_mobile_text_menu = 1;
+                    }
                 }
                 
                 // End dragging on finger up
