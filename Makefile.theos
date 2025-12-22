@@ -20,7 +20,7 @@ mmotest_FILES = client_sdl.c \
 # mmotest_FILES += renderer_vulkan.c
 
 # Compiler flags
-mmotest_CFLAGS = -DUSE_SDL2 -D__IPHONEOS__ -I./xcode_sdl_headers -Wno-error
+mmotest_CFLAGS = -DUSE_SDL2 -D__IPHONEOS__ -I./xcode_sdl_headers/SDL2/include -Wno-error
 mmotest_CCFLAGS = $(mmotest_CFLAGS)
 
 # Linker flags - link with SDL2 static libraries
