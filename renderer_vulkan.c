@@ -4,6 +4,15 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Define portability enumeration constants if not available
+#ifndef VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME
+#define VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME "VK_KHR_portability_enumeration"
+#endif
+
+#ifndef VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR
+#define VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR 0x00000001
+#endif
+
 // Validation layers for debugging
 static const char *validation_layers[] = {
     "VK_LAYER_KHRONOS_validation"
@@ -79,7 +88,14 @@ static int create_instance(SDL_Window *window, VkInstance *instance) {
         return 0;
     }
     
-    const char **extensions = malloc(sizeof(char*) * sdl_extension_count);
+    // Calculate total extension count (SDL extensions + platform-specific extensions)
+    #if defined(_WIN32) || defined(__APPLE__)
+    unsigned int total_extension_count = sdl_extension_count + 1;  // +1 for portability enumeration
+    #else
+    unsigned int total_extension_count = sdl_extension_count;
+    #endif
+    
+    const char **extensions = malloc(sizeof(char*) * total_extension_count);
     if (!extensions) {
         printf("Failed to allocate memory for Vulkan extensions\n");
         return 0;
@@ -91,11 +107,22 @@ static int create_instance(SDL_Window *window, VkInstance *instance) {
         return 0;
     }
     
+    // Add portability enumeration extension for Windows and macOS
+    #if defined(_WIN32) || defined(__APPLE__)
+    extensions[sdl_extension_count] = VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME;
+    printf("Added VK_KHR_portability_enumeration extension for Windows/macOS\n");
+    #endif
+    
     VkInstanceCreateInfo create_info = {0};
     create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     create_info.pApplicationInfo = &app_info;
-    create_info.enabledExtensionCount = sdl_extension_count;
+    create_info.enabledExtensionCount = total_extension_count;
     create_info.ppEnabledExtensionNames = extensions;
+    
+    // Set portability enumeration flag for Windows and macOS
+    #if defined(_WIN32) || defined(__APPLE__)
+    create_info.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+    #endif
     
     if (use_validation_layers) {
         create_info.enabledLayerCount = validation_layer_count;
