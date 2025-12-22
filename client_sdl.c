@@ -4024,7 +4024,9 @@ int main(int argc, char *argv[]) {
                         int ty = (int)((event.tfinger.y * h) / ui_scale);
                         
                         // Position menu near touch point
-                        mobile_text_menu_x = tx - 175; // Center horizontally (350/2)
+                        // Calculate menu width: 5 buttons * 65px + 6 spacings * 5px = 325 + 25 = 350
+                        int menu_width = 350;
+                        mobile_text_menu_x = tx - (menu_width / 2); // Center horizontally
                         mobile_text_menu_y = ty - 60;  // Position above touch
                         
                         // Clamp to screen bounds
@@ -4032,7 +4034,7 @@ int main(int argc, char *argv[]) {
                         if (mobile_text_menu_y < 0) mobile_text_menu_y = 0;
                         int scaled_w = (int)(w / ui_scale);
                         int scaled_h = (int)(h / ui_scale);
-                        if (mobile_text_menu_x + 350 > scaled_w) mobile_text_menu_x = scaled_w - 350;
+                        if (mobile_text_menu_x + menu_width > scaled_w) mobile_text_menu_x = scaled_w - menu_width;
                         if (mobile_text_menu_y + 50 > scaled_h) mobile_text_menu_y = scaled_h - 50;
                         
                         show_mobile_text_menu = 1;
