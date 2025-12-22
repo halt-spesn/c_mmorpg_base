@@ -2075,15 +2075,13 @@ static char* get_active_field_buffer(int *max_len_out) {
 void render_mobile_text_menu(SDL_Renderer *renderer) {
     if (!show_mobile_text_menu) return;
     
-    // Menu dimensions - increased width to accommodate 5 buttons
-    int menu_w = 350;
-    int menu_h = 50;
+    // Menu dimensions
     int button_w = 65;
     int button_h = 40;
     int button_spacing = 5;
     
     // Position menu near selection or at tap location
-    mobile_text_menu_rect = (SDL_Rect){mobile_text_menu_x, mobile_text_menu_y, menu_w, menu_h};
+    mobile_text_menu_rect = (SDL_Rect){mobile_text_menu_x, mobile_text_menu_y, MOBILE_TEXT_MENU_WIDTH, MOBILE_TEXT_MENU_HEIGHT};
     
     // Draw menu background
     SDL_SetRenderDrawColor(renderer, 50, 50, 50, 230);
@@ -3715,6 +3713,11 @@ int main(int argc, char *argv[]) {
                     continue;
                 }
                 
+                // Close text menu if touching outside it
+                if (show_mobile_text_menu && !SDL_PointInRect(&(SDL_Point){tx, ty}, &mobile_text_menu_rect)) {
+                    show_mobile_text_menu = 0;
+                }
+                
                 // Start long press detection for text fields
                 if (is_chat_open || active_field >= 0) {
                     long_press_start_time = SDL_GetTicks();
@@ -4008,39 +4011,61 @@ int main(int argc, char *argv[]) {
                     if(vjoy_dy > 1.0f) vjoy_dy = 1.0f; if(vjoy_dy < -1.0f) vjoy_dy = -1.0f;
                     printf("[FINGERMOTION] Joystick: fingerId=%lld touch_x=%d touch_y=%d vjoy_dx=%.2f vjoy_dy=%.2f\n", 
                     (long long)event.tfinger.fingerId, touch_x, touch_y, vjoy_dx, vjoy_dy);
-                } else {
+                } 
+                #if defined(__ANDROID__) || defined(__IPHONEOS__)
+                // Handle text selection dragging on mobile
+                else if (is_dragging && (is_chat_open || active_field >= 0)) {
+                    int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
+                    int tx = (int)((event.tfinger.x * w) / ui_scale);
+                    
+                    // Disable long press if finger moved
+                    if (long_press_active) {
+                        int dx = tx - long_press_start_x;
+                        int dy = (int)((event.tfinger.y * h) / ui_scale) - long_press_start_y;
+                        if (abs(dx) > 10 || abs(dy) > 10) {
+                            long_press_active = 0;
+                        }
+                    }
+                    
+                    // Update text selection during drag
+                    char *target = get_active_field_buffer_for_touch(NULL);
+                    if (target) {
+                        cursor_pos = get_cursor_pos_from_click(target, tx, active_input_rect.x);
+                        selection_len = cursor_pos - selection_start;
+                    }
+                }
+                #endif
+                else {
                     printf("[FINGERMOTION] Unknown finger: %lld (scroll=%lld, dpad=%lld)\n", 
                            (long long)event.tfinger.fingerId, (long long)scroll_touch_id, (long long)touch_id_dpad);
                 }
             }
             else if (event.type == SDL_FINGERUP) {
                 #if defined(__ANDROID__) || defined(__IPHONEOS__)
+                int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
+                int tx = (int)((event.tfinger.x * w) / ui_scale);
+                int ty = (int)((event.tfinger.y * h) / ui_scale);
+                int scaled_w = (int)(w / ui_scale);
+                int scaled_h = (int)(h / ui_scale);
+                
                 // Check for long press and show menu
                 if (long_press_active) {
                     Uint32 press_duration = SDL_GetTicks() - long_press_start_time;
                     if (press_duration >= LONG_PRESS_DURATION && (is_chat_open || active_field >= 0)) {
-                        int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
-                        int tx = (int)((event.tfinger.x * w) / ui_scale);
-                        int ty = (int)((event.tfinger.y * h) / ui_scale);
-                        
-                        // Position menu near touch point
-                        // Calculate menu width: 5 buttons * 65px + 6 spacings * 5px = 325 + 25 = 350
-                        int menu_width = 350;
-                        mobile_text_menu_x = tx - (menu_width / 2); // Center horizontally
-                        mobile_text_menu_y = ty - 60;  // Position above touch
-                        
-                        // Clamp to screen bounds
-                        if (mobile_text_menu_x < 0) mobile_text_menu_x = 0;
-                        if (mobile_text_menu_y < 0) mobile_text_menu_y = 0;
-                        int scaled_w = (int)(w / ui_scale);
-                        int scaled_h = (int)(h / ui_scale);
-                        if (mobile_text_menu_x + menu_width > scaled_w) mobile_text_menu_x = scaled_w - menu_width;
-                        if (mobile_text_menu_y + 50 > scaled_h) mobile_text_menu_y = scaled_h - 50;
-                        
+                        position_mobile_text_menu(tx, ty, scaled_w, scaled_h, ui_scale);
                         show_mobile_text_menu = 1;
                     }
                     long_press_active = 0;
                 }
+                
+                // Show text menu if text was selected via drag (for touch devices)
+                if (is_dragging && (is_chat_open || active_field >= 0) && selection_len != 0) {
+                    position_mobile_text_menu(tx, ty, scaled_w, scaled_h, ui_scale);
+                    show_mobile_text_menu = 1;
+                }
+                
+                // End dragging on finger up
+                if (is_dragging) is_dragging = 0;
                 #endif
                 
                 if (event.tfinger.fingerId == scroll_touch_id) {
