@@ -2075,15 +2075,13 @@ static char* get_active_field_buffer(int *max_len_out) {
 void render_mobile_text_menu(SDL_Renderer *renderer) {
     if (!show_mobile_text_menu) return;
     
-    // Menu dimensions - increased width to accommodate 5 buttons
-    int menu_w = 350;
-    int menu_h = 50;
+    // Menu dimensions
     int button_w = 65;
     int button_h = 40;
     int button_spacing = 5;
     
     // Position menu near selection or at tap location
-    mobile_text_menu_rect = (SDL_Rect){mobile_text_menu_x, mobile_text_menu_y, menu_w, menu_h};
+    mobile_text_menu_rect = (SDL_Rect){mobile_text_menu_x, mobile_text_menu_y, MOBILE_TEXT_MENU_WIDTH, MOBILE_TEXT_MENU_HEIGHT};
     
     // Draw menu background
     SDL_SetRenderDrawColor(renderer, 50, 50, 50, 230);
@@ -4030,22 +4028,7 @@ int main(int argc, char *argv[]) {
                     }
                     
                     // Update text selection during drag
-                    char *target = NULL;
-                    if (is_chat_open) target = input_buffer;
-                    else if (active_field == 0) target = auth_username;
-                    else if (active_field == 1) target = auth_password;
-                    else if (active_field == 2) target = input_ip;
-                    else if (active_field == 3) target = input_port;
-                    else if (active_field == 10) target = nick_new;
-                    else if (active_field == 11) target = nick_confirm;
-                    else if (active_field == 12) target = nick_pass;
-                    else if (active_field == FIELD_PASSWORD_CURRENT) target = password_current;
-                    else if (active_field == FIELD_PASSWORD_NEW) target = password_new;
-                    else if (active_field == FIELD_PASSWORD_CONFIRM) target = password_confirm;
-                    else if (active_field == FIELD_FRIEND_ID) target = input_friend_id;
-                    else if (active_field == FIELD_SANCTION_REASON) target = input_sanction_reason;
-                    else if (active_field == FIELD_BAN_TIME) target = input_ban_time;
-                    
+                    char *target = get_active_field_buffer_for_touch(NULL);
                     if (target) {
                         cursor_pos = get_cursor_pos_from_click(target, tx, active_input_rect.x);
                         selection_len = cursor_pos - selection_start;
@@ -4062,31 +4045,14 @@ int main(int argc, char *argv[]) {
                 int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
                 int tx = (int)((event.tfinger.x * w) / ui_scale);
                 int ty = (int)((event.tfinger.y * h) / ui_scale);
+                int scaled_w = (int)(w / ui_scale);
+                int scaled_h = (int)(h / ui_scale);
                 
                 // Check for long press and show menu
                 if (long_press_active) {
                     Uint32 press_duration = SDL_GetTicks() - long_press_start_time;
                     if (press_duration >= LONG_PRESS_DURATION && (is_chat_open || active_field >= 0)) {
-                        // Position menu near touch point
-                        // Calculate menu width: 5 buttons * 65px + 6 spacings * 5px = 325 + 25 = 350
-                        int menu_width = 350;
-                        int menu_height = 50;
-                        mobile_text_menu_x = tx - (menu_width / 2); // Center horizontally
-                        mobile_text_menu_y = ty - menu_height - 10;  // Position above touch with small gap
-                        
-                        // Clamp to screen bounds
-                        int scaled_w = (int)(w / ui_scale);
-                        int scaled_h = (int)(h / ui_scale);
-                        if (mobile_text_menu_x < 0) mobile_text_menu_x = 0;
-                        if (mobile_text_menu_y < 0) mobile_text_menu_y = 0;
-                        if (mobile_text_menu_x + menu_width > scaled_w) mobile_text_menu_x = scaled_w - menu_width;
-                        // Ensure menu is visible above keyboard
-                        int max_y = scaled_h - menu_height - 10;
-                        if (keyboard_height > 0) {
-                            max_y = scaled_h - (keyboard_height / ui_scale) - menu_height - 10;
-                        }
-                        if (mobile_text_menu_y > max_y) mobile_text_menu_y = max_y;
-                        
+                        position_mobile_text_menu(tx, ty, scaled_w, scaled_h, ui_scale);
                         show_mobile_text_menu = 1;
                     }
                     long_press_active = 0;
@@ -4094,25 +4060,7 @@ int main(int argc, char *argv[]) {
                 
                 // Show text menu if text was selected via drag (for touch devices)
                 if (is_dragging && (is_chat_open || active_field >= 0) && selection_len != 0) {
-                    // Position menu near touch release point
-                    int menu_width = 350;
-                    int menu_height = 50;
-                    mobile_text_menu_x = tx - (menu_width / 2);
-                    mobile_text_menu_y = ty - menu_height - 10;  // Position above touch with small gap
-                    
-                    // Clamp to screen bounds
-                    int scaled_w = (int)(w / ui_scale);
-                    int scaled_h = (int)(h / ui_scale);
-                    if (mobile_text_menu_x < 0) mobile_text_menu_x = 0;
-                    if (mobile_text_menu_y < 0) mobile_text_menu_y = 0;
-                    if (mobile_text_menu_x + menu_width > scaled_w) mobile_text_menu_x = scaled_w - menu_width;
-                    // Ensure menu is visible above keyboard
-                    int max_y = scaled_h - menu_height - 10;
-                    if (keyboard_height > 0) {
-                        max_y = scaled_h - (keyboard_height / ui_scale) - menu_height - 10;
-                    }
-                    if (mobile_text_menu_y > max_y) mobile_text_menu_y = max_y;
-                    
+                    position_mobile_text_menu(tx, ty, scaled_w, scaled_h, ui_scale);
                     show_mobile_text_menu = 1;
                 }
                 

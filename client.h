@@ -135,6 +135,10 @@ enum { SLIDER_NONE, SLIDER_R, SLIDER_G, SLIDER_B, SLIDER_R2, SLIDER_G2, SLIDER_B
 // Long press duration for mobile
 #define LONG_PRESS_DURATION 500
 
+// Mobile text menu dimensions
+#define MOBILE_TEXT_MENU_WIDTH 350
+#define MOBILE_TEXT_MENU_HEIGHT 50
+
 // --- Global Variables (extern declarations) ---
 extern char current_map_file[32];
 extern RenderBackend render_backend;
@@ -448,6 +452,8 @@ void init_audio(void);
 // Input functions (client_input.c)
 int get_cursor_pos_from_click(const char *text, int mouse_x, int rect_x);
 void delete_selection(char *buffer);
+char* get_active_field_buffer_for_touch(int *max_len_out);
+void position_mobile_text_menu(int touch_x, int touch_y, int scaled_w, int scaled_h, float ui_scale_val);
 void handle_text_edit(char *buffer, int max_len, SDL_Event *ev);
 void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h);
 void handle_auth_click(int mx, int my);

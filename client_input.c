@@ -50,6 +50,80 @@ void delete_selection(char *buffer) {
     selection_len = 0;
 }
 
+// Get the active field buffer for the currently active text field
+char* get_active_field_buffer_for_touch(int *max_len_out) {
+    if (is_chat_open) {
+        if (max_len_out) *max_len_out = 63;
+        return input_buffer;
+    }
+    
+    switch (active_field) {
+        case 0: // auth_username
+            if (max_len_out) *max_len_out = MAX_INPUT_LEN;
+            return auth_username;
+        case 1: // auth_password
+            if (max_len_out) *max_len_out = MAX_INPUT_LEN;
+            return auth_password;
+        case 2: // input_ip
+            if (max_len_out) *max_len_out = 15;
+            return input_ip;
+        case 3: // input_port
+            if (max_len_out) *max_len_out = 7;
+            return input_port;
+        case 10: // nick_new
+            if (max_len_out) *max_len_out = 31;
+            return nick_new;
+        case 11: // nick_confirm
+            if (max_len_out) *max_len_out = 31;
+            return nick_confirm;
+        case 12: // nick_pass
+            if (max_len_out) *max_len_out = 31;
+            return nick_pass;
+        case FIELD_PASSWORD_CURRENT:
+            if (max_len_out) *max_len_out = 63;
+            return password_current;
+        case FIELD_PASSWORD_NEW:
+            if (max_len_out) *max_len_out = 63;
+            return password_new;
+        case FIELD_PASSWORD_CONFIRM:
+            if (max_len_out) *max_len_out = 63;
+            return password_confirm;
+        case FIELD_FRIEND_ID:
+            if (max_len_out) *max_len_out = 8;
+            return input_friend_id;
+        case FIELD_SANCTION_REASON:
+            if (max_len_out) *max_len_out = 63;
+            return input_sanction_reason;
+        case FIELD_BAN_TIME:
+            if (max_len_out) *max_len_out = 15;
+            return input_ban_time;
+        default:
+            return NULL;
+    }
+}
+
+#if defined(__ANDROID__) || defined(__IPHONEOS__)
+// Position the mobile text menu above touch point, avoiding keyboard
+void position_mobile_text_menu(int touch_x, int touch_y, int scaled_w, int scaled_h, float ui_scale_val) {
+    mobile_text_menu_x = touch_x - (MOBILE_TEXT_MENU_WIDTH / 2);
+    mobile_text_menu_y = touch_y - MOBILE_TEXT_MENU_HEIGHT - 10;  // Position above touch with small gap
+    
+    // Clamp to screen bounds
+    if (mobile_text_menu_x < 0) mobile_text_menu_x = 0;
+    if (mobile_text_menu_y < 0) mobile_text_menu_y = 0;
+    if (mobile_text_menu_x + MOBILE_TEXT_MENU_WIDTH > scaled_w) {
+        mobile_text_menu_x = scaled_w - MOBILE_TEXT_MENU_WIDTH;
+    }
+    
+    // Ensure menu is visible above keyboard
+    int max_y = scaled_h - MOBILE_TEXT_MENU_HEIGHT - 10;
+    if (keyboard_height > 0) {
+        max_y = scaled_h - (keyboard_height / ui_scale_val) - MOBILE_TEXT_MENU_HEIGHT - 10;
+    }
+    if (mobile_text_menu_y > max_y) mobile_text_menu_y = max_y;
+}
+#endif
+
 void handle_text_edit(char *buffer, int max_len, SDL_Event *ev) {
     int len = strlen(buffer);
     const Uint8 *state = SDL_GetKeyboardState(NULL);
