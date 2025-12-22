@@ -2384,11 +2384,12 @@ void render_game(SDL_Renderer *renderer) {
             int buf_len = strlen(input_buffer);
             if (copy_len > buf_len) copy_len = buf_len;
             if (prefix_len + copy_len >= 256) copy_len = 255 - prefix_len;
+            if (copy_len < 0) copy_len = 0;
             
             if (copy_len > 0) {
                 memcpy(text_before + prefix_len, input_buffer, copy_len);
-                text_before[prefix_len + copy_len] = '\0';
             }
+            text_before[prefix_len + copy_len] = '\0';
             
             int w_before = 0, h;
             TTF_SizeText(font, text_before, &w_before, &h);
@@ -2396,12 +2397,18 @@ void render_game(SDL_Renderer *renderer) {
             // Calculate width of selection
             char text_sel[256];
             int sel_copy_len = len;
-            if (start + sel_copy_len > buf_len) sel_copy_len = buf_len - start;
+            if (start >= buf_len) {
+                sel_copy_len = 0;
+            } else if (start + sel_copy_len > buf_len) {
+                sel_copy_len = buf_len - start;
+            }
             if (sel_copy_len > 255) sel_copy_len = 255;
+            if (sel_copy_len < 0) sel_copy_len = 0;
+            
             if (sel_copy_len > 0) {
                 strncpy(text_sel, input_buffer + start, sel_copy_len);
             }
-            text_sel[sel_copy_len > 0 ? sel_copy_len : 0] = '\0';
+            text_sel[sel_copy_len] = '\0';
             
             int w_sel = 0;
             if (sel_copy_len > 0) TTF_SizeText(font, text_sel, &w_sel, &h);
