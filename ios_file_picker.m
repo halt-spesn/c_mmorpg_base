@@ -27,7 +27,6 @@ static void (*g_image_selected_callback)(const uint8_t* data, size_t size) = NUL
                 if (attributes) {
                     unsigned long long fileSize = [attributes fileSize];
                     // MAX_AVATAR_SIZE is defined in common.h as 16384 bytes
-                    const NSUInteger MAX_AVATAR_SIZE = 16384;
                     
                     if (fileSize > MAX_AVATAR_SIZE) {
                         NSLog(@"File too large: %llu bytes (max: %lu)", fileSize, (unsigned long)MAX_AVATAR_SIZE);
