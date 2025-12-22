@@ -4070,16 +4070,22 @@ int main(int argc, char *argv[]) {
                         // Position menu near touch point
                         // Calculate menu width: 5 buttons * 65px + 6 spacings * 5px = 325 + 25 = 350
                         int menu_width = 350;
+                        int menu_height = 50;
                         mobile_text_menu_x = tx - (menu_width / 2); // Center horizontally
-                        mobile_text_menu_y = ty - 60;  // Position above touch
+                        mobile_text_menu_y = ty - menu_height - 10;  // Position above touch with small gap
                         
                         // Clamp to screen bounds
-                        if (mobile_text_menu_x < 0) mobile_text_menu_x = 0;
-                        if (mobile_text_menu_y < 0) mobile_text_menu_y = 0;
                         int scaled_w = (int)(w / ui_scale);
                         int scaled_h = (int)(h / ui_scale);
+                        if (mobile_text_menu_x < 0) mobile_text_menu_x = 0;
+                        if (mobile_text_menu_y < 0) mobile_text_menu_y = 0;
                         if (mobile_text_menu_x + menu_width > scaled_w) mobile_text_menu_x = scaled_w - menu_width;
-                        if (mobile_text_menu_y + 50 > scaled_h) mobile_text_menu_y = scaled_h - 50;
+                        // Ensure menu is visible above keyboard
+                        int max_y = scaled_h - menu_height - 10;
+                        if (keyboard_height > 0) {
+                            max_y = scaled_h - (keyboard_height / ui_scale) - menu_height - 10;
+                        }
+                        if (mobile_text_menu_y > max_y) mobile_text_menu_y = max_y;
                         
                         show_mobile_text_menu = 1;
                     }
@@ -4090,16 +4096,22 @@ int main(int argc, char *argv[]) {
                 if (is_dragging && (is_chat_open || active_field >= 0) && selection_len != 0) {
                     // Position menu near touch release point
                     int menu_width = 350;
+                    int menu_height = 50;
                     mobile_text_menu_x = tx - (menu_width / 2);
-                    mobile_text_menu_y = ty - 60;
+                    mobile_text_menu_y = ty - menu_height - 10;  // Position above touch with small gap
                     
                     // Clamp to screen bounds
-                    if (mobile_text_menu_x < 0) mobile_text_menu_x = 0;
-                    if (mobile_text_menu_y < 0) mobile_text_menu_y = 0;
                     int scaled_w = (int)(w / ui_scale);
                     int scaled_h = (int)(h / ui_scale);
+                    if (mobile_text_menu_x < 0) mobile_text_menu_x = 0;
+                    if (mobile_text_menu_y < 0) mobile_text_menu_y = 0;
                     if (mobile_text_menu_x + menu_width > scaled_w) mobile_text_menu_x = scaled_w - menu_width;
-                    if (mobile_text_menu_y + 50 > scaled_h) mobile_text_menu_y = scaled_h - 50;
+                    // Ensure menu is visible above keyboard
+                    int max_y = scaled_h - menu_height - 10;
+                    if (keyboard_height > 0) {
+                        max_y = scaled_h - (keyboard_height / ui_scale) - menu_height - 10;
+                    }
+                    if (mobile_text_menu_y > max_y) mobile_text_menu_y = max_y;
                     
                     show_mobile_text_menu = 1;
                 }
