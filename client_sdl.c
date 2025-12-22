@@ -2376,10 +2376,13 @@ void render_game(SDL_Renderer *renderer) {
             if (len < 0) { start += len; len = -len; }
 
             // Calculate offset X (Prefix + Text before selection)
-            char text_before[256];
-            int prefix_len = snprintf(text_before, 256, "%s", prefix);
+            #define MAX_TEXT_BUFFER_SIZE 256
+            #define MAX_TEXT_LENGTH (MAX_TEXT_BUFFER_SIZE - 1)
+            
+            char text_before[MAX_TEXT_BUFFER_SIZE];
+            int prefix_len = snprintf(text_before, MAX_TEXT_BUFFER_SIZE, "%s", prefix);
             // Handle truncation - snprintf returns length it would have written
-            if (prefix_len >= 256) prefix_len = 255;
+            if (prefix_len >= MAX_TEXT_BUFFER_SIZE) prefix_len = MAX_TEXT_LENGTH;
             if (prefix_len < 0) prefix_len = 0;
             
             // Safely copy up to 'start' characters from input_buffer
@@ -2387,10 +2390,10 @@ void render_game(SDL_Renderer *renderer) {
             int buf_len = strlen(input_buffer);
             if (copy_len > buf_len) copy_len = buf_len;
             // Ensure we don't overflow the buffer
-            if (prefix_len >= 255) {
+            if (prefix_len >= MAX_TEXT_LENGTH) {
                 copy_len = 0;  // No room left after prefix
-            } else if (prefix_len + copy_len >= 256) {
-                copy_len = 255 - prefix_len;
+            } else if (prefix_len + copy_len >= MAX_TEXT_BUFFER_SIZE) {
+                copy_len = MAX_TEXT_LENGTH - prefix_len;
             }
             if (copy_len < 0) copy_len = 0;
             
@@ -2403,18 +2406,18 @@ void render_game(SDL_Renderer *renderer) {
             TTF_SizeText(font, text_before, &w_before, &h);
 
             // Calculate width of selection
-            char text_sel[256];
+            char text_sel[MAX_TEXT_BUFFER_SIZE];
             int sel_copy_len = len;
             if (start >= buf_len) {
                 sel_copy_len = 0;
             } else if (start + sel_copy_len > buf_len) {
                 sel_copy_len = buf_len - start;
             }
-            if (sel_copy_len > 255) sel_copy_len = 255;
+            if (sel_copy_len > MAX_TEXT_LENGTH) sel_copy_len = MAX_TEXT_LENGTH;
             if (sel_copy_len < 0) sel_copy_len = 0;
             
             if (sel_copy_len > 0) {
-                strncpy(text_sel, input_buffer + start, sel_copy_len);
+                memcpy(text_sel, input_buffer + start, sel_copy_len);
             }
             text_sel[sel_copy_len] = '\0';
             
@@ -2437,6 +2440,9 @@ void render_game(SDL_Renderer *renderer) {
                 SDL_RenderFillRect(renderer, &sel_rect);
                 SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
             }
+            
+            #undef MAX_TEXT_BUFFER_SIZE
+            #undef MAX_TEXT_LENGTH
         }
 
         // 3. Render Text with proper clipping and scrolling

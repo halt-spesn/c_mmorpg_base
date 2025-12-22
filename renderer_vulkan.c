@@ -88,12 +88,14 @@ static int create_instance(SDL_Window *window, VkInstance *instance) {
         return 0;
     }
     
-    // On Windows and macOS, we need to add the portability enumeration extension
+    // Calculate total extension count (SDL extensions + platform-specific extensions)
     #if defined(_WIN32) || defined(__APPLE__)
-    const char **extensions = malloc(sizeof(char*) * (sdl_extension_count + 1));
+    unsigned int total_extension_count = sdl_extension_count + 1;  // +1 for portability enumeration
     #else
-    const char **extensions = malloc(sizeof(char*) * sdl_extension_count);
+    unsigned int total_extension_count = sdl_extension_count;
     #endif
+    
+    const char **extensions = malloc(sizeof(char*) * total_extension_count);
     if (!extensions) {
         printf("Failed to allocate memory for Vulkan extensions\n");
         return 0;
