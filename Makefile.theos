@@ -1,5 +1,5 @@
-ARCHS = arm64 arm64e
-TARGET = iphone:clang:latest:13.0
+ARCHS = arm64
+TARGET = iphone:clang:latest:15.0
 
 include $(THEOS)/makefiles/common.mk
 
@@ -20,7 +20,7 @@ mmotest_FILES = client_sdl.c \
 # mmotest_FILES += renderer_vulkan.c
 
 # Compiler flags
-mmotest_CFLAGS = -DUSE_SDL2 -D__IPHONEOS__ -I./xcode_sdl_headers/SDL2/include -Wno-error
+mmotest_CFLAGS = -DUSE_SDL2 -D__IPHONEOS__ -I./xcode_sdl_headers/SDL2/include -Wno-error -fobjc-arc
 mmotest_CCFLAGS = $(mmotest_CFLAGS)
 
 # Linker flags - link with SDL2 static libraries
@@ -28,12 +28,14 @@ mmotest_LDFLAGS = -Lmach-o_deps/ios \
                   -lSDL2 \
                   -lSDL2_image \
                   -lSDL2_mixer \
-                  -lSDL2_ttf
+                  -lSDL2_ttf \
+		  -ObjC -lc++ -lobjc
 
 # iOS frameworks needed
 mmotest_FRAMEWORKS = UIKit Foundation CoreGraphics CoreAudio CoreFoundation \
                      AudioToolbox AVFoundation OpenGLES QuartzCore Metal \
-                     UniformTypeIdentifiers
+                     UniformTypeIdentifiers GameController CoreHaptics \
+		     CoreMotion MobileCoreServices ImageIO CoreBluetooth
 
 # Bundle resources - include assets needed by the app
 mmotest_INSTALL_PATH = /Applications
