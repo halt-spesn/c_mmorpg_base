@@ -3815,7 +3815,18 @@ int main(int argc, char *argv[]) {
                     // Use scaled height for UI coordinate calculations
                     int scaled_h = (int)(h / ui_scale);
                     if (is_chat_open) {
-                        SDL_Rect chat_win = (SDL_Rect){10, scaled_h-240, 300, 190};
+                        // Calculate chat window position with keyboard shift (same as rendering)
+                        int chat_y = scaled_h - 240;
+                        #if defined(__ANDROID__) || defined(__IPHONEOS__)
+                        // Apply keyboard shift to match rendering
+                        if (chat_input_active && keyboard_height > 0) {
+                            int shift = keyboard_height / ui_scale;
+                            chat_y -= shift;
+                            if (chat_y < 50) chat_y = 50;
+                        }
+                        #endif
+                        
+                        SDL_Rect chat_win = (SDL_Rect){10, chat_y, 300, 190};
                         SDL_Rect chat_input = (SDL_Rect){15, chat_win.y + chat_win.h - 24, 270, 24};
                         SDL_Rect chat_history = (SDL_Rect){chat_win.x, chat_win.y, chat_win.w, chat_win.h - 30}; // History area (exclude input)
                         
@@ -4227,7 +4238,19 @@ int main(int argc, char *argv[]) {
                         show_friend_list = !show_friend_list;
                      }
                                           else if (is_chat_open) {
-                         SDL_Rect chat_win = (SDL_Rect){10, screen_h-240, 300, 190};
+                         // Calculate chat window position with keyboard shift (same as rendering)
+                         int scaled_h = (int)(screen_h / ui_scale);
+                         int chat_y = scaled_h - 240;
+                         #if defined(__ANDROID__) || defined(__IPHONEOS__)
+                         // Apply keyboard shift to match rendering
+                         if (chat_input_active && keyboard_height > 0) {
+                             int shift = keyboard_height / ui_scale;
+                             chat_y -= shift;
+                             if (chat_y < 50) chat_y = 50;
+                         }
+                         #endif
+                         
+                         SDL_Rect chat_win = (SDL_Rect){10, chat_y, 300, 190};
                          SDL_Rect chat_input = (SDL_Rect){15, chat_win.y + chat_win.h - 24, 270, 24};
                          if (SDL_PointInRect(&(SDL_Point){mx, my}, &chat_input)) {
                              chat_input_active = 1;
