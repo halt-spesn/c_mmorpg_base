@@ -2075,8 +2075,8 @@ static char* get_active_field_buffer(int *max_len_out) {
 void render_mobile_text_menu(SDL_Renderer *renderer) {
     if (!show_mobile_text_menu) return;
     
-    // Menu dimensions
-    int menu_w = 280;
+    // Menu dimensions - increased width to accommodate 5 buttons
+    int menu_w = 350;
     int menu_h = 50;
     int button_w = 65;
     int button_h = 40;
@@ -2093,9 +2093,19 @@ void render_mobile_text_menu(SDL_Renderer *renderer) {
     SDL_RenderDrawRect(renderer, &mobile_text_menu_rect);
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
     
-    // Draw buttons: Cut | Copy | Paste | Clear
+    // Draw buttons: Select All | Cut | Copy | Paste | Clear
     int x = mobile_text_menu_rect.x + button_spacing;
     int y = mobile_text_menu_rect.y + 5;
+    
+    // Select All button
+    SDL_Rect btn_select_all = {x, y, button_w, button_h};
+    SDL_SetRenderDrawColor(renderer, 200, 150, 80, 255);
+    SDL_RenderFillRect(renderer, &btn_select_all);
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+    SDL_RenderDrawRect(renderer, &btn_select_all);
+    render_text(renderer, "All", btn_select_all.x + button_w/2, btn_select_all.y + 10, col_white, 1);
+    
+    x += button_w + button_spacing;
     
     // Cut button
     SDL_Rect btn_cut = {x, y, button_w, button_h};
@@ -3610,12 +3620,24 @@ int main(int argc, char *argv[]) {
                     int y = mobile_text_menu_rect.y + 5;
                     int button_h = 40;
                     
-                    SDL_Rect btn_cut = {x, y, button_w, button_h};
-                    SDL_Rect btn_copy = {x + button_w + button_spacing, y, button_w, button_h};
-                    SDL_Rect btn_paste = {x + (button_w + button_spacing) * 2, y, button_w, button_h};
-                    SDL_Rect btn_clear = {x + (button_w + button_spacing) * 3, y, button_w, button_h};
+                    SDL_Rect btn_select_all = {x, y, button_w, button_h};
+                    SDL_Rect btn_cut = {x + button_w + button_spacing, y, button_w, button_h};
+                    SDL_Rect btn_copy = {x + (button_w + button_spacing) * 2, y, button_w, button_h};
+                    SDL_Rect btn_paste = {x + (button_w + button_spacing) * 3, y, button_w, button_h};
+                    SDL_Rect btn_clear = {x + (button_w + button_spacing) * 4, y, button_w, button_h};
                     
-                    if (SDL_PointInRect(&(SDL_Point){tx, ty}, &btn_cut)) {
+                    if (SDL_PointInRect(&(SDL_Point){tx, ty}, &btn_select_all)) {
+                        // Select All: Select all text in the active field
+                        if (is_chat_open || active_field >= 0) {
+                            char *buffer = get_active_field_buffer(NULL);
+                            if (buffer) {
+                                int len = strlen(buffer);
+                                cursor_pos = len;
+                                selection_start = 0;
+                                selection_len = len;
+                            }
+                        }
+                    } else if (SDL_PointInRect(&(SDL_Point){tx, ty}, &btn_cut)) {
                         // Cut: Copy and delete
                         if (selection_len != 0 && (is_chat_open || active_field >= 0)) {
                             char *buffer = get_active_field_buffer(NULL);
@@ -4002,7 +4024,7 @@ int main(int argc, char *argv[]) {
                         int ty = (int)((event.tfinger.y * h) / ui_scale);
                         
                         // Position menu near touch point
-                        mobile_text_menu_x = tx - 140; // Center horizontally
+                        mobile_text_menu_x = tx - 175; // Center horizontally (350/2)
                         mobile_text_menu_y = ty - 60;  // Position above touch
                         
                         // Clamp to screen bounds
@@ -4010,7 +4032,7 @@ int main(int argc, char *argv[]) {
                         if (mobile_text_menu_y < 0) mobile_text_menu_y = 0;
                         int scaled_w = (int)(w / ui_scale);
                         int scaled_h = (int)(h / ui_scale);
-                        if (mobile_text_menu_x + 280 > scaled_w) mobile_text_menu_x = scaled_w - 280;
+                        if (mobile_text_menu_x + 350 > scaled_w) mobile_text_menu_x = scaled_w - 350;
                         if (mobile_text_menu_y + 50 > scaled_h) mobile_text_menu_y = scaled_h - 50;
                         
                         show_mobile_text_menu = 1;
