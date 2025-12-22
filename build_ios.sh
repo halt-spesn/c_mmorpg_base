@@ -10,6 +10,14 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+# Check if dpkg-deb is available
+if ! command -v dpkg-deb &> /dev/null; then
+    echo -e "${RED}Error: dpkg-deb is not installed${NC}"
+    echo "Please install dpkg with: sudo apt-get install dpkg"
+    echo "Or on macOS with: brew install dpkg"
+    exit 1
+fi
+
 # Check if THEOS is set
 if [ -z "$THEOS" ]; then
     echo -e "${RED}Error: THEOS environment variable is not set${NC}"
@@ -48,10 +56,11 @@ case $ACTION in
         make -f Makefile.theos package
         
         # Find the latest .deb file
-        DEB_FILE=$(ls -t packages/*.deb | head -1)
+        DEB_FILE=$(ls -t packages/*.deb 2>/dev/null | head -1)
         
-        if [ -z "$DEB_FILE" ]; then
+        if [ -z "$DEB_FILE" ] || [ ! -f "$DEB_FILE" ]; then
             echo -e "${RED}Error: No .deb file found in packages/${NC}"
+            echo "Make sure the build completed successfully."
             exit 1
         fi
         
