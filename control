@@ -1,0 +1,9 @@
+Package: com.halt.mmotest
+Name: MMO Test Client
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: A cross-platform MMORPG client built with SDL2
+Maintainer: halt-spesn
+Author: halt-spesn
+Section: Games
+Depends: firmware (>= 13.0)

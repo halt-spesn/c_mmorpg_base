@@ -1,0 +1,52 @@
+ARCHS = arm64 arm64e
+TARGET = iphone:clang:latest:13.0
+
+include $(THEOS)/makefiles/common.mk
+
+APPLICATION_NAME = mmotest
+
+# Source files for the client
+mmotest_FILES = client_sdl.c \
+                client_network.c \
+                client_config.c \
+                client_audio.c \
+                client_utils.c \
+                client_input.c \
+                localization.c \
+                ios_file_picker.m
+
+# Add Vulkan renderer if needed
+# Uncomment the following line if Vulkan support is desired
+# mmotest_FILES += renderer_vulkan.c
+
+# Compiler flags
+mmotest_CFLAGS = -DUSE_SDL2 -D__IPHONEOS__ -I./xcode_sdl_headers -Wno-error
+mmotest_CCFLAGS = $(mmotest_CFLAGS)
+
+# Linker flags - link with SDL2 static libraries
+mmotest_LDFLAGS = -Lmach-o_deps/ios \
+                  -lSDL2 \
+                  -lSDL2_image \
+                  -lSDL2_mixer \
+                  -lSDL2_ttf
+
+# iOS frameworks needed
+mmotest_FRAMEWORKS = UIKit Foundation CoreGraphics CoreAudio CoreFoundation \
+                     AudioToolbox AVFoundation OpenGLES QuartzCore Metal \
+                     UniformTypeIdentifiers
+
+# Bundle resources - include assets needed by the app
+mmotest_INSTALL_PATH = /Applications
+mmotest_BUNDLE_NAME = mmotest
+
+include $(THEOS_MAKE_PATH)/application.mk
+
+# Copy resources after building
+after-stage::
+	# Copy font file
+	$(ECHO_NOTHING)mkdir -p $(THEOS_STAGING_DIR)/Applications/$(mmotest_BUNDLE_NAME).app$(ECHO_END)
+	$(ECHO_NOTHING)cp DejaVuSans.ttf $(THEOS_STAGING_DIR)/Applications/$(mmotest_BUNDLE_NAME).app/$(ECHO_END)
+	# Copy Assets.xcassets if needed (as individual files)
+	$(ECHO_NOTHING)cp -r Assets.xcassets $(THEOS_STAGING_DIR)/Applications/$(mmotest_BUNDLE_NAME).app/$(ECHO_END)
+	# Copy Info.plist (using Theos-specific version)
+	$(ECHO_NOTHING)cp Info-theos.plist $(THEOS_STAGING_DIR)/Applications/$(mmotest_BUNDLE_NAME).app/Info.plist$(ECHO_END)
