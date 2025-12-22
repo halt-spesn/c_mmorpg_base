@@ -259,6 +259,8 @@ Uint32 long_press_start_time = 0;
 int long_press_active = 0;
 int long_press_start_x = 0;
 int long_press_start_y = 0;
+#define CHAT_MIN_Y_POSITION 50  // Minimum Y position for chat window when shifted up
+#define CHAT_DEFAULT_Y_OFFSET 240  // Default offset from bottom of screen for chat window
 #endif
 
 int show_documentation = 0;
@@ -2072,6 +2074,20 @@ static char* get_active_field_buffer(int *max_len_out) {
     }
 }
 
+// Helper function to calculate chat window Y position with keyboard shift
+static int get_chat_window_y(int scaled_h, float ui_scale_val) {
+    int chat_y = scaled_h - CHAT_DEFAULT_Y_OFFSET;
+    
+    // Apply keyboard shift to avoid overlap
+    if (chat_input_active && keyboard_height > 0) {
+        int shift = keyboard_height / ui_scale_val;
+        chat_y -= shift;
+        if (chat_y < CHAT_MIN_Y_POSITION) chat_y = CHAT_MIN_Y_POSITION;
+    }
+    
+    return chat_y;
+}
+
 void render_mobile_text_menu(SDL_Renderer *renderer) {
     if (!show_mobile_text_menu) return;
     
@@ -2300,17 +2316,10 @@ void render_game(SDL_Renderer *renderer) {
  // 6. Draw Chat Overlay
     if(is_chat_open) {
         // Calculate chat window position with mobile keyboard shift
-        int chat_y = scaled_h-240;
+        int chat_y = scaled_h - 240;  // Default position
         #if defined(__ANDROID__) || defined(__IPHONEOS__)
-        // Shift chat window up when keyboard is active
-        if (chat_input_active && keyboard_height > 0) {
-            chat_window_shift = keyboard_height / ui_scale;  // Scale the keyboard shift
-            chat_y -= chat_window_shift;
-            // Ensure chat doesn't go off-screen
-            if (chat_y < 50) chat_y = 50;
-        } else {
-            chat_window_shift = 0;
-        }
+        chat_y = get_chat_window_y(scaled_h, ui_scale);
+        chat_window_shift = (scaled_h - CHAT_DEFAULT_Y_OFFSET) - chat_y;  // Calculate actual shift applied
         #endif
         
         SDL_Rect win = {10, chat_y, 300, 190};
@@ -3815,7 +3824,10 @@ int main(int argc, char *argv[]) {
                     // Use scaled height for UI coordinate calculations
                     int scaled_h = (int)(h / ui_scale);
                     if (is_chat_open) {
-                        SDL_Rect chat_win = (SDL_Rect){10, scaled_h-240, 300, 190};
+                        // Calculate chat window position with keyboard shift (same as rendering)
+                        int chat_y = get_chat_window_y(scaled_h, ui_scale);
+                        
+                        SDL_Rect chat_win = (SDL_Rect){10, chat_y, 300, 190};
                         SDL_Rect chat_input = (SDL_Rect){15, chat_win.y + chat_win.h - 24, 270, 24};
                         SDL_Rect chat_history = (SDL_Rect){chat_win.x, chat_win.y, chat_win.w, chat_win.h - 30}; // History area (exclude input)
                         
@@ -4059,9 +4071,13 @@ int main(int argc, char *argv[]) {
                 }
                 
                 // Show text menu if text was selected via drag (for touch devices)
-                if (is_dragging && (is_chat_open || active_field >= 0) && selection_len != 0) {
-                    position_mobile_text_menu(tx, ty, scaled_w, scaled_h, ui_scale);
-                    show_mobile_text_menu = 1;
+                // This will show the menu immediately after completing a selection drag
+                if (is_dragging && (is_chat_open || active_field >= 0)) {
+                    // Show menu if any text was selected during the drag
+                    if (selection_len != 0) {
+                        position_mobile_text_menu(tx, ty, scaled_w, scaled_h, ui_scale);
+                        show_mobile_text_menu = 1;
+                    }
                 }
                 
                 // End dragging on finger up
@@ -4223,7 +4239,15 @@ int main(int argc, char *argv[]) {
                         show_friend_list = !show_friend_list;
                      }
                                           else if (is_chat_open) {
-                         SDL_Rect chat_win = (SDL_Rect){10, screen_h-240, 300, 190};
+                         // Calculate chat window position with keyboard shift (same as rendering)
+                         int scaled_h = (int)(screen_h / ui_scale);
+                         #if defined(__ANDROID__) || defined(__IPHONEOS__)
+                         int chat_y = get_chat_window_y(scaled_h, ui_scale);
+                         #else
+                         int chat_y = scaled_h - 240;  // Fixed position on desktop (no keyboard shift)
+                         #endif
+                         
+                         SDL_Rect chat_win = (SDL_Rect){10, chat_y, 300, 190};
                          SDL_Rect chat_input = (SDL_Rect){15, chat_win.y + chat_win.h - 24, 270, 24};
                          if (SDL_PointInRect(&(SDL_Point){mx, my}, &chat_input)) {
                              chat_input_active = 1;
