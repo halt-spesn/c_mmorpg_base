@@ -260,6 +260,7 @@ int long_press_active = 0;
 int long_press_start_x = 0;
 int long_press_start_y = 0;
 #define CHAT_MIN_Y_POSITION 50  // Minimum Y position for chat window when shifted up
+#define CHAT_DEFAULT_Y_OFFSET 240  // Default offset from bottom of screen for chat window
 #endif
 
 int show_documentation = 0;
@@ -2075,7 +2076,7 @@ static char* get_active_field_buffer(int *max_len_out) {
 
 // Helper function to calculate chat window Y position with keyboard shift
 static int get_chat_window_y(int scaled_h, float ui_scale_val) {
-    int chat_y = scaled_h - 240;
+    int chat_y = scaled_h - CHAT_DEFAULT_Y_OFFSET;
     
     // Apply keyboard shift to avoid overlap
     if (chat_input_active && keyboard_height > 0) {
@@ -2315,10 +2316,10 @@ void render_game(SDL_Renderer *renderer) {
  // 6. Draw Chat Overlay
     if(is_chat_open) {
         // Calculate chat window position with mobile keyboard shift
-        int chat_y = scaled_h-240;
+        int chat_y = scaled_h - CHAT_DEFAULT_Y_OFFSET;
         #if defined(__ANDROID__) || defined(__IPHONEOS__)
         chat_y = get_chat_window_y(scaled_h, ui_scale);
-        chat_window_shift = (scaled_h - 240) - chat_y;  // Calculate actual shift applied
+        chat_window_shift = (scaled_h - CHAT_DEFAULT_Y_OFFSET) - chat_y;  // Calculate actual shift applied
         #endif
         
         SDL_Rect win = {10, chat_y, 300, 190};
@@ -4243,7 +4244,7 @@ int main(int argc, char *argv[]) {
                          #if defined(__ANDROID__) || defined(__IPHONEOS__)
                          int chat_y = get_chat_window_y(scaled_h, ui_scale);
                          #else
-                         int chat_y = scaled_h - 240;
+                         int chat_y = scaled_h - CHAT_DEFAULT_Y_OFFSET;
                          #endif
                          
                          SDL_Rect chat_win = (SDL_Rect){10, chat_y, 300, 190};
