@@ -110,14 +110,13 @@ static int create_instance(SDL_Window *window, VkInstance *instance) {
     // Add portability enumeration extension for Windows and macOS
     #if defined(_WIN32) || defined(__APPLE__)
     extensions[sdl_extension_count] = VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME;
-    sdl_extension_count++;
     printf("Added VK_KHR_portability_enumeration extension for Windows/macOS\n");
     #endif
     
     VkInstanceCreateInfo create_info = {0};
     create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     create_info.pApplicationInfo = &app_info;
-    create_info.enabledExtensionCount = sdl_extension_count;
+    create_info.enabledExtensionCount = total_extension_count;
     create_info.ppEnabledExtensionNames = extensions;
     
     // Set portability enumeration flag for Windows and macOS

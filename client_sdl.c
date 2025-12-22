@@ -2371,14 +2371,14 @@ void render_game(SDL_Renderer *renderer) {
 
         // --- NEW: Render Chat Selection Highlight ---
         if (selection_len != 0) {
+            #define MAX_TEXT_BUFFER_SIZE 256
+            #define MAX_TEXT_LENGTH (MAX_TEXT_BUFFER_SIZE - 1)
+            
             int start = selection_start;
             int len = selection_len;
             if (len < 0) { start += len; len = -len; }
 
             // Calculate offset X (Prefix + Text before selection)
-            #define MAX_TEXT_BUFFER_SIZE 256
-            #define MAX_TEXT_LENGTH (MAX_TEXT_BUFFER_SIZE - 1)
-            
             char text_before[MAX_TEXT_BUFFER_SIZE];
             int prefix_len = snprintf(text_before, MAX_TEXT_BUFFER_SIZE, "%s", prefix);
             // Handle truncation - snprintf returns length it would have written
