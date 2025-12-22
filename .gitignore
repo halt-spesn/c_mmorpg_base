@@ -21,3 +21,8 @@ android/app/build/
 android/.idea/
 android/*.iml
 test.zip
+# Theos
+.theos/
+packages/
+*.deb
+obj/
