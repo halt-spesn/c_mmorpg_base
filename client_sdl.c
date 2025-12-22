@@ -2377,19 +2377,34 @@ void render_game(SDL_Renderer *renderer) {
 
             // Calculate offset X (Prefix + Text before selection)
             char text_before[256];
-            snprintf(text_before, 256, "%s", prefix);
-            strncat(text_before, input_buffer, start); // Add buffer up to start index
+            int prefix_len = snprintf(text_before, 256, "%s", prefix);
+            
+            // Safely copy up to 'start' characters from input_buffer
+            int copy_len = start;
+            int buf_len = strlen(input_buffer);
+            if (copy_len > buf_len) copy_len = buf_len;
+            if (prefix_len + copy_len >= 256) copy_len = 255 - prefix_len;
+            
+            if (copy_len > 0) {
+                memcpy(text_before + prefix_len, input_buffer, copy_len);
+                text_before[prefix_len + copy_len] = '\0';
+            }
             
             int w_before = 0, h;
             TTF_SizeText(font, text_before, &w_before, &h);
 
             // Calculate width of selection
             char text_sel[256];
-            strncpy(text_sel, input_buffer + start, len);
-            text_sel[len] = 0;
+            int sel_copy_len = len;
+            if (start + sel_copy_len > buf_len) sel_copy_len = buf_len - start;
+            if (sel_copy_len > 255) sel_copy_len = 255;
+            if (sel_copy_len > 0) {
+                strncpy(text_sel, input_buffer + start, sel_copy_len);
+            }
+            text_sel[sel_copy_len > 0 ? sel_copy_len : 0] = '\0';
             
             int w_sel = 0;
-            if (len > 0) TTF_SizeText(font, text_sel, &w_sel, &h);
+            if (sel_copy_len > 0) TTF_SizeText(font, text_sel, &w_sel, &h);
 
             // Draw Blue Box
             int render_x = 15; 
