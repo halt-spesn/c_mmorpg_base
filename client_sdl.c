@@ -2316,7 +2316,7 @@ void render_game(SDL_Renderer *renderer) {
  // 6. Draw Chat Overlay
     if(is_chat_open) {
         // Calculate chat window position with mobile keyboard shift
-        int chat_y = scaled_h - CHAT_DEFAULT_Y_OFFSET;
+        int chat_y = scaled_h - 240;  // Default position
         #if defined(__ANDROID__) || defined(__IPHONEOS__)
         chat_y = get_chat_window_y(scaled_h, ui_scale);
         chat_window_shift = (scaled_h - CHAT_DEFAULT_Y_OFFSET) - chat_y;  // Calculate actual shift applied
@@ -4244,7 +4244,7 @@ int main(int argc, char *argv[]) {
                          #if defined(__ANDROID__) || defined(__IPHONEOS__)
                          int chat_y = get_chat_window_y(scaled_h, ui_scale);
                          #else
-                         int chat_y = scaled_h - CHAT_DEFAULT_Y_OFFSET;
+                         int chat_y = scaled_h - 240;  // Fixed position on desktop (no keyboard shift)
                          #endif
                          
                          SDL_Rect chat_win = (SDL_Rect){10, chat_y, 300, 190};
