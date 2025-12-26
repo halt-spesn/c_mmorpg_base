@@ -353,6 +353,8 @@ extern int mobile_text_menu_x;
 extern int mobile_text_menu_y;
 extern Uint32 long_press_start_time;
 extern int long_press_active;
+extern int long_press_start_x;
+extern int long_press_start_y;
 #endif
 
 extern int show_documentation;
