@@ -2074,7 +2074,8 @@ static char* get_active_field_buffer(int *max_len_out) {
     }
 }
 
-// Helper function to calculate chat window Y position with keyboard shift
+#if defined(__ANDROID__) || defined(__IPHONEOS__)
+// Helper function to calculate chat window Y position with keyboard shift (mobile only)
 static int get_chat_window_y(int scaled_h, float ui_scale_val) {
     int chat_y = scaled_h - CHAT_DEFAULT_Y_OFFSET;
     
@@ -2087,6 +2088,7 @@ static int get_chat_window_y(int scaled_h, float ui_scale_val) {
     
     return chat_y;
 }
+#endif
 
 void render_mobile_text_menu(SDL_Renderer *renderer) {
     if (!show_mobile_text_menu) return;
@@ -3722,6 +3724,10 @@ int main(int argc, char *argv[]) {
                     continue;
                 }
                 
+                // Track if menu was visible before potentially closing it
+                // This is used later to preserve selection when tapping on input while menu was visible
+                int menu_was_visible = show_mobile_text_menu;
+                
                 // Close text menu if touching outside it
                 if (show_mobile_text_menu && !SDL_PointInRect(&(SDL_Point){tx, ty}, &mobile_text_menu_rect)) {
                     show_mobile_text_menu = 0;
@@ -3825,7 +3831,11 @@ int main(int argc, char *argv[]) {
                     int scaled_h = (int)(h / ui_scale);
                     if (is_chat_open) {
                         // Calculate chat window position with keyboard shift (same as rendering)
+                        #if defined(__ANDROID__) || defined(__IPHONEOS__)
                         int chat_y = get_chat_window_y(scaled_h, ui_scale);
+                        #else
+                        int chat_y = scaled_h - 240;  // Fixed position on non-mobile platforms
+                        #endif
                         
                         SDL_Rect chat_win = (SDL_Rect){10, chat_y, 300, 190};
                         SDL_Rect chat_input = (SDL_Rect){15, chat_win.y + chat_win.h - 24, 270, 24};
@@ -3835,8 +3845,9 @@ int main(int argc, char *argv[]) {
                             #if defined(__ANDROID__) || defined(__IPHONEOS__)
                             // Track if the input was already active (for text operations)
                             int was_already_active = chat_input_active;
-                            // Preserve selection if text menu is visible
-                            int preserve_selection = show_mobile_text_menu && selection_len != 0;
+                            // Preserve selection if text menu was visible before this tap
+                            // (menu_was_visible is captured before closing the menu at touch start)
+                            int preserve_selection = menu_was_visible && selection_len != 0;
                             #else
                             int preserve_selection = 0;
                             #endif
@@ -4210,7 +4221,14 @@ int main(int argc, char *argv[]) {
                     else if(sc == SDL_SCANCODE_D || sc == SDL_SCANCODE_RIGHT) key_right = 0;
                 }
                 if (event.type == SDL_MOUSEBUTTONDOWN) {
+                    #if defined(__ANDROID__) || defined(__IPHONEOS__)
+                    // On mobile, don't reset selection if text menu is visible - user may be clicking menu buttons
+                    if (!show_mobile_text_menu) {
+                        active_field = -1; selection_len = 0; selection_start = 0;
+                    }
+                    #else
                     active_field = -1; selection_len = 0; selection_start = 0;
+                    #endif
                      // Convert mouse coordinates to UI space (accounting for window scaling and UI scaling)
                      int mx = (int)((event.button.x * scale_x) / ui_scale); 
                      int my = (int)((event.button.y * scale_y) / ui_scale);
