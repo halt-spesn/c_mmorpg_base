@@ -3832,6 +3832,15 @@ int main(int argc, char *argv[]) {
                         SDL_Rect chat_history = (SDL_Rect){chat_win.x, chat_win.y, chat_win.w, chat_win.h - 30}; // History area (exclude input)
                         
                         if (SDL_PointInRect(&(SDL_Point){tx, ty}, &chat_input)) {
+                            #if defined(__ANDROID__) || defined(__IPHONEOS__)
+                            // Track if the input was already active (for text operations)
+                            int was_already_active = chat_input_active;
+                            // Preserve selection if text menu is visible
+                            int preserve_selection = show_mobile_text_menu && selection_len != 0;
+                            #else
+                            int preserve_selection = 0;
+                            #endif
+                            
                             chat_input_active = 1;
                             SDL_StartTextInput();
                             
@@ -3850,14 +3859,23 @@ int main(int argc, char *argv[]) {
                             TTF_SizeText(font, prefix, &prefix_w, &ph);
                             active_input_rect = chat_input;
                             active_input_rect.x += (5 + prefix_w);
-                            cursor_pos = get_cursor_pos_from_click(input_buffer, tx, active_input_rect.x);
-                            selection_start = cursor_pos;
-                            selection_len = 0;
+                            
+                            // Only update cursor and selection if not preserving current selection
+                            if (!preserve_selection) {
+                                cursor_pos = get_cursor_pos_from_click(input_buffer, tx, active_input_rect.x);
+                                selection_start = cursor_pos;
+                                selection_len = 0;
+                            }
                             is_dragging = 1;
                             
                             #if defined(__ANDROID__) || defined(__IPHONEOS__)
-                            // Estimate keyboard height as 40% of screen height on mobile
-                            keyboard_height = h * 0.4;
+                            // Only trigger keyboard shift on initial activation, not when doing text operations
+                            // If text menu is visible, don't shift - user is doing text formatting
+                            // If input was already active, don't re-shift - user is selecting text
+                            if (!show_mobile_text_menu && !was_already_active) {
+                                // Estimate keyboard height as 40% of screen height on mobile
+                                keyboard_height = h * 0.4;
+                            }
                             #endif
                         } else if (SDL_PointInRect(&(SDL_Point){tx, ty}, &chat_history)) {
                             // Touch in chat history area - enable scrolling
@@ -4250,6 +4268,15 @@ int main(int argc, char *argv[]) {
                          SDL_Rect chat_win = (SDL_Rect){10, chat_y, 300, 190};
                          SDL_Rect chat_input = (SDL_Rect){15, chat_win.y + chat_win.h - 24, 270, 24};
                          if (SDL_PointInRect(&(SDL_Point){mx, my}, &chat_input)) {
+                             #if defined(__ANDROID__) || defined(__IPHONEOS__)
+                             // Track if the input was already active (for text operations)
+                             int was_already_active = chat_input_active;
+                             // Preserve selection if text menu is visible
+                             int preserve_selection = show_mobile_text_menu && selection_len != 0;
+                             #else
+                             int preserve_selection = 0;
+                             #endif
+                             
                              chat_input_active = 1;
                              SDL_StartTextInput();
                              
@@ -4268,14 +4295,23 @@ int main(int argc, char *argv[]) {
                              TTF_SizeText(font, prefix, &prefix_w, &ph);
                              active_input_rect = chat_input;
                              active_input_rect.x += (5 + prefix_w);
-                             cursor_pos = get_cursor_pos_from_click(input_buffer, mx, active_input_rect.x);
-                             selection_start = cursor_pos;
-                             selection_len = 0;
+                             
+                             // Only update cursor and selection if not preserving current selection
+                             if (!preserve_selection) {
+                                 cursor_pos = get_cursor_pos_from_click(input_buffer, mx, active_input_rect.x);
+                                 selection_start = cursor_pos;
+                                 selection_len = 0;
+                             }
                              is_dragging = 1;
                              
                              #if defined(__ANDROID__) || defined(__IPHONEOS__)
-                             // Estimate keyboard height as 40% of screen height on mobile
-                             keyboard_height = screen_h * 0.4;
+                             // Only trigger keyboard shift on initial activation, not when doing text operations
+                             // If text menu is visible, don't shift - user is doing text formatting
+                             // If input was already active, don't re-shift - user is selecting text
+                             if (!show_mobile_text_menu && !was_already_active) {
+                                 // Estimate keyboard height as 40% of screen height on mobile
+                                 keyboard_height = screen_h * 0.4;
+                             }
                              #endif
                          } else if (!SDL_PointInRect(&(SDL_Point){mx, my}, &chat_win)) {
                              chat_input_active = 0;
