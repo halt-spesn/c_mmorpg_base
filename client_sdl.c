@@ -3209,6 +3209,14 @@ int main(int argc, char *argv[]) {
     ALOG("Vulkan support not compiled, using default renderer\n");
     #endif
     
+    // On mobile, disable touch-to-mouse event synthesis to prevent double event handling
+    // Without this, each touch generates BOTH a FINGERDOWN AND a MOUSEBUTTONDOWN event,
+    // which causes issues like selection being cleared after menu button handling
+    #if defined(__ANDROID__) || defined(__IPHONEOS__)
+    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+    ALOG("Disabled touch-to-mouse event synthesis for mobile\n");
+    #endif
+    
     ALOG("About to call SDL_Init\n");
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) return 1;
     if (TTF_Init() == -1) return 1;
