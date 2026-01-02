@@ -677,7 +677,7 @@ void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
     
     // Rendering backend info
     #ifdef USE_VULKAN
-    if (use_vulkan) {
+    if (render_backend == RENDER_BACKEND_VULKAN) {
         snprintf(lines[line_count++], 128, "Render: Vulkan");
     } else {
         snprintf(lines[line_count++], 128, "Render: OpenGL");
@@ -694,8 +694,7 @@ void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
     
     // Show GPU info based on backend
     #ifdef USE_VULKAN
-    int is_vulkan_backend = (strstr(renderer_str, "vulkan") || strstr(renderer_str, "Vulkan")) ? 1 : 0;
-    if (is_vulkan_backend && vk_device_name[0]) {
+    if (render_backend == RENDER_BACKEND_VULKAN && vk_device_name[0]) {
         // Show Vulkan device name
         snprintf(lines[line_count++], 128, "GPU: %s", vk_device_name);
     } else
@@ -707,7 +706,7 @@ void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
     }
     
     // Only show GL renderer info if we're actually using OpenGL backend
-    int is_gl_backend = (strstr(renderer_str, "opengl") || strstr(renderer_str, "OpenGL")) ? 1 : 0;
+    int is_gl_backend = (render_backend == RENDER_BACKEND_OPENGL);
     
     void *glctx = SDL_GL_GetCurrentContext();
     if (glctx && is_gl_backend) {
@@ -3325,12 +3324,9 @@ int main(int argc, char *argv[]) {
         int is_vulkan = (strstr(info.name, "vulkan") || strstr(info.name, "Vulkan")) ? 1 : 0;
         
         if (use_vulkan && !is_vulkan) {
-            ALOG("Warning: Vulkan requested but SDL chose %s - Vulkan may not be available on this system\n", info.name);
-            use_vulkan = 0;
-            render_backend = RENDER_BACKEND_OPENGL;
+            ALOG("Note: Vulkan requested but SDL chose %s - Will use custom Vulkan renderer\n", info.name);
+            // Keep render_backend as VULKAN - we use custom Vulkan renderer, not SDL's
         } else if (is_vulkan) {
-            use_vulkan = 1;
-            render_backend = RENDER_BACKEND_VULKAN;
             ALOG("Vulkan rendering active through SDL\n");
             
             // Probe Vulkan device name if not already done

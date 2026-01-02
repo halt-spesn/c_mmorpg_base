@@ -20,10 +20,15 @@ static const char *validation_layers[] = {
 static const int validation_layer_count = 1;
 
 // Required device extensions
+// Note: VK_KHR_portability_subset is added dynamically if available
 static const char *device_extensions[] = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME
 };
 static const int device_extension_count = 1;
+
+#ifndef VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME
+#define VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME "VK_KHR_portability_subset"
+#endif
 
 #ifdef NDEBUG
 static const int enable_validation_layers = 0;
@@ -180,8 +185,8 @@ static int find_queue_families(VkPhysicalDevice device, VkSurfaceKHR surface,
     return graphics_found && present_found;
 }
 
-// Check device extension support
-static int check_device_extension_support(VkPhysicalDevice device) {
+// Check device extension support and detect portability subset
+static int check_device_extension_support(VkPhysicalDevice device, int *has_portability_subset) {
     uint32_t extension_count;
     vkEnumerateDeviceExtensionProperties(device, NULL, &extension_count, NULL);
     
@@ -192,6 +197,7 @@ static int check_device_extension_support(VkPhysicalDevice device) {
     }
     vkEnumerateDeviceExtensionProperties(device, NULL, &extension_count, available_extensions);
     
+    // Check for required extensions
     for (int i = 0; i < device_extension_count; i++) {
         int found = 0;
         for (uint32_t j = 0; j < extension_count; j++) {
@@ -206,6 +212,16 @@ static int check_device_extension_support(VkPhysicalDevice device) {
         }
     }
     
+    // Check if portability subset is available (required on some Windows systems)
+    *has_portability_subset = 0;
+    for (uint32_t j = 0; j < extension_count; j++) {
+        if (strcmp(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME, available_extensions[j].extensionName) == 0) {
+            *has_portability_subset = 1;
+            printf("VK_KHR_portability_subset detected and will be enabled\n");
+            break;
+        }
+    }
+    
     free(available_extensions);
     return 1;
 }
@@ -213,7 +229,8 @@ static int check_device_extension_support(VkPhysicalDevice device) {
 // Select physical device
 static int select_physical_device(VkInstance instance, VkSurfaceKHR surface, 
                                   VkPhysicalDevice *physical_device,
-                                  uint32_t *graphics_family, uint32_t *present_family) {
+                                  uint32_t *graphics_family, uint32_t *present_family,
+                                  int *has_portability_subset) {
     uint32_t device_count = 0;
     vkEnumeratePhysicalDevices(instance, &device_count, NULL);
     
@@ -240,7 +257,7 @@ static int select_physical_device(VkInstance instance, VkSurfaceKHR surface,
                VK_VERSION_MINOR(properties.apiVersion),
                VK_VERSION_PATCH(properties.apiVersion));
         
-        if (check_device_extension_support(devices[i]) &&
+        if (check_device_extension_support(devices[i], has_portability_subset) &&
             find_queue_families(devices[i], surface, graphics_family, present_family)) {
             *physical_device = devices[i];
             printf("Selected GPU: %s\n", properties.deviceName);
@@ -256,8 +273,8 @@ static int select_physical_device(VkInstance instance, VkSurfaceKHR surface,
 
 // Create logical device
 static int create_logical_device(VkPhysicalDevice physical_device, uint32_t graphics_family,
-                                 uint32_t present_family, VkDevice *device,
-                                 VkQueue *graphics_queue, VkQueue *present_queue) {
+                                 uint32_t present_family, int has_portability_subset,
+                                 VkDevice *device, VkQueue *graphics_queue, VkQueue *present_queue) {
     float queue_priority = 1.0f;
     
     VkDeviceQueueCreateInfo queue_create_infos[2];
@@ -285,21 +302,47 @@ static int create_logical_device(VkPhysicalDevice physical_device, uint32_t grap
     
     VkPhysicalDeviceFeatures device_features = {0};
     
+    // Prepare device extensions array with portability subset if needed
+    const char **enabled_extensions = NULL;
+    uint32_t enabled_extension_count = device_extension_count;
+    
+    if (has_portability_subset) {
+        enabled_extension_count = device_extension_count + 1;
+        enabled_extensions = malloc(sizeof(char*) * enabled_extension_count);
+        if (!enabled_extensions) {
+            printf("Failed to allocate memory for device extensions\n");
+            return 0;
+        }
+        for (int i = 0; i < device_extension_count; i++) {
+            enabled_extensions[i] = device_extensions[i];
+        }
+        enabled_extensions[device_extension_count] = VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME;
+    } else {
+        enabled_extensions = device_extensions;
+    }
+    
     VkDeviceCreateInfo create_info = {0};
     create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     create_info.queueCreateInfoCount = queue_create_info_count;
     create_info.pQueueCreateInfos = queue_create_infos;
     create_info.pEnabledFeatures = &device_features;
-    create_info.enabledExtensionCount = device_extension_count;
-    create_info.ppEnabledExtensionNames = device_extensions;
+    create_info.enabledExtensionCount = enabled_extension_count;
+    create_info.ppEnabledExtensionNames = enabled_extensions;
     
     // Note: Device-level validation layers are deprecated in modern Vulkan
     // Validation is now handled at the instance level only
     // Setting to 0 for compatibility with newer implementations
     create_info.enabledLayerCount = 0;
     
-    if (vkCreateDevice(physical_device, &create_info, NULL, device) != VK_SUCCESS) {
-        printf("Failed to create logical device!\n");
+    VkResult result = vkCreateDevice(physical_device, &create_info, NULL, device);
+    
+    // Free the extensions array if we allocated it
+    if (has_portability_subset) {
+        free((void*)enabled_extensions);
+    }
+    
+    if (result != VK_SUCCESS) {
+        printf("Failed to create logical device! Error code: %d\n", result);
         return 0;
     }
     
@@ -687,10 +730,12 @@ int vulkan_init(SDL_Window *window, VulkanRenderer *vk_renderer) {
     printf("Vulkan surface created\n");
     
     // Select physical device
+    int has_portability_subset = 0;
     if (!select_physical_device(vk_renderer->instance, vk_renderer->surface,
                                 &vk_renderer->physical_device,
                                 &vk_renderer->graphics_family_index,
-                                &vk_renderer->present_family_index)) {
+                                &vk_renderer->present_family_index,
+                                &has_portability_subset)) {
         return 0;
     }
     printf("Physical device selected\n");
@@ -699,6 +744,7 @@ int vulkan_init(SDL_Window *window, VulkanRenderer *vk_renderer) {
     if (!create_logical_device(vk_renderer->physical_device,
                                vk_renderer->graphics_family_index,
                                vk_renderer->present_family_index,
+                               has_portability_subset,
                                &vk_renderer->device,
                                &vk_renderer->graphics_queue,
                                &vk_renderer->present_queue)) {
