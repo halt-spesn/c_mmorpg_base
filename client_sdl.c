@@ -101,7 +101,7 @@ char auth_username[MAX_INPUT_LEN+1] = "";
 char auth_password[MAX_INPUT_LEN+1] = "";
 int active_field = -1;
 int show_password = 0;
-char auth_message[128] = "Enter Credentials";
+char auth_message[128];
 
 SDL_Rect auth_box, btn_login, btn_register, btn_chat_toggle, btn_show_pass;
 SDL_Color col_white = {255,255,255,255};
@@ -1980,9 +1980,9 @@ void render_documentation(SDL_Renderer *renderer, int w, int h) {
     
     // Create cached texture if needed (performance optimization for mobile)
     if (!cached_documentation_tex) {
-        // Create a target texture for the static content
+        // Create a target texture for the static content - use larger height for all content
         cached_documentation_tex = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, 
-                                                     SDL_TEXTUREACCESS_TARGET, 450, 500);
+                                                     SDL_TEXTUREACCESS_TARGET, 450, 1000);
         if (cached_documentation_tex) {
             SDL_SetTextureBlendMode(cached_documentation_tex, SDL_BLENDMODE_BLEND);
             
@@ -1991,8 +1991,8 @@ void render_documentation(SDL_Renderer *renderer, int w, int h) {
             SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0); 
             SDL_RenderClear(renderer);
             
-            // Background
-            SDL_Rect bg = {0, 0, 450, 500};
+            // Background (will be larger than visible area for scrolling)
+            SDL_Rect bg = {0, 0, 450, 1000};
             SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255); 
             SDL_RenderFillRect(renderer, &bg);
             SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255); 
@@ -2059,9 +2059,9 @@ void render_documentation(SDL_Renderer *renderer, int w, int h) {
         SDL_Rect content_area = {win.x + 10, win.y + 50, win.w - 20, win.h - 60};
         SDL_RenderSetClipRect(renderer, &content_area);
         
-        // Draw with scroll offset
-        SDL_Rect src = {0, 0, 450, 500};
-        SDL_Rect dst = {win.x, win.y - documentation_scroll, 450, 500};
+        // Draw with scroll offset - use actual texture dimensions
+        SDL_Rect src = {0, 0, documentation_tex_w, documentation_tex_h};
+        SDL_Rect dst = {win.x + 10, win.y + 50 - documentation_scroll, documentation_tex_w, documentation_tex_h};
         SDL_RenderCopy(renderer, cached_documentation_tex, &src, &dst);
         
         SDL_RenderSetClipRect(renderer, NULL);
@@ -2798,7 +2798,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){pop.x+20, pop.y+240, 120, 30})) {
                 Packet pkt; pkt.type = PACKET_CHANGE_NICK_REQUEST;
                 strncpy(pkt.username, nick_new, 31); strncpy(pkt.msg, nick_confirm, 63); strncpy(pkt.password, nick_pass, 31);
-                send_packet(&pkt); strcpy(auth_message, "Processing..."); return;
+                send_packet(&pkt); strcpy(auth_message, get_string(STR_CONNECTED_LOGGING_IN)); return;
             }
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){pop.x+160, pop.y+240, 120, 30})) { show_nick_popup = 0; active_field = -1; return; }
             return;
@@ -2848,11 +2848,11 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &(SDL_Rect){pop.x+20, pop.y+340, 150, 30})) {
                 // Validate locally first
                 if (strlen(password_current) == 0) {
-                    strcpy(password_message, "Current password required.");
+                    strcpy(password_message, get_string(STR_ERROR_CURRENT_PASSWORD_REQUIRED));
                 } else if (strlen(password_new) < 8) {
-                    strcpy(password_message, "New password must be 8+ chars.");
+                    strcpy(password_message, get_string(STR_ERROR_PASSWORD_TOO_SHORT_8));
                 } else if (strcmp(password_new, password_confirm) != 0) {
-                    strcpy(password_message, "Passwords don't match.");
+                    strcpy(password_message, get_string(STR_ERROR_PASSWORDS_DONT_MATCH));
                 } else {
                     // Send request to server
                     Packet pkt;
@@ -2864,7 +2864,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
                     strncpy(pkt.msg, password_confirm, 63);
                     pkt.msg[63] = '\0';
                     send_packet(&pkt);
-                    strcpy(password_message, "Processing...");
+                    strcpy(password_message, get_string(STR_PROCESSING));
                 }
                 return;
             }
@@ -2905,7 +2905,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
 
             SDL_Rect btn_nick = {btn_cycle_status.x, btn_cycle_status.y + 40, 300, 30};
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_nick)) {
-                show_nick_popup = 1; nick_new[0] = 0; nick_confirm[0] = 0; nick_pass[0] = 0; strcpy(auth_message, "Enter details."); return;
+                show_nick_popup = 1; nick_new[0] = 0; nick_confirm[0] = 0; nick_pass[0] = 0; strcpy(auth_message, get_string(STR_ENTER_CREDENTIALS)); return;
             }
 
             // Avatar change button (right after nickname button)
@@ -2957,7 +2957,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
                 client_state = STATE_AUTH; is_settings_open = 0; local_player_id = -1;
                 for(int i=0; i<MAX_CLIENTS; i++) { local_players[i].active = 0; local_players[i].id = -1; }
                 friend_count = 0; chat_log_count = 0; for(int i=0; i<CHAT_HISTORY; i++) strcpy(chat_log[i], "");
-                strcpy(auth_message, "Logged out."); return;
+                strcpy(auth_message, get_string(STR_ENTER_CREDENTIALS)); return;
             }
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_documentation_rect)) { show_documentation = 1; return; }
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_contributors_rect)) { show_contributors = 1; return; }
@@ -3125,14 +3125,14 @@ void handle_auth_click(int mx, int my) {
         Packet pkt; pkt.type = PACKET_LOGIN_REQUEST; 
         strncpy(pkt.username, auth_username, 31); strncpy(pkt.password, auth_password, 31); 
         send_packet(&pkt);
-        strcpy(auth_message, "Logging in...");
+        strcpy(auth_message, get_string(STR_CONNECTED_LOGGING_IN));
     } 
     else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_register)) {
         if (!is_connected) { if(!try_connect()) return; } 
         Packet pkt; pkt.type = PACKET_REGISTER_REQUEST; 
         strncpy(pkt.username, auth_username, 31); strncpy(pkt.password, auth_password, 31); 
         send_packet(&pkt);
-        strcpy(auth_message, "Registering...");
+        strcpy(auth_message, get_string(STR_CONNECTED_LOGGING_IN));
     } 
     
 int y_start = auth_box.y + 80;
@@ -3180,6 +3180,9 @@ int main(int argc, char *argv[]) {
     // Load config early to get rendering backend preference and GPU settings
     // This must happen before any SDL initialization
     load_config();
+    
+    // Initialize auth message with localized text
+    strcpy(auth_message, get_string(STR_ENTER_CREDENTIALS));
     
     // Parse command line arguments for rendering backend (overrides config)
     #ifdef USE_VULKAN
@@ -4420,6 +4423,9 @@ int main(int argc, char *argv[]) {
                 } else if (event.tfinger.fingerId == overlay_touch_id) {
                     // Handle overlay touch that wasn't a scroll or slider
                     // Only process click if finger is released near where it started (within 50 pixels)
+                    int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
+                    int tx = (int)((event.tfinger.x * w) / ui_scale);
+                    int ty = (int)((event.tfinger.y * h) / ui_scale);
                     int dx = abs(tx - overlay_touch_start_x);
                     int dy = abs(ty - overlay_touch_start_y);
                     if (client_state == STATE_GAME && active_slider == SLIDER_NONE && dx < 50 && dy < 50) {
@@ -4873,8 +4879,9 @@ int main(int argc, char *argv[]) {
                             // Send telemetry data
                             send_telemetry();
                         }
-                        else if (pkt.status == AUTH_REGISTER_SUCCESS) strcpy(auth_message, "Success! Login now.");
-                        else strcpy(auth_message, "Error.");
+                        else if (pkt.status == AUTH_REGISTER_SUCCESS) strcpy(auth_message, get_string(STR_SUCCESS_REGISTERED));
+                        else if (pkt.msg[0] != '\0') strcpy(auth_message, pkt.msg);
+                        else strcpy(auth_message, get_string(STR_ERROR_GENERIC));
                     }
                     if (pkt.type == PACKET_UPDATE) {
                         memcpy(local_players, pkt.players, sizeof(local_players));
@@ -4906,7 +4913,7 @@ int main(int argc, char *argv[]) {
                     if (pkt.type == PACKET_CHANGE_PASSWORD_RESPONSE) {
                         if (pkt.status == AUTH_SUCCESS) {
                             show_password_popup = 0;
-                            strcpy(password_message, "Success!");
+                            strcpy(password_message, get_string(STR_SUCCESS_PASSWORD_CHANGED));
                             active_field = -1;
                         } else {
                             strncpy(password_message, pkt.msg, 127);

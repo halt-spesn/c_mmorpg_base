@@ -1,0 +1,6 @@
+[2026-01-03 16:21:38] Server log started\n[2026-01-03 16:21:38] Server: Loaded Trigger 0: map.jpg [1950,300 50x100] -> dungeon.png
+[2026-01-03 16:21:38] Server: Loaded Trigger 1: dungeon.png [10,300 50x100] -> map.jpg
+[2026-01-03 16:21:38] Server: Total Triggers Loaded: 2
+[2026-01-03 16:21:38] Loaded 2 GL telemetry entries
+[2026-01-03 16:21:38] Loaded 4 OS telemetry entries
+[2026-01-03 16:21:38] Server running on 10.29.110.14:8888\n

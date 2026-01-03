@@ -37,7 +37,7 @@ int try_connect(void) {
     
     struct sockaddr_in serv_addr;
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) == (socket_t)-1) {
-        strcpy(auth_message, "Socket Error");
+        strcpy(auth_message, get_string(STR_ERROR_SOCKET));
         return 0;
     }
     
@@ -54,7 +54,7 @@ int try_connect(void) {
         
         if (getaddrinfo(input_ip, NULL, &hints, &result) != 0 || result == NULL) {
             if (result) freeaddrinfo(result);
-            strcpy(auth_message, "Invalid Address");
+            strcpy(auth_message, get_string(STR_ERROR_INVALID_ADDRESS));
             close(sock);
             return 0;
         }
@@ -65,14 +65,14 @@ int try_connect(void) {
     }
 
     if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
-        strcpy(auth_message, "Connection Failed");
+        strcpy(auth_message, get_string(STR_ERROR_CONNECTION_FAILED));
         return 0;
     }
 
     strcpy(server_ip, input_ip); 
 
     is_connected = 1;
-    strcpy(auth_message, "Connected! Logging in...");
+    strcpy(auth_message, get_string(STR_CONNECTED_LOGGING_IN));
     return 1;
 }
 

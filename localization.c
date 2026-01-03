@@ -113,6 +113,28 @@ static const char* translations[GAME_LANG_COUNT][STR_COUNT] = {
         "X",                                // STR_X_CLOSE
         "Del",                              // STR_DEL
         "+ ID",                             // STR_PLUS_ID
+        // Error messages
+        "Socket Error",                     // STR_ERROR_SOCKET
+        "Invalid Address",                  // STR_ERROR_INVALID_ADDRESS
+        "Connection Failed",                // STR_ERROR_CONNECTION_FAILED
+        "Username and password required",   // STR_ERROR_USERNAME_PASSWORD_REQUIRED
+        "Username must be at least 5 characters", // STR_ERROR_USERNAME_TOO_SHORT
+        "Password must be at least 8 characters", // STR_ERROR_PASSWORD_TOO_SHORT
+        "User already exists",              // STR_ERROR_USER_EXISTS
+        "Registration failed",              // STR_ERROR_REGISTRATION_FAILED
+        "Account is banned",                // STR_ERROR_ACCOUNT_BANNED
+        "Already logged in",                // STR_ERROR_ALREADY_LOGGED_IN
+        "Invalid username or password",     // STR_ERROR_INVALID_CREDENTIALS
+        "Error",                            // STR_ERROR_GENERIC
+        "Registered! Login now",            // STR_SUCCESS_REGISTERED
+        "Connected! Logging in...",         // STR_CONNECTED_LOGGING_IN
+        "Enter Credentials",                // STR_ENTER_CREDENTIALS
+        // Password change messages
+        "Current password required",        // STR_ERROR_CURRENT_PASSWORD_REQUIRED
+        "New password must be 8+ chars",    // STR_ERROR_PASSWORD_TOO_SHORT_8
+        "Passwords don't match",            // STR_ERROR_PASSWORDS_DONT_MATCH
+        "Password changed successfully!",   // STR_SUCCESS_PASSWORD_CHANGED
+        "Processing...",                    // STR_PROCESSING
     },
     // GAME_LANG_UKRAINIAN
     {
@@ -221,6 +243,28 @@ static const char* translations[GAME_LANG_COUNT][STR_COUNT] = {
         "X",                                // STR_X_CLOSE
         "Вид",                              // STR_DEL
         "+ ID",                             // STR_PLUS_ID
+        // Error messages
+        "Помилка сокета",                   // STR_ERROR_SOCKET
+        "Невірна адреса",                   // STR_ERROR_INVALID_ADDRESS
+        "Не вдалося підключитися",          // STR_ERROR_CONNECTION_FAILED
+        "Потрібні ім'я користувача і пароль", // STR_ERROR_USERNAME_PASSWORD_REQUIRED
+        "Ім'я користувача має бути не менше 5 символів", // STR_ERROR_USERNAME_TOO_SHORT
+        "Пароль має бути не менше 8 символів", // STR_ERROR_PASSWORD_TOO_SHORT
+        "Користувач вже існує",             // STR_ERROR_USER_EXISTS
+        "Реєстрація не вдалася",            // STR_ERROR_REGISTRATION_FAILED
+        "Акаунт заблоковано",               // STR_ERROR_ACCOUNT_BANNED
+        "Вже увійшли",                      // STR_ERROR_ALREADY_LOGGED_IN
+        "Невірне ім'я користувача або пароль", // STR_ERROR_INVALID_CREDENTIALS
+        "Помилка",                          // STR_ERROR_GENERIC
+        "Зареєстровано! Тепер увійдіть",    // STR_SUCCESS_REGISTERED
+        "Підключено! Вхід...",              // STR_CONNECTED_LOGGING_IN
+        "Введіть облікові дані",            // STR_ENTER_CREDENTIALS
+        // Password change messages
+        "Потрібен поточний пароль",         // STR_ERROR_CURRENT_PASSWORD_REQUIRED
+        "Новий пароль має бути 8+ символів", // STR_ERROR_PASSWORD_TOO_SHORT_8
+        "Паролі не збігаються",             // STR_ERROR_PASSWORDS_DONT_MATCH
+        "Пароль успішно змінено!",          // STR_SUCCESS_PASSWORD_CHANGED
+        "Обробка...",                       // STR_PROCESSING
     }
 };
 

@@ -96,6 +96,19 @@ void load_config(void) {
         get_path(path, "configs.txt", 0);
         fp = fopen(path, "r");
     }
+    
+    // If no config file found on mobile, set default mobile scaling
+    #if defined(__ANDROID__) || defined(__IPHONEOS__)
+    if (!fp) {
+        ui_scale = 1.6f;
+        pending_ui_scale = 1.6f;
+        game_zoom = 1.5f;
+        pending_game_zoom = 1.5f;
+        ALOG("First run detected on mobile - setting default UI scale to 1.6x and game zoom to 1.5x\\n");
+        return;
+    }
+    #endif
+    
     if (fp) {
         int dbg=0, fps=0, crd=0, vol=64, unread=1, backend=0, use_vk=0, use_nv=0, lang=0;
         float scale=1.0f, zoom=1.0f;

@@ -25,6 +25,48 @@
 #include <math.h>
 #include "common.h"
 #include <time.h>
+#include <stdarg.h>
+
+// File logging
+FILE *log_file = NULL;
+pthread_mutex_t log_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+// Get current timestamp string
+void get_timestamp(char *buffer, size_t size) {
+    time_t now = time(NULL);
+    struct tm *tm_info = localtime(&now);
+    strftime(buffer, size, "[%Y-%m-%d %H:%M:%S]", tm_info);
+}
+
+// Log with timestamp to both console and file
+void log_message(const char *format, ...) {
+    char timestamp[32];
+    get_timestamp(timestamp, sizeof(timestamp));
+    
+    va_list args;
+    va_start(args, format);
+    
+    // Console output
+    printf("%s ", timestamp);
+    vprintf(format, args);
+    
+    // File output
+    if (log_file) {
+        pthread_mutex_lock(&log_mutex);
+        fprintf(log_file, "%s ", timestamp);
+        va_list args_copy;
+        va_copy(args_copy, args);
+        vfprintf(log_file, format, args_copy);
+        fflush(log_file);
+        va_end(args_copy);
+        pthread_mutex_unlock(&log_mutex);
+    }
+    
+    va_end(args);
+}
+
+#define LOG(...) log_message(__VA_ARGS__)
+#include <stdarg.h>
 
 #ifdef _WIN32
 typedef SOCKET socket_t;
@@ -200,7 +242,7 @@ void load_triggers() {
         server_triggers[server_trigger_count].src_map[31] = '\0';
         server_triggers[server_trigger_count].target_map[31] = '\0';
         
-        printf("Server: Loaded Trigger %d: %s [%d,%d %dx%d] -> %s\n",
+        LOG("Server: Loaded Trigger %d: %s [%d,%d %dx%d] -> %s\n",
                server_trigger_count,
                server_triggers[server_trigger_count].src_map,
                server_triggers[server_trigger_count].rect_x,
@@ -210,7 +252,7 @@ void load_triggers() {
                server_triggers[server_trigger_count].target_map);
         server_trigger_count++;
     }
-    printf("Server: Total Triggers Loaded: %d\n", server_trigger_count);
+    LOG("Server: Total Triggers Loaded: %d\n", server_trigger_count);
     fclose(fp);
 }
 
@@ -240,7 +282,7 @@ void send_triggers_to_client(int client_index) {
     }
     
     send_all(client_sockets[client_index], &pkt, sizeof(Packet), 0);
-    printf("Sent %d triggers to client %d\n", server_trigger_count, client_index);
+    LOG("Sent %d triggers to client %d\n", server_trigger_count, client_index);
 }
 
 void load_telemetry();  // Forward declaration
@@ -527,7 +569,7 @@ void load_telemetry() {
             gl_telemetry_count++;
         }
         fclose(fp);
-        printf("Loaded %d GL telemetry entries\n", gl_telemetry_count);
+        LOG("Loaded %d GL telemetry entries\n", gl_telemetry_count);
     }
     
     // Load OS telemetry from raw data file
@@ -543,7 +585,7 @@ void load_telemetry() {
             os_telemetry_count++;
         }
         fclose(fp);
-        printf("Loaded %d OS telemetry entries\n", os_telemetry_count);
+        LOG("Loaded %d OS telemetry entries\n", os_telemetry_count);
     }
 }
 
@@ -665,7 +707,7 @@ void update_telemetry(int user_id, const char *gl_renderer, const char *os_info)
         strncpy(gl_telemetry[gl_telemetry_count].gl_renderer, gl_renderer, 127);
         gl_telemetry[gl_telemetry_count].gl_renderer[127] = '\0';
         gl_telemetry_count++;
-        printf("New GL telemetry: User %d - %s\n", user_id, gl_renderer);
+        LOG("New GL telemetry: User %d - %s\n", user_id, gl_renderer);
     }
     
     // Update OS telemetry - check if this exact combo exists
@@ -683,7 +725,7 @@ void update_telemetry(int user_id, const char *gl_renderer, const char *os_info)
         strncpy(os_telemetry[os_telemetry_count].os_info, os_info, 127);
         os_telemetry[os_telemetry_count].os_info[127] = '\0';
         os_telemetry_count++;
-        printf("New OS telemetry: User %d - %s\n", user_id, os_info);
+        LOG("New OS telemetry: User %d - %s\n", user_id, os_info);
     }
     
     // Save updated telemetry
@@ -700,17 +742,29 @@ void handle_client_message(int index, Packet *pkt) {
         if (pkt->username[0] == '\0' || pkt->password[0] == '\0') {
                 response.status = AUTH_FAILURE;
                 strcpy(response.msg, "Username and password required.");
+                LOG("Registration failed from client %d: %s\n", index, response.msg);
             } else if (strlen(pkt->username) < 5) {
                 response.status = AUTH_FAILURE;
                 strcpy(response.msg, "Username must be at least 5 characters.");
+                LOG("Registration failed from client %d: %s\n", index, response.msg);
             } else if (strlen(pkt->password) < 8) {
                 response.status = AUTH_FAILURE;
                 strcpy(response.msg, "Password must be at least 8 characters.");
+                LOG("Registration failed from client %d: %s\n", index, response.msg);
             } else {
                 response.status = register_user(pkt->username, pkt->password);
-                if (response.status == AUTH_REGISTER_SUCCESS) strcpy(response.msg, "Registered.");
-                else if (response.status == AUTH_REGISTER_FAILED_EXISTS) strcpy(response.msg, "User exists.");
-                else strcpy(response.msg, "Registration failed.");
+                if (response.status == AUTH_REGISTER_SUCCESS) {
+                    strcpy(response.msg, "Registered.");
+                    LOG("User '%s' registered successfully\n", pkt->username);
+                }
+                else if (response.status == AUTH_REGISTER_FAILED_EXISTS) {
+                    strcpy(response.msg, "User exists.");
+                    LOG("Registration failed for '%s': User already exists\n", pkt->username);
+                }
+                else {
+                    strcpy(response.msg, "Registration failed.");
+                    LOG("Registration failed for '%s': Database error\n", pkt->username);
+                }
             }
         } 
         else if (pkt->type == PACKET_LOGIN_REQUEST) {
@@ -725,6 +779,7 @@ void handle_client_message(int index, Packet *pkt) {
             if (pkt->username[0] == '\0' || pkt->password[0] == '\0') {
                 response.status = AUTH_FAILURE;
                 strcpy(response.msg, "Username and password required.");
+                LOG("Login failed from client %d: %s\n", index, response.msg);
             }
             else if (login_user(pkt->username, pkt->password, &x, &y, &r, &g, &b, &r2, &g2, &b2, &role, &ban_expire, db_map)) {
                 
@@ -732,6 +787,7 @@ void handle_client_message(int index, Packet *pkt) {
                 if (time(NULL) < ban_expire) {
                     response.status = AUTH_FAILURE;
                     strcpy(response.msg, "Account is Banned."); // Fixed variable name
+                    LOG("Login failed for '%s': Account is banned\n", pkt->username);
                     send_all(client_sockets[index], &response, sizeof(Packet), 0);
                     return;
                 }
@@ -747,6 +803,7 @@ void handle_client_message(int index, Packet *pkt) {
                 if(already) {
                     response.status = AUTH_FAILURE;
                     strcpy(response.msg, "Already logged in.");
+                    LOG("Login failed for '%s': Already logged in\n", pkt->username);
                 } 
                 else {
                     response.status = AUTH_SUCCESS; 
@@ -771,6 +828,8 @@ void handle_client_message(int index, Packet *pkt) {
                     strncpy(players[index].username, pkt->username, 31);
                     strncpy(players[index].map_name, db_map, 31);
                     
+                    LOG("User '%s' (ID: %d) logged in successfully\n", pkt->username, players[index].id);
+                    
                     response.player_id = players[index].id;
                     send_all(client_sockets[index], &response, sizeof(Packet), 0);
                     
@@ -785,6 +844,7 @@ void handle_client_message(int index, Packet *pkt) {
             } else {
                 response.status = AUTH_FAILURE;
                 strcpy(response.msg, "Invalid username or password.");
+                LOG("Login failed for '%s': Invalid credentials\n", pkt->username);
             }
         }
         send_all(client_sockets[index], &response, sizeof(Packet), 0); 
@@ -1181,7 +1241,7 @@ void *client_handler(void *arg) {
                     pthread_mutex_lock(&state_mutex); 
                     char filepath[64]; snprintf(filepath, 64, "avatars/%d.img", players[index].id);
                     FILE *fp = fopen(filepath, "wb");
-                    if (fp) { fwrite(img_buf, 1, pkt.image_size, fp); fclose(fp); printf("Saved avatar User %d\n", players[index].id); }
+                    if (fp) { fwrite(img_buf, 1, pkt.image_size, fp); fclose(fp); LOG("Saved avatar User %d\\n", players[index].id); }
                     pthread_mutex_unlock(&state_mutex);
                 }
                 free(img_buf);
@@ -1197,6 +1257,20 @@ void *client_handler(void *arg) {
 
 int main(int argc, char *argv[]) {
     //printf("DEBUG: Packet Size is %d bytes\n", (int)sizeof(Packet));
+    
+    // Initialize logging
+    mkdir("logs", 0755);
+    time_t now = time(NULL);
+    struct tm *tm_info = localtime(&now);
+    char log_filename[256];
+    strftime(log_filename, sizeof(log_filename), "logs/server_%Y%m%d_%H%M%S.log", tm_info);
+    log_file = fopen(log_filename, "w");
+    if (log_file) {
+        LOG("Server log started\\n");
+    } else {
+        printf("Warning: Could not create log file %s\\n", log_filename);
+    }
+    
     socket_t server_fd, new_socket; 
     struct sockaddr_in address;
     
@@ -1208,7 +1282,7 @@ int main(int argc, char *argv[]) {
         if (strcmp(argv[i], "-p") == 0 && i + 1 < argc) {
             current_port = atoi(argv[i+1]);
             if (current_port <= 0 || current_port > 65535) {
-                printf("Invalid port number. Using default %d.\n", PORT);
+                LOG("Invalid port number. Using default %d.\\n", PORT);
                 current_port = PORT;
             }
         }
@@ -1285,15 +1359,15 @@ int main(int argc, char *argv[]) {
             }
             
             if (found_good_ip) {
-                printf("Server running on %s:%d\n", ip_address, current_port);
+                LOG("Server running on %s:%d\\n", ip_address, current_port);
             } else {
-                printf("Server running on port %d (could not determine IP)\n", current_port);
+                LOG("Server running on port %d (could not determine IP)\\n", current_port);
             }
         } else {
-            printf("Server running on port %d (could not determine IP)\n", current_port);
+            LOG("Server running on port %d (could not determine IP)\\n", current_port);
         }
     } else {
-        printf("Server running on port %d (could not determine IP)\n", current_port);
+        LOG("Server running on port %d (could not determine IP)\\n", current_port);
     }
 
     // Start Tick Thread
@@ -1334,7 +1408,7 @@ int main(int argc, char *argv[]) {
                 pthread_detach(thread_id);
             }
         } else { 
-            printf("Server full.\n"); 
+            LOG("Server full.\\n"); 
             close(new_socket); 
         }
     }
