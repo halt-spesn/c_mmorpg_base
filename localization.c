@@ -126,6 +126,7 @@ static const char* translations[GAME_LANG_COUNT][STR_COUNT] = {
         "Already logged in",                // STR_ERROR_ALREADY_LOGGED_IN
         "Invalid username or password",     // STR_ERROR_INVALID_CREDENTIALS
         "Error",                            // STR_ERROR_GENERIC
+        "Server disconnected",             // STR_ERROR_SERVER_DISCONNECTED
         "Registered! Login now",            // STR_SUCCESS_REGISTERED
         "Connected! Logging in...",         // STR_CONNECTED_LOGGING_IN
         "Enter Credentials",                // STR_ENTER_CREDENTIALS
@@ -135,6 +136,13 @@ static const char* translations[GAME_LANG_COUNT][STR_COUNT] = {
         "Passwords don't match",            // STR_ERROR_PASSWORDS_DONT_MATCH
         "Password changed successfully!",   // STR_SUCCESS_PASSWORD_CHANGED
         "Processing...",                    // STR_PROCESSING
+        // Inventory
+        "Inventory",                        // STR_INVENTORY
+        "Equipment",                        // STR_EQUIPMENT
+        "Items",                            // STR_ITEMS
+        "Use",                              // STR_USE
+        "Drop",                             // STR_DROP
+        "Equip",                            // STR_EQUIP
     },
     // GAME_LANG_UKRAINIAN
     {
@@ -256,6 +264,7 @@ static const char* translations[GAME_LANG_COUNT][STR_COUNT] = {
         "Вже увійшли",                      // STR_ERROR_ALREADY_LOGGED_IN
         "Невірне ім'я користувача або пароль", // STR_ERROR_INVALID_CREDENTIALS
         "Помилка",                          // STR_ERROR_GENERIC
+        "Сервер відключено",                // STR_ERROR_SERVER_DISCONNECTED
         "Зареєстровано! Тепер увійдіть",    // STR_SUCCESS_REGISTERED
         "Підключено! Вхід...",              // STR_CONNECTED_LOGGING_IN
         "Введіть облікові дані",            // STR_ENTER_CREDENTIALS
@@ -265,6 +274,13 @@ static const char* translations[GAME_LANG_COUNT][STR_COUNT] = {
         "Паролі не збігаються",             // STR_ERROR_PASSWORDS_DONT_MATCH
         "Пароль успішно змінено!",          // STR_SUCCESS_PASSWORD_CHANGED
         "Обробка...",                       // STR_PROCESSING
+        // Inventory
+        "Інвентар",                         // STR_INVENTORY
+        "Спорядження",                      // STR_EQUIPMENT
+        "Предмети",                         // STR_ITEMS
+        "Використати",                      // STR_USE
+        "Викинути",                         // STR_DROP
+        "Екіпірувати",                      // STR_EQUIP
     }
 };
 

@@ -143,6 +143,10 @@ SDL_Rect slider_volume;
 
 uint8_t temp_avatar_buf[MAX_AVATAR_SIZE];
 
+// Global scale factors for mouse coordinate conversion
+float scale_x = 1.0f;
+float scale_y = 1.0f;
+
 char input_ip[64] = "127.0.0.1";
 char input_port[16] = "8888";
 int is_connected = 0;
@@ -324,6 +328,35 @@ MapTrigger triggers[20];
 int trigger_count = 0;
 Uint32 last_map_switch_time = 0;
 Uint32 last_move_time = 0;
+
+// Inventory System
+InventorySlot my_inventory[MAX_INVENTORY_SLOTS];
+Item my_equipment[EQUIP_SLOT_COUNT];
+int my_inventory_count = 0;
+int show_inventory = 0;
+SDL_Rect inventory_win = {0, 0, 400, 500};
+SDL_Rect btn_inventory_toggle = {0, 0, 80, 30};
+int inventory_scroll = 0;
+int selected_inv_slot = -1;
+int dragging_item_slot = -1;
+
+// Equipment slot rectangles for click detection
+SDL_Rect btn_equip_weapon = {0, 0, 0, 0};
+SDL_Rect btn_equip_helmet = {0, 0, 0, 0};
+SDL_Rect btn_equip_chest = {0, 0, 0, 0};
+SDL_Rect btn_equip_legs = {0, 0, 0, 0};
+SDL_Rect btn_equip_boots = {0, 0, 0, 0};
+SDL_Rect btn_equip_accessory = {0, 0, 0, 0};
+
+// Tooltip for items
+char tooltip_text[64] = "";
+int tooltip_x = 0;
+int tooltip_y = 0;
+int show_tooltip = 0;
+
+// Ground items
+GroundItem client_ground_items[MAX_GROUND_ITEMS];
+int client_ground_item_count = 0;
 
 SDL_Rect dpad_rect = {20, 0, 150, 150};
 float vjoy_dx = 0, vjoy_dy = 0;
@@ -527,6 +560,12 @@ void render_hud(SDL_Renderer *renderer, int screen_w, int screen_h) {
         char num[4]; sprintf(num, "%d", inbox_count);
         render_text(renderer, num, badge.x+6, badge.y+2, col_white, 0);
     }
+    
+    // INVENTORY BUTTON (Next to inbox)
+    btn_inventory_toggle = (SDL_Rect){screen_w - 100, 10, 40, 40};
+    SDL_SetRenderDrawColor(renderer, 60, 50, 30, 255); SDL_RenderFillRect(renderer, &btn_inventory_toggle);
+    SDL_SetRenderDrawColor(renderer, 200, 150, 0, 255); SDL_RenderDrawRect(renderer, &btn_inventory_toggle);
+    render_text(renderer, "[I]", btn_inventory_toggle.x+8, btn_inventory_toggle.y+10, col_yellow, 0);
 }
 
 void render_inbox(SDL_Renderer *renderer, int w, int h) {
@@ -685,6 +724,270 @@ void render_my_warnings(SDL_Renderer *renderer, int w, int h) {
     
     // Reset clipping
     SDL_RenderSetClipRect(renderer, NULL);
+}
+
+void render_inventory_slot(SDL_Renderer *renderer, InventorySlot *slot, SDL_Rect rect) {
+    // Draw slot background
+    SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255);
+    SDL_RenderFillRect(renderer, &rect);
+    SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255);
+    SDL_RenderDrawRect(renderer, &rect);
+    
+    if (slot && slot->item.item_id > 0) {
+        // Draw item icon placeholder (colored square based on item type)
+        SDL_Rect icon_rect = {rect.x + 5, rect.y + 5, rect.w - 10, rect.h - 25};
+        
+        // Color by item type
+        switch (slot->item.type) {
+            case ITEM_TYPE_CONSUMABLE: // Health potions, etc.
+                SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
+                break;
+            case ITEM_TYPE_WEAPON:
+                SDL_SetRenderDrawColor(renderer, 200, 200, 0, 255);
+                break;
+            case ITEM_TYPE_ARMOR:
+                SDL_SetRenderDrawColor(renderer, 100, 100, 200, 255);
+                break;
+            case ITEM_TYPE_ACCESSORY:
+                SDL_SetRenderDrawColor(renderer, 200, 0, 200, 255);
+                break;
+            case ITEM_TYPE_MATERIAL:
+                SDL_SetRenderDrawColor(renderer, 150, 150, 150, 255);
+                break;
+            default:
+                SDL_SetRenderDrawColor(renderer, 100, 200, 100, 255);
+        }
+        SDL_RenderFillRect(renderer, &icon_rect);
+        
+        // Draw item name (first 3 chars)
+        char short_name[4];
+        strncpy(short_name, slot->item.name, 3);
+        short_name[3] = '\0';
+        render_text(renderer, short_name, icon_rect.x + icon_rect.w/2, icon_rect.y + 5, col_white, 1);
+        
+        // Draw quantity if > 1
+        if (slot->item.quantity > 1) {
+            char qty[8];
+            snprintf(qty, 8, "x%d", slot->item.quantity);
+            render_text(renderer, qty, rect.x + rect.w - 5, rect.y + rect.h - 15, col_white, 2);
+        }
+    }
+}
+
+void render_equipment_slot(SDL_Renderer *renderer, int slot, SDL_Rect rect) {
+    // Draw slot background
+    SDL_SetRenderDrawColor(renderer, 30, 30, 50, 255);
+    SDL_RenderFillRect(renderer, &rect);
+    SDL_SetRenderDrawColor(renderer, 150, 150, 0, 255);
+    SDL_RenderDrawRect(renderer, &rect);
+    
+    // Draw slot label
+    const char *labels[] = {"WPN", "HLM", "CHT", "LEG", "BOT", "ACC"};
+    render_text(renderer, labels[slot], rect.x + rect.w/2, rect.y + 2, col_yellow, 1);
+    
+    if (my_equipment[slot].item_id > 0) {
+        // Draw equipped item
+        SDL_Rect icon_rect = {rect.x + 10, rect.y + 20, rect.w - 20, rect.h - 40};
+        
+        // Color by item type
+        switch (my_equipment[slot].type) {
+            case ITEM_TYPE_WEAPON:
+                SDL_SetRenderDrawColor(renderer, 200, 200, 0, 255);
+                break;
+            case ITEM_TYPE_ARMOR:
+                SDL_SetRenderDrawColor(renderer, 100, 100, 200, 255);
+                break;
+            case ITEM_TYPE_ACCESSORY:
+                SDL_SetRenderDrawColor(renderer, 200, 0, 200, 255);
+                break;
+            default:
+                SDL_SetRenderDrawColor(renderer, 100, 200, 100, 255);
+        }
+        SDL_RenderFillRect(renderer, &icon_rect);
+        
+        // Draw item name (abbreviated)
+        char short_name[4];
+        strncpy(short_name, my_equipment[slot].name, 3);
+        short_name[3] = '\0';
+        render_text(renderer, short_name, icon_rect.x + icon_rect.w/2, icon_rect.y + 5, col_white, 1);
+    }
+}
+
+void render_tooltip(SDL_Renderer *renderer) {
+    if (!show_tooltip || strlen(tooltip_text) == 0) return;
+    
+    // Measure text size for background box
+    int text_w = strlen(tooltip_text) * 7;
+    int text_h = 20;
+    int padding = 8;
+    int box_w = text_w + padding * 2;
+    int box_h = text_h + padding * 2;
+    
+    // Draw background
+    SDL_Rect bg = {tooltip_x, tooltip_y, box_w, box_h};
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 220);
+    SDL_RenderFillRect(renderer, &bg);
+    
+    // Draw border
+    SDL_SetRenderDrawColor(renderer, 200, 200, 0, 255);
+    SDL_RenderDrawRect(renderer, &bg);
+    
+    // Draw text
+    render_text(renderer, tooltip_text, tooltip_x + padding, tooltip_y + padding, col_white, 0);
+}
+
+void render_inventory(SDL_Renderer *renderer, int w, int h) {
+    if (!show_inventory) return;
+
+    // Get mouse position
+    int mx, my;
+    SDL_GetMouseState(&mx, &my);
+    // Convert mouse coordinates to UI space
+    mx = (int)((mx * scale_x) / ui_scale);
+    my = (int)((my * scale_y) / ui_scale);
+    
+    // Reset tooltip only if inventory is open (don't interfere with ground item tooltips)
+    show_tooltip = 0;
+
+    // Center the inventory window
+    inventory_win.w = 450;
+    inventory_win.h = 550;
+    inventory_win.x = w/2 - inventory_win.w/2;
+    inventory_win.y = h/2 - inventory_win.h/2;
+    
+    // Draw window background
+    SDL_SetRenderDrawColor(renderer, 20, 20, 20, 255);
+    SDL_RenderFillRect(renderer, &inventory_win);
+    SDL_SetRenderDrawColor(renderer, 200, 150, 0, 255);
+    SDL_RenderDrawRect(renderer, &inventory_win);
+    
+    // Title
+    render_text(renderer, get_string(STR_INVENTORY), inventory_win.x + inventory_win.w/2, inventory_win.y + 10, col_yellow, 1);
+    
+    // Close button
+    SDL_Rect btn_close = {inventory_win.x + inventory_win.w - 35, inventory_win.y + 5, 30, 30};
+    SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255);
+    SDL_RenderFillRect(renderer, &btn_close);
+    render_text(renderer, "X", btn_close.x + 8, btn_close.y + 5, col_white, 0);
+    
+    // Equipment slots (left side)
+    int equip_x = inventory_win.x + 10;
+    int equip_y = inventory_win.y + 50;
+    int equip_slot_w = 80;
+    int equip_slot_h = 70;
+    int equip_spacing = 10;
+    
+    render_text(renderer, get_string(STR_EQUIPMENT), equip_x + 40, equip_y - 20, col_cyan, 1);
+    
+    for (int i = 0; i < EQUIP_SLOT_COUNT; i++) {
+        SDL_Rect equip_rect = {
+            equip_x,
+            equip_y + i * (equip_slot_h + equip_spacing),
+            equip_slot_w,
+            equip_slot_h
+        };
+        render_equipment_slot(renderer, i, equip_rect);
+        
+        // Check for mouse hover to show tooltip
+        SDL_Point mp = {mx, my};
+        if (SDL_PointInRect(&mp, &equip_rect) && my_equipment[i].item_id > 0) {
+            strncpy(tooltip_text, my_equipment[i].name, sizeof(tooltip_text) - 1);
+            tooltip_x = mx + 10;
+            tooltip_y = my - 30;
+            show_tooltip = 1;
+        }
+        
+        // Store equipment slot rects for click detection
+        if (i == 0) btn_equip_weapon = equip_rect;
+        else if (i == 1) btn_equip_helmet = equip_rect;
+        else if (i == 2) btn_equip_chest = equip_rect;
+        else if (i == 3) btn_equip_legs = equip_rect;
+        else if (i == 4) btn_equip_boots = equip_rect;
+        else if (i == 5) btn_equip_accessory = equip_rect;
+    }
+    
+    // Inventory grid (right side)
+    int inv_x = inventory_win.x + 110;
+    int inv_y = inventory_win.y + 50;
+    int slot_size = 60;
+    int slots_per_row = 5;
+    int spacing = 5;
+    
+    render_text(renderer, get_string(STR_ITEMS), inv_x + 150, inv_y - 20, col_cyan, 1);
+    
+    // Set up clipping for scrollable inventory area
+    SDL_Rect clip_rect = {inv_x, inv_y, slots_per_row * (slot_size + spacing), inventory_win.h - 100};
+    SDL_RenderSetClipRect(renderer, &clip_rect);
+    
+    int y_offset = -inventory_scroll;
+    for (int i = 0; i < MAX_INVENTORY_SLOTS; i++) {
+        int col = i % slots_per_row;
+        int row = i / slots_per_row;
+        
+        SDL_Rect slot_rect = {
+            inv_x + col * (slot_size + spacing),
+            inv_y + row * (slot_size + spacing) + y_offset,
+            slot_size,
+            slot_size
+        };
+        
+        // Only render if visible
+        if (slot_rect.y + slot_rect.h > inv_y && slot_rect.y < inv_y + clip_rect.h) {
+            if (i < my_inventory_count) {
+                render_inventory_slot(renderer, &my_inventory[i], slot_rect);
+                
+                // Check for mouse hover to show tooltip
+                SDL_Point mp = {mx, my};
+                if (SDL_PointInRect(&mp, &slot_rect) && my_inventory[i].item.item_id > 0) {
+                    strncpy(tooltip_text, my_inventory[i].item.name, sizeof(tooltip_text) - 1);
+                    tooltip_x = mx + 10;
+                    tooltip_y = my - 30;
+                    show_tooltip = 1;
+                }
+            } else {
+                render_inventory_slot(renderer, NULL, slot_rect);
+            }
+            
+            // Highlight selected slot
+            if (i == selected_inv_slot) {
+                SDL_SetRenderDrawColor(renderer, 255, 255, 0, 255);
+                SDL_RenderDrawRect(renderer, &slot_rect);
+                SDL_Rect inner = {slot_rect.x + 1, slot_rect.y + 1, slot_rect.w - 2, slot_rect.h - 2};
+                SDL_RenderDrawRect(renderer, &inner);
+            }
+        }
+    }
+    
+    // Reset clipping
+    SDL_RenderSetClipRect(renderer, NULL);
+    
+    // Action buttons at bottom
+    SDL_Rect btn_use = {inventory_win.x + 110, inventory_win.y + inventory_win.h - 40, 80, 30};
+    SDL_Rect btn_drop = {inventory_win.x + 200, inventory_win.y + inventory_win.h - 40, 80, 30};
+    SDL_Rect btn_equip = {inventory_win.x + 290, inventory_win.y + inventory_win.h - 40, 90, 30};
+    
+    // Check if selected item is consumable
+    int is_consumable = 0;
+    if (selected_inv_slot >= 0 && selected_inv_slot < my_inventory_count) {
+        is_consumable = (my_inventory[selected_inv_slot].item.type == ITEM_TYPE_CONSUMABLE);
+    }
+    
+    // Use button - only active for consumables
+    if (is_consumable) {
+        SDL_SetRenderDrawColor(renderer, 0, 100, 0, 255);
+    } else {
+        SDL_SetRenderDrawColor(renderer, 50, 50, 50, 255); // Grayed out
+    }
+    SDL_RenderFillRect(renderer, &btn_use);
+    render_text(renderer, get_string(STR_USE), btn_use.x + 30, btn_use.y + 7, is_consumable ? col_white : (SDL_Color){100, 100, 100, 255}, 0);
+    
+    SDL_SetRenderDrawColor(renderer, 100, 50, 0, 255);
+    SDL_RenderFillRect(renderer, &btn_drop);
+    render_text(renderer, get_string(STR_DROP), btn_drop.x + 25, btn_drop.y + 7, col_white, 0);
+    
+    SDL_SetRenderDrawColor(renderer, 0, 0, 150, 255);
+    SDL_RenderFillRect(renderer, &btn_equip);
+    render_text(renderer, get_string(STR_EQUIP), btn_equip.x + 25, btn_equip.y + 7, col_white, 0);
 }
 
 void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
@@ -2234,6 +2537,9 @@ void render_mobile_text_menu(SDL_Renderer *renderer) {
 void render_game(SDL_Renderer *renderer) {
     int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
     
+    // Reset tooltip at start of frame
+    show_tooltip = 0;
+    
     // Apply game world zoom
     SDL_RenderSetScale(renderer, game_zoom, game_zoom);
     
@@ -2355,6 +2661,65 @@ void render_game(SDL_Renderer *renderer) {
         }
     }
 
+    // 2.5. Draw Ground Items
+    // Get mouse position for tooltip (before UI scaling)
+    int mouse_x, mouse_y;
+    SDL_GetMouseState(&mouse_x, &mouse_y);
+    int world_mouse_x = (int)((mouse_x * scale_x) / game_zoom) + cam_x;
+    int world_mouse_y = (int)((mouse_y * scale_y) / game_zoom) + cam_y;
+    
+    for (int i = 0; i < client_ground_item_count; i++) {
+        GroundItem *item = &client_ground_items[i];
+        if (strcmp(item->map_name, current_map_file) == 0) {
+            SDL_Rect item_rect = {(int)item->x - cam_x, (int)item->y - cam_y, 24, 24};
+            SDL_Rect world_item_rect = {(int)item->x, (int)item->y, 24, 24};
+            
+            // Check for mouse hover (in world coordinates)
+            SDL_Point world_mp = {world_mouse_x, world_mouse_y};
+            if (SDL_PointInRect(&world_mp, &world_item_rect)) {
+                // Use item name from ground item structure (sent by server)
+                if (strlen(item->name) > 0) {
+                    strncpy(tooltip_text, item->name, sizeof(tooltip_text) - 1);
+                    tooltip_text[sizeof(tooltip_text) - 1] = '\0';
+                    tooltip_x = (int)((mouse_x * scale_x) / ui_scale) + 10;
+                    tooltip_y = (int)((mouse_y * scale_y) / ui_scale) - 30;
+                    show_tooltip = 1;
+                    // Debug: verify tooltip is being set
+                    // printf("Tooltip set: %s at %d,%d\n", tooltip_text, tooltip_x, tooltip_y);
+                }
+            }
+            
+            // Color by item type (get from item ID)
+            // For now, use a simple color scheme
+            if (item->item_id == 1) { // Health potion
+                SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
+            } else if (item->item_id == 2) { // Sword
+                SDL_SetRenderDrawColor(renderer, 200, 200, 0, 255);
+            } else if (item->item_id >= 3 && item->item_id <= 5) { // Armor
+                SDL_SetRenderDrawColor(renderer, 100, 100, 200, 255);
+            } else if (item->item_id == 6) { // Accessory
+                SDL_SetRenderDrawColor(renderer, 200, 0, 200, 255);
+            } else { // Materials
+                SDL_SetRenderDrawColor(renderer, 150, 150, 150, 255);
+            }
+            
+            SDL_RenderFillRect(renderer, &item_rect);
+            
+            // White border
+            SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+            SDL_RenderDrawRect(renderer, &item_rect);
+            
+            // Render a small "?" or quantity
+            if (item->quantity > 1) {
+                char qty[4];
+                snprintf(qty, 4, "%d", item->quantity);
+                render_text(renderer, qty, item_rect.x + 12, item_rect.y + 4, col_white, 1);
+            } else {
+                render_text(renderer, "?", item_rect.x + 12, item_rect.y + 4, col_white, 1);
+            }
+        }
+    }
+
     // 3. Reset scale before applying UI scale
     SDL_RenderSetScale(renderer, 1.0f, 1.0f);
     
@@ -2383,14 +2748,11 @@ void render_game(SDL_Renderer *renderer) {
     render_role_list(renderer, scaled_w, scaled_h);
     render_sanction_popup(renderer, scaled_w, scaled_h);
     render_my_warnings(renderer, scaled_w, scaled_h);
+    render_inventory(renderer, scaled_w, scaled_h);
     render_debug_overlay(renderer, scaled_w);
     render_hud(renderer, scaled_w, scaled_h);
     render_mobile_controls(renderer, scaled_w);
     
-    #if defined(__ANDROID__) || defined(__IPHONEOS__)
-    render_mobile_text_menu(renderer);
-    #endif
-
     // 5. Draw HUD Buttons
     btn_chat_toggle = (SDL_Rect){10, scaled_h-40, 100, 30};
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_chat_toggle);
@@ -2618,10 +2980,59 @@ void render_game(SDL_Renderer *renderer) {
         // ---------------------------------
     }
     
+    // Render mobile text menu last so it appears on top of everything
+    #if defined(__ANDROID__) || defined(__IPHONEOS__)
+    render_mobile_text_menu(renderer);
+    #endif
+    
+    // Render tooltip (must be after all UI elements but before scale restore)
+    render_tooltip(renderer);
+    
     // Restore original render scale
     SDL_RenderSetScale(renderer, old_scale_x, old_scale_y);
     
     SDL_RenderPresent(renderer);
+}
+
+// Inventory request functions
+void request_item_pickup(void) {
+    static Packet pkt;
+    memset(&pkt, 0, sizeof(Packet));
+    pkt.type = PACKET_ITEM_PICKUP;
+    send_packet(&pkt);
+}
+
+void request_item_drop(int slot) {
+    static Packet pkt;
+    memset(&pkt, 0, sizeof(Packet));
+    pkt.type = PACKET_ITEM_DROP;
+    pkt.item_slot = slot;
+    send_packet(&pkt);
+}
+
+void request_item_use(int slot) {
+    static Packet pkt;
+    memset(&pkt, 0, sizeof(Packet));
+    pkt.type = PACKET_ITEM_USE;
+    pkt.item_slot = slot;
+    send_packet(&pkt);
+}
+
+void request_item_equip(int slot, int equip_slot) {
+    static Packet pkt;
+    memset(&pkt, 0, sizeof(Packet));
+    pkt.type = PACKET_ITEM_EQUIP;
+    pkt.item_slot = slot;
+    pkt.equip_slot = equip_slot;
+    send_packet(&pkt);
+}
+
+void request_item_unequip(int equip_slot) {
+    static Packet pkt;
+    memset(&pkt, 0, sizeof(Packet));
+    pkt.type = PACKET_ITEM_UNEQUIP;
+    pkt.equip_slot = equip_slot;
+    send_packet(&pkt);
 }
 
 void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
@@ -2633,7 +3044,14 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
     SDL_Rect btn_inbox_check = {w - 50, 10, 40, 40};
     if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_inbox_check)) {
         is_inbox_open = !is_inbox_open;
-        if (is_inbox_open) { show_friend_list = 0; show_add_friend_popup = 0; is_settings_open = 0; }
+        if (is_inbox_open) { show_friend_list = 0; show_add_friend_popup = 0; is_settings_open = 0; show_inventory = 0; }
+        return;
+    }
+    
+    SDL_Rect btn_inventory_check = {w - 100, 10, 40, 40};
+    if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_inventory_check)) {
+        show_inventory = !show_inventory;
+        if (show_inventory) { is_inbox_open = 0; show_friend_list = 0; show_add_friend_popup = 0; is_settings_open = 0; }
         return;
     }
 
@@ -2708,6 +3126,123 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         SDL_Rect btn_close = {win.x + 360, win.y + 5, 30, 30};
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_close)) show_my_warnings = 0;
         return;
+    }
+
+    // 2B2. Inventory Window
+    if (show_inventory) {
+        SDL_Rect win = {w/2 - 225, h/2 - 275, 450, 550};
+        
+        // Close button
+        SDL_Rect btn_close = {win.x + win.w - 35, win.y + 5, 30, 30};
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_close)) {
+            show_inventory = 0;
+            selected_inv_slot = -1;
+            return;
+        }
+        
+        // Check equipment slots
+        int equip_x = win.x + 10;
+        int equip_y = win.y + 50;
+        int equip_slot_w = 80;
+        int equip_slot_h = 70;
+        int equip_spacing = 10;
+        
+        for (int i = 0; i < EQUIP_SLOT_COUNT; i++) {
+            SDL_Rect equip_rect = {
+                equip_x,
+                equip_y + i * (equip_slot_h + equip_spacing),
+                equip_slot_w,
+                equip_slot_h
+            };
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &equip_rect)) {
+                // Clicked on equipment slot - unequip if item present
+                if (my_equipment[i].item_id > 0) {
+                    request_item_unequip(i);
+                    printf("Unequipping item from slot %d\n", i);
+                }
+                return;
+            }
+        }
+        
+        // Check inventory slots
+        int inv_x = win.x + 110;
+        int inv_y = win.y + 50;
+        int slot_size = 60;
+        int slots_per_row = 5;
+        int spacing = 5;
+        int y_offset = -inventory_scroll;
+        
+        for (int i = 0; i < MAX_INVENTORY_SLOTS; i++) {
+            int col = i % slots_per_row;
+            int row = i / slots_per_row;
+            
+            SDL_Rect slot_rect = {
+                inv_x + col * (slot_size + spacing),
+                inv_y + row * (slot_size + spacing) + y_offset,
+                slot_size,
+                slot_size
+            };
+            
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &slot_rect)) {
+                selected_inv_slot = i;
+                printf("Selected inventory slot %d\n", i);
+                return;
+            }
+        }
+        
+        // Check action buttons
+        SDL_Rect btn_use = {win.x + 110, win.y + win.h - 40, 80, 30};
+        SDL_Rect btn_drop = {win.x + 200, win.y + win.h - 40, 80, 30};
+        SDL_Rect btn_equip = {win.x + 290, win.y + win.h - 40, 90, 30};
+        
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_use)) {
+            if (selected_inv_slot >= 0 && selected_inv_slot < my_inventory_count) {
+                // Only allow using consumables
+                if (my_inventory[selected_inv_slot].item.type == ITEM_TYPE_CONSUMABLE) {
+                    request_item_use(selected_inv_slot);
+                    printf("Using item in slot %d\n", selected_inv_slot);
+                }
+            }
+            return;
+        }
+        
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_drop)) {
+            if (selected_inv_slot >= 0 && selected_inv_slot < my_inventory_count) {
+                request_item_drop(selected_inv_slot);
+                printf("Dropping item in slot %d\n", selected_inv_slot);
+            }
+            return;
+        }
+        
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_equip)) {
+            if (selected_inv_slot >= 0 && selected_inv_slot < my_inventory_count) {
+                // Determine equipment slot based on item type and name
+                int equip_slot = -1;
+                int item_type = my_inventory[selected_inv_slot].item.type;
+                const char *item_name = my_inventory[selected_inv_slot].item.name;
+                
+                if (item_type == ITEM_TYPE_WEAPON) {
+                    equip_slot = EQUIP_SLOT_WEAPON;
+                } else if (item_type == ITEM_TYPE_ARMOR) {
+                    // Check item name to determine specific armor slot
+                    if (strstr(item_name, "Helmet")) equip_slot = EQUIP_SLOT_HELMET;
+                    else if (strstr(item_name, "Armor") || strstr(item_name, "Chest")) equip_slot = EQUIP_SLOT_CHEST;
+                    else if (strstr(item_name, "Leg") || strstr(item_name, "Pants")) equip_slot = EQUIP_SLOT_LEGS;
+                    else if (strstr(item_name, "Boot") || strstr(item_name, "Shoe")) equip_slot = EQUIP_SLOT_BOOTS;
+                    else equip_slot = EQUIP_SLOT_CHEST; // Default to chest
+                } else if (item_type == ITEM_TYPE_ACCESSORY) {
+                    equip_slot = EQUIP_SLOT_ACCESSORY;
+                }
+                
+                if (equip_slot >= 0) {
+                    request_item_equip(selected_inv_slot, equip_slot);
+                    printf("Equipping item in slot %d to equipment slot %d\n", selected_inv_slot, equip_slot);
+                }
+            }
+            return;
+        }
+        
+        return; // Don't process other clicks if inventory is open
     }
 
     // 2C. Inbox
@@ -3728,6 +4263,20 @@ int main(int argc, char *argv[]) {
                     if (max_scroll < 0) max_scroll = 0;
                     if (settings_scroll_y > max_scroll) settings_scroll_y = max_scroll;
                 }
+                else if (show_inventory) {
+                    inventory_scroll -= scroll_amount;
+                    if (inventory_scroll < 0) inventory_scroll = 0;
+                    // Calculate max scroll based on number of inventory rows
+                    int slots_per_row = 5;
+                    int rows = (MAX_INVENTORY_SLOTS + slots_per_row - 1) / slots_per_row;
+                    int slot_size = 60;
+                    int spacing = 5;
+                    int content_height = rows * (slot_size + spacing);
+                    int visible_height = 450; // Inventory window visible area
+                    int max_scroll = content_height - visible_height;
+                    if (max_scroll < 0) max_scroll = 0;
+                    if (inventory_scroll > max_scroll) inventory_scroll = max_scroll;
+                }
             }
             else if (event.type == SDL_FINGERDOWN) {
                 int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
@@ -4057,6 +4606,17 @@ int main(int argc, char *argv[]) {
                             show_friend_list = 0; 
                             show_add_friend_popup = 0; 
                             is_settings_open = 0; 
+                            show_inventory = 0;
+                        }
+                    }
+                    else if (SDL_PointInRect(&(SDL_Point){tx, ty}, &(SDL_Rect){scaled_w - 100, 10, 40, 40})) {
+                        // Inventory button
+                        show_inventory = !show_inventory;
+                        if (show_inventory) { 
+                            is_inbox_open = 0; 
+                            show_friend_list = 0; 
+                            show_add_friend_popup = 0; 
+                            is_settings_open = 0; 
                         }
                     }
                     else if (is_chat_open) {
@@ -4135,7 +4695,7 @@ int main(int argc, char *argv[]) {
                     // Don't call handle_game_click here - wait for FINGERUP to avoid double-clicks
                     else if (show_friend_list || is_inbox_open || is_settings_open || show_sanction_popup || 
                              show_my_warnings || show_add_friend_popup || show_blocked_list ||
-                             show_contributors || show_documentation || show_role_list) {
+                             show_contributors || show_documentation || show_role_list || show_inventory) {
                         // Define overlay window rectangles (must match rendering positions)
                         int touching_overlay_window = 0;
                         
@@ -4187,6 +4747,19 @@ int main(int argc, char *argv[]) {
                         if (show_role_list) {
                             SDL_Rect win = {scaled_w/2 - 200, scaled_h/2 - 225, 400, 450};
                             if (SDL_PointInRect(&(SDL_Point){tx, ty}, &win)) touching_overlay_window = 1;
+                        }
+                        if (show_inventory) {
+                            SDL_Rect win = {scaled_w/2 - 225, scaled_h/2 - 275, 450, 550};
+                            if (SDL_PointInRect(&(SDL_Point){tx, ty}, &win)) {
+                                touching_overlay_window = 1;
+                                // Setup inventory scrolling
+                                scroll_touch_id = event.tfinger.fingerId;
+                                scroll_last_y = ty;
+                                scroll_start_x = tx;
+                                scroll_start_y = ty;
+                                scroll_moved = 0;
+                                scroll_window_id = 9; // Inventory
+                            }
                         }
                         
                         if (touching_overlay_window) {
@@ -4367,6 +4940,21 @@ int main(int argc, char *argv[]) {
                         if (chat_scroll > max_scroll) chat_scroll = max_scroll;
                         printf("[FINGERMOTION] Chat scroll: delta=%d scroll=%d\n", delta, chat_scroll);
                     }
+                    else if (scroll_window_id == 9 && show_inventory) {
+                        // Inventory
+                        inventory_scroll += delta;
+                        if (inventory_scroll < 0) inventory_scroll = 0;
+                        int slots_per_row = 5;
+                        int rows = (MAX_INVENTORY_SLOTS + slots_per_row - 1) / slots_per_row;
+                        int slot_size = 60;
+                        int spacing = 5;
+                        int content_height = rows * (slot_size + spacing);
+                        int visible_height = 450;
+                        int max_scroll = content_height - visible_height;
+                        if (max_scroll < 0) max_scroll = 0;
+                        if (inventory_scroll > max_scroll) inventory_scroll = max_scroll;
+                        printf("[FINGERMOTION] Inventory scroll: delta=%d scroll=%d\n", delta, inventory_scroll);
+                    }
                     
                     scroll_last_y = ty;
                 } else if (event.tfinger.fingerId == touch_id_dpad) {
@@ -4455,7 +5043,32 @@ int main(int argc, char *argv[]) {
                         int tap_y = scroll_start_y;
                         int scaled_w = (int)(w / ui_scale);
                         int scaled_h = (int)(h / ui_scale);
-                        handle_game_click(tap_x, tap_y, 0, 0, scaled_w, scaled_h);
+                        
+                        // Calculate camera position (same as mouse click handler)
+                        float px=0, py=0; 
+                        for(int i=0; i<MAX_CLIENTS; i++) {
+                            if(local_players[i].active && local_players[i].id == local_player_id) { 
+                                px=local_players[i].x; 
+                                py=local_players[i].y; 
+                            }
+                        }
+                        float zoomed_w = screen_w / game_zoom;
+                        float zoomed_h = screen_h / game_zoom;
+                        int cam_x = (int)px - (zoomed_w/2) + 16; 
+                        int cam_y = (int)py - (zoomed_h/2) + 16;
+                        // Clamp camera to map boundaries
+                        if (zoomed_w > map_w) cam_x = -(zoomed_w - map_w)/2; 
+                        else {
+                            if (cam_x < 0) cam_x = 0;
+                            if (cam_x + zoomed_w > map_w) cam_x = map_w - zoomed_w;
+                        }
+                        if (zoomed_h > map_h) cam_y = -(zoomed_h - map_h)/2;
+                        else {
+                            if (cam_y < 0) cam_y = 0;
+                            if (cam_y + zoomed_h > map_h) cam_y = map_h - zoomed_h;
+                        }
+                        
+                        handle_game_click(tap_x, tap_y, cam_x, cam_y, scaled_w, scaled_h);
                     }
                     scroll_touch_id = -1;
                     scroll_window_id = -1;
@@ -4473,10 +5086,71 @@ int main(int argc, char *argv[]) {
                         int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
                         int scaled_w = (int)(w / ui_scale);
                         int scaled_h = (int)(h / ui_scale);
-                        handle_game_click(overlay_touch_start_x, overlay_touch_start_y, 0, 0, scaled_w, scaled_h);
+                        
+                        // Calculate camera position (same as mouse click handler)
+                        float px=0, py=0; 
+                        for(int i=0; i<MAX_CLIENTS; i++) {
+                            if(local_players[i].active && local_players[i].id == local_player_id) { 
+                                px=local_players[i].x; 
+                                py=local_players[i].y; 
+                            }
+                        }
+                        float zoomed_w = screen_w / game_zoom;
+                        float zoomed_h = screen_h / game_zoom;
+                        int cam_x = (int)px - (zoomed_w/2) + 16; 
+                        int cam_y = (int)py - (zoomed_h/2) + 16;
+                        // Clamp camera to map boundaries
+                        if (zoomed_w > map_w) cam_x = -(zoomed_w - map_w)/2; 
+                        else {
+                            if (cam_x < 0) cam_x = 0;
+                            if (cam_x + zoomed_w > map_w) cam_x = map_w - zoomed_w;
+                        }
+                        if (zoomed_h > map_h) cam_y = -(zoomed_h - map_h)/2;
+                        else {
+                            if (cam_y < 0) cam_y = 0;
+                            if (cam_y + zoomed_h > map_h) cam_y = map_h - zoomed_h;
+                        }
+                        
+                        handle_game_click(overlay_touch_start_x, overlay_touch_start_y, cam_x, cam_y, scaled_w, scaled_h);
                     }
                     overlay_touch_id = -1;
                 } else if (event.tfinger.fingerId == touch_id_dpad) {
+                    // Check if this was a quick tap (not a joystick drag)
+                    int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
+                    int tx = (int)((event.tfinger.x * w) / ui_scale);
+                    int ty = (int)((event.tfinger.y * h) / ui_scale);
+                    int scaled_w = (int)(w / ui_scale);
+                    int scaled_h = (int)(h / ui_scale);
+                    
+                    // If joystick wasn't really used (minimal movement), treat as a tap
+                    if (abs(vjoy_dx) < 0.1f && abs(vjoy_dy) < 0.1f && client_state == STATE_GAME) {
+                        // Calculate camera position
+                        float px=0, py=0; 
+                        for(int i=0; i<MAX_CLIENTS; i++) {
+                            if(local_players[i].active && local_players[i].id == local_player_id) { 
+                                px=local_players[i].x; 
+                                py=local_players[i].y; 
+                            }
+                        }
+                        float zoomed_w = screen_w / game_zoom;
+                        float zoomed_h = screen_h / game_zoom;
+                        int cam_x = (int)px - (zoomed_w/2) + 16; 
+                        int cam_y = (int)py - (zoomed_h/2) + 16;
+                        // Clamp camera to map boundaries
+                        if (zoomed_w > map_w) cam_x = -(zoomed_w - map_w)/2; 
+                        else {
+                            if (cam_x < 0) cam_x = 0;
+                            if (cam_x + zoomed_w > map_w) cam_x = map_w - zoomed_w;
+                        }
+                        if (zoomed_h > map_h) cam_y = -(zoomed_h - map_h)/2;
+                        else {
+                            if (cam_y < 0) cam_y = 0;
+                            if (cam_y + zoomed_h > map_h) cam_y = map_h - zoomed_h;
+                        }
+                        
+                        handle_game_click(tx, ty, cam_x, cam_y, scaled_w, scaled_h);
+                    }
+                    
                     touch_id_dpad = -1;
                     vjoy_dx = 0; vjoy_dy = 0;
                     joystick_active = 0;
@@ -4908,6 +5582,24 @@ int main(int argc, char *argv[]) {
                                     if (local_players[i].x > MAP_WIDTH - 32) local_players[i].x = MAP_WIDTH - 32;
                                     if (local_players[i].y < 0) local_players[i].y = 0;
                                     if (local_players[i].y > MAP_HEIGHT - 32) local_players[i].y = MAP_HEIGHT - 32;
+                                    
+                                    // Check for ground item pickup
+                                    SDL_Rect player_rect = {(int)local_players[i].x, (int)local_players[i].y, 32, 32};
+                                    for (int g = 0; g < client_ground_item_count; g++) {
+                                        if (strcmp(client_ground_items[g].map_name, current_map_file) == 0) {
+                                            SDL_Rect item_rect = {(int)client_ground_items[g].x, (int)client_ground_items[g].y, 24, 24};
+                                            if (SDL_HasIntersection(&player_rect, &item_rect)) {
+                                                // Pick up the item!
+                                                Packet pickup_pkt;
+                                                memset(&pickup_pkt, 0, sizeof(Packet));
+                                                pickup_pkt.type = PACKET_ITEM_PICKUP;
+                                                pickup_pkt.item_slot = g; // Send the ground item index
+                                                send_packet(&pickup_pkt);
+                                                printf("Picking up item %d at %.1f,%.1f\n", client_ground_items[g].item_id, 
+                                                       client_ground_items[g].x, client_ground_items[g].y);
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -4931,7 +5623,8 @@ int main(int argc, char *argv[]) {
 
             if (activity > 0 && FD_ISSET(sock, &readfds)) {
                 Packet pkt; 
-                if (recv_total(sock, &pkt, sizeof(Packet)) > 0) {
+                int recv_result = recv_total(sock, &pkt, sizeof(Packet));
+                if (recv_result > 0) {
                     if (pkt.type == PACKET_AUTH_RESPONSE) {
                         if (pkt.status == AUTH_SUCCESS) { 
                             client_state = STATE_GAME; 
@@ -5025,7 +5718,36 @@ int main(int argc, char *argv[]) {
                     if (pkt.type == PACKET_TRIGGERS_DATA) {
                         receive_triggers_from_server(&pkt);
                     }
-                }    
+                    if (pkt.type == PACKET_INVENTORY_UPDATE) {
+                        // Update local inventory from server
+                        my_inventory_count = pkt.inventory_count;
+                        for (int i = 0; i < pkt.inventory_count; i++) {
+                            my_inventory[i] = pkt.inventory_slots[i];
+                        }
+                        // Update equipment
+                        for (int i = 0; i < EQUIP_SLOT_COUNT; i++) {
+                            my_equipment[i] = pkt.equipment[i];
+                        }
+                        printf("Inventory updated: %d items, equipment updated\n", my_inventory_count);
+                    }
+                    if (pkt.type == PACKET_GROUND_ITEMS) {
+                        // Update ground items from server
+                        client_ground_item_count = pkt.ground_item_count;
+                        for (int i = 0; i < pkt.ground_item_count; i++) {
+                            client_ground_items[i] = pkt.ground_items[i];
+                        }
+                        printf("Ground items updated: %d items on map\n", client_ground_item_count);
+                    }
+                } else if (recv_result <= 0) {
+                    // Server disconnected or error
+                    printf("Server disconnected (recv returned %d)\n", recv_result);
+                    strcpy(auth_message, get_string(STR_ERROR_SERVER_DISCONNECTED));
+                    close(sock); 
+                    sock = -1; 
+                    is_connected = 0;
+                    client_state = STATE_AUTH;
+                    Mix_HaltMusic();
+                }
             }
         }
 

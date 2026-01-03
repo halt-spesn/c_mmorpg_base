@@ -8,7 +8,9 @@
 #define MAP_WIDTH 2000
 #define MAP_HEIGHT 2000
 #define PLAYER_SPEED 4.0f
-#define MAX_AVATAR_SIZE 16384 
+#define MAX_AVATAR_SIZE 16384
+#define MAX_INVENTORY_SLOTS 20
+#define MAX_GROUND_ITEMS 100 
 
 // Keep Enums for code readability, but don't use them in the struct directly
 typedef enum {
@@ -18,6 +20,17 @@ typedef enum {
 typedef enum {
     ROLE_PLAYER, ROLE_ADMIN, ROLE_DEVELOPER, ROLE_CONTRIBUTOR, ROLE_VIP
 } PlayerRole;
+
+typedef enum {
+    ITEM_TYPE_CONSUMABLE, ITEM_TYPE_WEAPON, ITEM_TYPE_ARMOR, 
+    ITEM_TYPE_ACCESSORY, ITEM_TYPE_MATERIAL, ITEM_TYPE_QUEST
+} ItemType;
+
+typedef enum {
+    EQUIP_SLOT_WEAPON, EQUIP_SLOT_HELMET, EQUIP_SLOT_CHEST,
+    EQUIP_SLOT_LEGS, EQUIP_SLOT_BOOTS, EQUIP_SLOT_ACCESSORY,
+    EQUIP_SLOT_COUNT
+} EquipmentSlot;
 
 typedef enum {
     PACKET_REGISTER_REQUEST, PACKET_LOGIN_REQUEST, PACKET_AUTH_RESPONSE,
@@ -32,7 +45,9 @@ typedef enum {
     PACKET_SANCTION_REQUEST, PACKET_WARNINGS_REQUEST, PACKET_WARNINGS_RESPONSE,
     PACKET_KICK, PACKET_MAP_CHANGE, PACKET_TRIGGERS_DATA,
     PACKET_CHANGE_PASSWORD_REQUEST, PACKET_CHANGE_PASSWORD_RESPONSE,
-    PACKET_TELEMETRY, PACKET_TYPING
+    PACKET_TELEMETRY, PACKET_TYPING,
+    PACKET_INVENTORY_UPDATE, PACKET_ITEM_PICKUP, PACKET_ITEM_DROP,
+    PACKET_ITEM_USE, PACKET_ITEM_EQUIP, PACKET_ITEM_UNEQUIP, PACKET_GROUND_ITEMS
 } PacketType;
 
 typedef enum {
@@ -42,6 +57,29 @@ typedef enum {
 
 // --- FORCE 1-BYTE PACKING ---
 #pragma pack(push, 1)
+
+typedef struct {
+    int32_t item_id;      // Unique item ID from database
+    int32_t quantity;     // Stack count
+    int32_t type;         // ItemType enum
+    char name[32];        // Item name
+    char icon[16];        // Icon filename (e.g., "sword.png")
+} Item;
+
+typedef struct {
+    Item item;
+    int32_t slot_index;   // Inventory slot (0-19) or equipment slot
+    int32_t is_equipped;  // 1 if equipped, 0 if in inventory
+} InventorySlot;
+
+typedef struct {
+    int32_t item_id;
+    float x, y;           // Position on map
+    int32_t quantity;
+    char name[32];        // Item name for tooltip
+    char map_name[32];
+    uint32_t spawn_time;  // Server timestamp when dropped
+} GroundItem;
 
 typedef struct {
     char src_map[32];
@@ -72,6 +110,9 @@ typedef struct {
     uint8_t r2, g2, b2;
     char map_name[32];
     int32_t is_typing;
+    InventorySlot inventory[MAX_INVENTORY_SLOTS];
+    Item equipment[EQUIP_SLOT_COUNT];
+    int32_t inventory_count;  // Number of items in inventory
 } Player;
 
 typedef struct {
@@ -110,6 +151,15 @@ typedef struct {
     TriggerData triggers[20];
     char gl_renderer[128];
     char os_info[128];
+    // Inventory-related fields
+    InventorySlot inventory_slots[MAX_INVENTORY_SLOTS];
+    int32_t inventory_count;
+    Item equipment[EQUIP_SLOT_COUNT];  // Equipment slots
+    Item item_data;               // Single item for pickup/drop/use
+    int32_t item_slot;            // Slot index for operations
+    int32_t equip_slot;           // Equipment slot for equip operations
+    GroundItem ground_items[MAX_GROUND_ITEMS];
+    int32_t ground_item_count;
 } Packet;
 
 #pragma pack(pop)

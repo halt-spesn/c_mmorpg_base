@@ -88,10 +88,15 @@ int next_player_id = 100;
 TriggerData server_triggers[20];
 int server_trigger_count = 0;
 
+// Ground items
+GroundItem ground_items[MAX_GROUND_ITEMS];
+int ground_item_count = 0;
+
 pthread_mutex_t state_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // --- Prototypes ---
 void broadcast_state();
+int send_all(socket_t sockfd, void *buf, size_t len, int flags);
 
 // --- Database ---
 int get_role_id_from_name(char *name) {
@@ -103,9 +108,30 @@ int get_role_id_from_name(char *name) {
 }
 
 void init_db() {
+    // Close any existing connection first
+    if (db) {
+        sqlite3_close(db);
+        db = NULL;
+    }
+    
     int rc = sqlite3_open("mmorpg.db", &db);
-    if (rc) exit(1);
-    sqlite3_exec(db, "PRAGMA journal_mode=WAL;", 0, 0, 0);
+    if (rc) {
+        fprintf(stderr, "Cannot open database: %s\n", sqlite3_errmsg(db));
+        if (db) sqlite3_close(db);
+        exit(1);
+    }
+    
+    // Use DELETE journal mode (cross-platform, avoids file lock issues)
+    char *err_msg = NULL;
+    rc = sqlite3_exec(db, "PRAGMA journal_mode=DELETE;", 0, 0, &err_msg);
+    if (rc != SQLITE_OK && err_msg) {
+        fprintf(stderr, "Failed to set journal mode: %s\n", err_msg);
+        sqlite3_free(err_msg);
+    }
+    sqlite3_exec(db, "PRAGMA synchronous=FULL;", 0, 0, 0);  // FULL for safety
+    sqlite3_exec(db, "PRAGMA locking_mode=NORMAL;", 0, 0, 0);
+    sqlite3_exec(db, "PRAGMA temp_store=MEMORY;", 0, 0, 0);
+    LOG("Database opened successfully\n");
  char *sql_users = "CREATE TABLE IF NOT EXISTS users("
                 "ID INTEGER PRIMARY KEY AUTOINCREMENT,"
                 "USERNAME TEXT NOT NULL UNIQUE,"
@@ -138,6 +164,80 @@ void init_db() {
         "REASON TEXT, "
         "TIMESTAMP INTEGER);";
     sqlite3_exec(db, sql_warn, 0, 0, 0);
+
+    // 3. Create Items Table
+    char *sql_items = 
+        "CREATE TABLE IF NOT EXISTS items ("
+        "ITEM_ID INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "NAME TEXT NOT NULL, "
+        "TYPE INTEGER NOT NULL, "
+        "ICON TEXT DEFAULT 'item.png', "
+        "MAX_STACK INTEGER DEFAULT 1, "
+        "DESCRIPTION TEXT);";
+    sqlite3_exec(db, sql_items, 0, 0, 0);
+
+    // 4. Create Player Inventories Table
+    // Simply drop and recreate if it exists with old schema
+    sqlite3_exec(db, "DROP TABLE IF EXISTS player_inventory_old;", 0, 0, 0);
+    
+    char *sql_inventory = 
+        "CREATE TABLE IF NOT EXISTS player_inventory ("
+        "ID INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "USER_ID INTEGER, "
+        "ITEM_ID INTEGER, "
+        "QUANTITY INTEGER DEFAULT 1, "
+        "SLOT_INDEX INTEGER, "
+        "IS_EQUIPPED INTEGER DEFAULT 0);";
+    sqlite3_exec(db, sql_inventory, 0, 0, 0);
+    LOG("Player inventory table ready\n");
+
+    // 5. Create Ground Items Table
+    char *sql_ground = 
+        "CREATE TABLE IF NOT EXISTS ground_items ("
+        "ID INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "ITEM_ID INTEGER, "
+        "X REAL, "
+        "Y REAL, "
+        "MAP_NAME TEXT, "
+        "QUANTITY INTEGER, "
+        "SPAWN_TIME INTEGER);";
+    sqlite3_exec(db, sql_ground, 0, 0, 0);
+
+    // Insert some default items if table is empty
+    sqlite3_stmt *check_stmt;
+    if (sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM items;", -1, &check_stmt, 0) == SQLITE_OK) {
+        if (sqlite3_step(check_stmt) == SQLITE_ROW) {
+            int count = sqlite3_column_int(check_stmt, 0);
+            sqlite3_finalize(check_stmt);
+            
+            if (count == 0) {
+                // Add starter items
+                sqlite3_exec(db, "INSERT INTO items (NAME, TYPE, ICON, MAX_STACK) VALUES ('Health Potion', 0, 'potion.png', 10);", 0, 0, 0);
+                sqlite3_exec(db, "INSERT INTO items (NAME, TYPE, ICON, MAX_STACK) VALUES ('Iron Sword', 1, 'sword.png', 1);", 0, 0, 0);
+                sqlite3_exec(db, "INSERT INTO items (NAME, TYPE, ICON, MAX_STACK) VALUES ('Leather Armor', 2, 'armor.png', 1);", 0, 0, 0);
+                sqlite3_exec(db, "INSERT INTO items (NAME, TYPE, ICON, MAX_STACK) VALUES ('Iron Helmet', 2, 'helmet.png', 1);", 0, 0, 0);
+                sqlite3_exec(db, "INSERT INTO items (NAME, TYPE, ICON, MAX_STACK) VALUES ('Leather Boots', 2, 'boots.png', 1);", 0, 0, 0);
+                sqlite3_exec(db, "INSERT INTO items (NAME, TYPE, ICON, MAX_STACK) VALUES ('Magic Ring', 3, 'ring.png', 1);", 0, 0, 0);
+                sqlite3_exec(db, "INSERT INTO items (NAME, TYPE, ICON, MAX_STACK) VALUES ('Wood', 4, 'wood.png', 50);", 0, 0, 0);
+                sqlite3_exec(db, "INSERT INTO items (NAME, TYPE, ICON, MAX_STACK) VALUES ('Stone', 4, 'stone.png', 50);", 0, 0, 0);
+                sqlite3_exec(db, "INSERT INTO items (NAME, TYPE, ICON, MAX_STACK) VALUES ('Iron Leggings', 2, 'legs.png', 1);", 0, 0, 0);
+                LOG("Created default items\n");
+            } else {
+                // Check if item 9 exists, if not add it (for existing databases)
+                sqlite3_stmt *check_item9;
+                if (sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM items WHERE ITEM_ID = 9;", -1, &check_item9, NULL) == SQLITE_OK) {
+                    if (sqlite3_step(check_item9) == SQLITE_ROW && sqlite3_column_int(check_item9, 0) == 0) {
+                        sqlite3_exec(db, "INSERT INTO items (ITEM_ID, NAME, TYPE, ICON, MAX_STACK) VALUES (9, 'Iron Leggings', 2, 'legs.png', 1);", 0, 0, 0);
+                        LOG("Added Iron Leggings to existing database\n");
+                    }
+                    sqlite3_finalize(check_item9);
+                }
+            }
+        } else {
+            sqlite3_finalize(check_stmt);
+        }
+    }
+    LOG("Database initialization complete\n");
 }
 
 long parse_ban_duration(const char* str) {
@@ -181,7 +281,18 @@ AuthStatus register_user(const char *user, const char *pass) {
     if (sqlite3_step(stmt) == SQLITE_ROW) count = 1; sqlite3_finalize(stmt);
     if (count > 0) return AUTH_REGISTER_FAILED_EXISTS;
     snprintf(sql, 256, "INSERT INTO users (USERNAME, PASSWORD, X, Y, R, G, B) VALUES ('%s', '%s', 100.0, 100.0, 255, 255, 0);", user, pass);
-    sqlite3_exec(db, sql, 0, 0, 0); return AUTH_REGISTER_SUCCESS;
+    sqlite3_exec(db, sql, 0, 0, 0);
+    
+    // Give starter items to new player
+    int user_id = get_user_id(user);
+    if (user_id > 0) {
+        // Give 3 health potions and 1 sword
+        sqlite3_exec(db, "INSERT INTO player_inventory (USER_ID, ITEM_ID, QUANTITY, SLOT_INDEX, IS_EQUIPPED) VALUES (last_insert_rowid(), 1, 3, 0, 0);", 0, 0, 0);
+        sqlite3_exec(db, "INSERT INTO player_inventory (USER_ID, ITEM_ID, QUANTITY, SLOT_INDEX, IS_EQUIPPED) VALUES (last_insert_rowid(), 2, 1, 1, 0);", 0, 0, 0);
+        LOG("Gave starter items to new user %s\n", user);
+    }
+    
+    return AUTH_REGISTER_SUCCESS;
 }
 
 // Update signature to accept 'long *ban_expire'
@@ -217,6 +328,208 @@ int login_user(const char *username, const char *password, float *x, float *y, u
 
 void save_player_location(const char *user, float x, float y) {
     char sql[256]; snprintf(sql, 256, "UPDATE users SET X=%f, Y=%f WHERE USERNAME='%s';", x, y, user); sqlite3_exec(db, sql, 0, 0, NULL);
+}
+
+// --- Inventory Management Functions ---
+
+void load_player_inventory(int player_index) {
+    Player *p = &players[player_index];
+    p->inventory_count = 0;
+    
+    // Clear inventory
+    memset(p->inventory, 0, sizeof(p->inventory));
+    memset(p->equipment, 0, sizeof(p->equipment));
+    
+    sqlite3_stmt *stmt;
+    const char *sql = "SELECT pi.ITEM_ID, pi.QUANTITY, pi.SLOT_INDEX, pi.IS_EQUIPPED, "
+                      "i.NAME, i.TYPE, i.ICON FROM player_inventory pi "
+                      "JOIN items i ON pi.ITEM_ID = i.ITEM_ID "
+                      "WHERE pi.USER_ID = ? ORDER BY pi.SLOT_INDEX;";
+    
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, 0) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, p->id);
+        
+        int inv_idx = 0;
+        while (sqlite3_step(stmt) == SQLITE_ROW && inv_idx < MAX_INVENTORY_SLOTS) {
+            int item_id = sqlite3_column_int(stmt, 0);
+            int quantity = sqlite3_column_int(stmt, 1);
+            int slot_index = sqlite3_column_int(stmt, 2);
+            int is_equipped = sqlite3_column_int(stmt, 3);
+            const char *name = (const char*)sqlite3_column_text(stmt, 4);
+            int type = sqlite3_column_int(stmt, 5);
+            const char *icon = (const char*)sqlite3_column_text(stmt, 6);
+            
+            if (is_equipped) {
+                // Load into equipment slot
+                if (slot_index >= 0 && slot_index < EQUIP_SLOT_COUNT) {
+                    p->equipment[slot_index].item_id = item_id;
+                    p->equipment[slot_index].quantity = quantity;
+                    p->equipment[slot_index].type = type;
+                    strncpy(p->equipment[slot_index].name, name, 31);
+                    strncpy(p->equipment[slot_index].icon, icon, 15);
+                }
+            } else {
+                // Load into inventory
+                p->inventory[inv_idx].item.item_id = item_id;
+                p->inventory[inv_idx].item.quantity = quantity;
+                p->inventory[inv_idx].item.type = type;
+                strncpy(p->inventory[inv_idx].item.name, name, 31);
+                strncpy(p->inventory[inv_idx].item.icon, icon, 15);
+                p->inventory[inv_idx].slot_index = slot_index;
+                p->inventory[inv_idx].is_equipped = 0;
+                inv_idx++;
+            }
+        }
+        p->inventory_count = inv_idx;
+        sqlite3_finalize(stmt);
+        LOG("Loaded %d items for player %s\n", inv_idx, p->username);
+    }
+}
+
+void save_player_inventory(int player_index) {
+    Player *p = &players[player_index];
+    
+    // Delete existing inventory
+    char sql[256];
+    snprintf(sql, 256, "DELETE FROM player_inventory WHERE USER_ID = %d;", p->id);
+    sqlite3_exec(db, sql, 0, 0, 0);
+    
+    // Save inventory items
+    for (int i = 0; i < p->inventory_count; i++) {
+        if (p->inventory[i].item.item_id > 0) {
+            snprintf(sql, 256, "INSERT INTO player_inventory (USER_ID, ITEM_ID, QUANTITY, SLOT_INDEX, IS_EQUIPPED) "
+                              "VALUES (%d, %d, %d, %d, 0);",
+                     p->id, p->inventory[i].item.item_id, p->inventory[i].item.quantity, i);
+            sqlite3_exec(db, sql, 0, 0, 0);
+        }
+    }
+    
+    // Save equipped items
+    for (int i = 0; i < EQUIP_SLOT_COUNT; i++) {
+        if (p->equipment[i].item_id > 0) {
+            snprintf(sql, 256, "INSERT INTO player_inventory (USER_ID, ITEM_ID, QUANTITY, SLOT_INDEX, IS_EQUIPPED) "
+                              "VALUES (%d, %d, %d, %d, 1);",
+                     p->id, p->equipment[i].item_id, p->equipment[i].quantity, i);
+            sqlite3_exec(db, sql, 0, 0, 0);
+        }
+    }
+}
+
+int give_item_to_player(int player_index, int item_id, int quantity) {
+    Player *p = &players[player_index];
+    
+    // Get item info from database
+    sqlite3_stmt *stmt;
+    const char *sql = "SELECT NAME, TYPE, ICON, MAX_STACK FROM items WHERE ITEM_ID = ?;";
+    char name[32] = "";
+    char icon[16] = "";
+    int type = 0;
+    int max_stack = 1;
+    
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, 0) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, item_id);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            strncpy(name, (const char*)sqlite3_column_text(stmt, 0), 31);
+            type = sqlite3_column_int(stmt, 1);
+            strncpy(icon, (const char*)sqlite3_column_text(stmt, 2), 15);
+            max_stack = sqlite3_column_int(stmt, 3);
+        } else {
+            sqlite3_finalize(stmt);
+            LOG("Item ID %d not found in database\n", item_id);
+            return 0; // Item not found
+        }
+        sqlite3_finalize(stmt);
+    } else {
+        LOG("Failed to query items table\n");
+        return 0;
+    }
+    
+    if (name[0] == '\0') return 0; // Item doesn't exist
+    
+    // Try to stack with existing items
+    for (int i = 0; i < p->inventory_count; i++) {
+        if (p->inventory[i].item.item_id == item_id && 
+            p->inventory[i].item.quantity < max_stack) {
+            int space = max_stack - p->inventory[i].item.quantity;
+            int to_add = (quantity < space) ? quantity : space;
+            p->inventory[i].item.quantity += to_add;
+            quantity -= to_add;
+            if (quantity == 0) {
+                save_player_inventory(player_index);
+                return 1;
+            }
+        }
+    }
+    
+    // Add to new slots
+    while (quantity > 0 && p->inventory_count < MAX_INVENTORY_SLOTS) {
+        int to_add = (quantity < max_stack) ? quantity : max_stack;
+        p->inventory[p->inventory_count].item.item_id = item_id;
+        p->inventory[p->inventory_count].item.quantity = to_add;
+        p->inventory[p->inventory_count].item.type = type;
+        strncpy(p->inventory[p->inventory_count].item.name, name, 31);
+        strncpy(p->inventory[p->inventory_count].item.icon, icon, 15);
+        p->inventory[p->inventory_count].slot_index = p->inventory_count;
+        p->inventory[p->inventory_count].is_equipped = 0;
+        p->inventory_count++;
+        quantity -= to_add;
+    }
+    
+    save_player_inventory(player_index);
+    return (quantity == 0) ? 1 : 0;
+}
+
+int remove_item_from_player(int player_index, int item_id, int quantity) {
+    Player *p = &players[player_index];
+    
+    // Remove from inventory
+    for (int i = 0; i < p->inventory_count; i++) {
+        if (p->inventory[i].item.item_id == item_id) {
+            if (p->inventory[i].item.quantity > quantity) {
+                p->inventory[i].item.quantity -= quantity;
+                save_player_inventory(player_index);
+                return 1;
+            } else if (p->inventory[i].item.quantity == quantity) {
+                // Remove this slot
+                for (int j = i; j < p->inventory_count - 1; j++) {
+                    p->inventory[j] = p->inventory[j + 1];
+                }
+                p->inventory_count--;
+                save_player_inventory(player_index);
+                return 1;
+            } else {
+                quantity -= p->inventory[i].item.quantity;
+                // Remove this slot and continue
+                for (int j = i; j < p->inventory_count - 1; j++) {
+                    p->inventory[j] = p->inventory[j + 1];
+                }
+                p->inventory_count--;
+                i--; // Re-check this index
+            }
+        }
+    }
+    
+    return (quantity == 0) ? 1 : 0;
+}
+
+void send_inventory_update(int player_index) {
+    Packet pkt;
+    memset(&pkt, 0, sizeof(Packet));
+    pkt.type = PACKET_INVENTORY_UPDATE;
+    pkt.player_id = players[player_index].id;
+    
+    // Copy inventory data
+    for (int i = 0; i < players[player_index].inventory_count; i++) {
+        pkt.inventory_slots[i] = players[player_index].inventory[i];
+    }
+    pkt.inventory_count = players[player_index].inventory_count;
+    
+    // Copy equipment data
+    for (int i = 0; i < EQUIP_SLOT_COUNT; i++) {
+        pkt.equipment[i] = players[player_index].equipment[i];
+    }
+    
+    send_all(client_sockets[player_index], &pkt, sizeof(Packet), 0);
 }
 
 void load_triggers() {
@@ -256,6 +569,65 @@ void load_triggers() {
     fclose(fp);
 }
 
+void spawn_random_ground_items() {
+    // Spawn 10-15 random items on the default map
+    ground_item_count = 0;
+    int num_items = 10 + (rand() % 6); // 10-15 items
+    
+    for (int i = 0; i < num_items && ground_item_count < MAX_GROUND_ITEMS; i++) {
+        int item_id = 1 + (rand() % 9); // Random item ID (1-9)
+        ground_items[ground_item_count].item_id = item_id;
+        ground_items[ground_item_count].x = 100 + (rand() % 1800); // Random X
+        ground_items[ground_item_count].y = 100 + (rand() % 1800); // Random Y
+        ground_items[ground_item_count].quantity = 1 + (rand() % 3); // 1-3 items
+        strcpy(ground_items[ground_item_count].map_name, "map.jpg");
+        ground_items[ground_item_count].spawn_time = time(NULL);
+        
+        // Get item name from database
+        char sql[256];
+        snprintf(sql, 256, "SELECT NAME FROM items WHERE ITEM_ID=%d;", item_id);
+        sqlite3_stmt *stmt;
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
+            if (sqlite3_step(stmt) == SQLITE_ROW) {
+                strncpy(ground_items[ground_item_count].name, (const char*)sqlite3_column_text(stmt, 0), 31);
+                ground_items[ground_item_count].name[31] = '\0';
+            } else {
+                strcpy(ground_items[ground_item_count].name, "Unknown");
+            }
+            sqlite3_finalize(stmt);
+        }
+        
+        ground_item_count++;
+    }
+    
+    LOG("Spawned %d random ground items on map.jpg\n", ground_item_count);
+}
+
+void send_ground_items_to_client(int client_index) {
+    Packet pkt;
+    memset(&pkt, 0, sizeof(Packet));
+    pkt.type = PACKET_GROUND_ITEMS;
+    
+    // Send only items on the player's current map
+    pkt.ground_item_count = 0;
+    for (int i = 0; i < ground_item_count && pkt.ground_item_count < MAX_GROUND_ITEMS; i++) {
+        if (strcmp(ground_items[i].map_name, players[client_index].map_name) == 0) {
+            pkt.ground_items[pkt.ground_item_count++] = ground_items[i];
+        }
+    }
+    
+    send_all(client_sockets[client_index], &pkt, sizeof(Packet), 0);
+    LOG("Sent %d ground items to client %d\n", pkt.ground_item_count, client_index);
+}
+
+void broadcast_ground_items() {
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (SOCKET_IS_VALID(client_sockets[i]) && players[i].active) {
+            send_ground_items_to_client(i);
+        }
+    }
+}
+
 // Updated to accept 'int flags' so it matches the send() signature
 int send_all(socket_t sockfd, void *buf, size_t len, int flags) {
     size_t total = 0;
@@ -289,6 +661,7 @@ void load_telemetry();  // Forward declaration
 
 void init_game() {
     init_db(); init_storage(); load_triggers(); load_telemetry();
+    // spawn_random_ground_items();  // Spawn items on server start - DISABLED for mobile testing
     for (int i = 0; i < MAX_CLIENTS; i++) { 
         client_sockets[i] = SOCKET_INVALID; 
         players[i].active = 0; 
@@ -838,8 +1211,15 @@ void handle_client_message(int index, Packet *pkt) {
                     response.player_id = players[index].id;
                     send_all(client_sockets[index], &response, sizeof(Packet), 0);
                     
+                    // Load player's inventory
+                    load_player_inventory(index);
+                    send_inventory_update(index);
+                    
                     // Send triggers to client after successful login
                     send_triggers_to_client(index);
+                    
+                    // Send ground items to client
+                    send_ground_items_to_client(index);
                     
                     broadcast_friend_update(); 
                     send_pending_requests(index); 
@@ -908,6 +1288,80 @@ void handle_client_message(int index, Packet *pkt) {
 
                     Packet resp; resp.type = PACKET_CHAT; resp.player_id = -1;
                     snprintf(resp.msg, 64, "ID %d: Last warning removed.", target_id);
+                    send_all(client_sockets[index], &resp, sizeof(Packet), 0);
+                }
+            }
+            // 4. /give <player_id> <item_id> <quantity>
+            else if (strncmp(pkt->msg, "/give ", 6) == 0) {
+                int target_id, item_id, quantity;
+                if (sscanf(pkt->msg + 6, "%d %d %d", &target_id, &item_id, &quantity) == 3) {
+                    // Find target player by user ID
+                    int target_index = -1;
+                    for (int i = 0; i < MAX_CLIENTS; i++) {
+                        if (players[i].active && players[i].id == target_id) {
+                            target_index = i;
+                            break;
+                        }
+                    }
+                    
+                    if (target_index >= 0) {
+                        give_item_to_player(target_index, item_id, quantity);
+                        send_inventory_update(target_index);
+                        
+                        Packet resp; resp.type = PACKET_CHAT; resp.player_id = -1;
+                        snprintf(resp.msg, 127, "Gave %d x item %d to player ID %d (%s)", 
+                                quantity, item_id, target_id, players[target_index].username);
+                        send_all(client_sockets[index], &resp, sizeof(Packet), 0);
+                        
+                        LOG("Admin %s gave %d x item %d to player %s\n", 
+                            players[index].username, quantity, item_id, players[target_index].username);
+                    } else {
+                        Packet resp; resp.type = PACKET_CHAT; resp.player_id = -1;
+                        snprintf(resp.msg, 127, "Player ID %d not found or offline.", target_id);
+                        send_all(client_sockets[index], &resp, sizeof(Packet), 0);
+                    }
+                } else {
+                    Packet resp; resp.type = PACKET_CHAT; resp.player_id = -1;
+                    strcpy(resp.msg, "Usage: /give <player_id> <item_id> <quantity>");
+                    send_all(client_sockets[index], &resp, sizeof(Packet), 0);
+                }
+            }
+            // 5. /removeitem <player_id> <item_id> <quantity>
+            else if (strncmp(pkt->msg, "/removeitem ", 12) == 0 || strncmp(pkt->msg, "/removeitm ", 11) == 0) {
+                int offset = (pkt->msg[8] == 'e') ? 12 : 11;
+                int target_id, item_id, quantity;
+                if (sscanf(pkt->msg + offset, "%d %d %d", &target_id, &item_id, &quantity) == 3) {
+                    // Find target player by user ID
+                    int target_index = -1;
+                    for (int i = 0; i < MAX_CLIENTS; i++) {
+                        if (players[i].active && players[i].id == target_id) {
+                            target_index = i;
+                            break;
+                        }
+                    }
+                    
+                    if (target_index >= 0) {
+                        int success = remove_item_from_player(target_index, item_id, quantity);
+                        send_inventory_update(target_index);
+                        
+                        Packet resp; resp.type = PACKET_CHAT; resp.player_id = -1;
+                        if (success) {
+                            snprintf(resp.msg, 127, "Removed %d x item %d from player ID %d (%s)", 
+                                    quantity, item_id, target_id, players[target_index].username);
+                            LOG("Admin %s removed %d x item %d from player %s\n", 
+                                players[index].username, quantity, item_id, players[target_index].username);
+                        } else {
+                            snprintf(resp.msg, 127, "Failed to remove item (insufficient quantity or not found)");
+                        }
+                        send_all(client_sockets[index], &resp, sizeof(Packet), 0);
+                    } else {
+                        Packet resp; resp.type = PACKET_CHAT; resp.player_id = -1;
+                        snprintf(resp.msg, 127, "Player ID %d not found or offline.", target_id);
+                        send_all(client_sockets[index], &resp, sizeof(Packet), 0);
+                    }
+                } else {
+                    Packet resp; resp.type = PACKET_CHAT; resp.player_id = -1;
+                    strcpy(resp.msg, "Usage: /removeitem <player_id> <item_id> <quantity>");
                     send_all(client_sockets[index], &resp, sizeof(Packet), 0);
                 }
             }
@@ -1202,6 +1656,130 @@ void handle_client_message(int index, Packet *pkt) {
         players[index].is_typing = pkt->player_id; // 1 = typing, 0 = not typing
         broadcast_state();
     }
+    else if (pkt->type == PACKET_ITEM_PICKUP) {
+        // Client requests to pick up nearest ground item
+        int pickup_idx = pkt->item_slot; // We'll use this to send which item index to pick up
+        
+        if (pickup_idx >= 0 && pickup_idx < ground_item_count) {
+            GroundItem *item = &ground_items[pickup_idx];
+            
+            // Check if on same map
+            if (strcmp(item->map_name, players[index].map_name) == 0) {
+                // Give item to player
+                if (give_item_to_player(index, item->item_id, item->quantity)) {
+                    LOG("Player %s picked up item %d (x%d) from ground\n", 
+                        players[index].username, item->item_id, item->quantity);
+                    
+                    // Remove from ground items array
+                    for (int i = pickup_idx; i < ground_item_count - 1; i++) {
+                        ground_items[i] = ground_items[i + 1];
+                    }
+                    ground_item_count--;
+                    
+                    send_inventory_update(index);
+                    broadcast_ground_items(); // Update all clients
+                }
+            }
+        }
+    }
+    else if (pkt->type == PACKET_ITEM_DROP) {
+        // Client drops an item from slot
+        int slot = pkt->item_slot;
+        if (slot >= 0 && slot < players[index].inventory_count) {
+            int item_id = players[index].inventory[slot].item.item_id;
+            int quantity = players[index].inventory[slot].item.quantity;
+            
+            // Remove from inventory
+            if (remove_item_from_player(index, item_id, quantity)) {
+                // Add to ground items at player's position
+                if (ground_item_count < MAX_GROUND_ITEMS) {
+                    ground_items[ground_item_count].item_id = item_id;
+                    ground_items[ground_item_count].x = players[index].x + 50; // Offset to prevent instant pickup
+                    ground_items[ground_item_count].y = players[index].y + 50;
+                    ground_items[ground_item_count].quantity = quantity;
+                    strcpy(ground_items[ground_item_count].map_name, players[index].map_name);
+                    ground_items[ground_item_count].spawn_time = time(NULL);
+                    ground_item_count++;
+                    
+                    LOG("Player %s dropped item %d (x%d) at %.1f,%.1f\n", 
+                        players[index].username, item_id, quantity, 
+                        players[index].x, players[index].y);
+                    
+                    broadcast_ground_items(); // Update all clients
+                }
+            }
+            
+            send_inventory_update(index);
+            LOG("Player %s dropped item %d (x%d)\n", players[index].username, item_id, quantity);
+        }
+    }
+    else if (pkt->type == PACKET_ITEM_USE) {
+        // Client uses an item from slot
+        int slot = pkt->item_slot;
+        if (slot >= 0 && slot < players[index].inventory_count) {
+            int item_id = players[index].inventory[slot].item.item_id;
+            
+            // For now, just remove one quantity
+            remove_item_from_player(index, item_id, 1);
+            send_inventory_update(index);
+            
+            // TODO: Implement item effects (healing, buffs, etc.)
+            LOG("Player %s used item %d\n", players[index].username, item_id);
+        }
+    }
+    else if (pkt->type == PACKET_ITEM_EQUIP) {
+        // Client equips/unequips an item
+        int slot = pkt->item_slot;
+        int equip_slot = pkt->equip_slot;
+        
+        if (slot >= 0 && slot < players[index].inventory_count && 
+            equip_slot >= 0 && equip_slot < EQUIP_SLOT_COUNT) {
+            
+            Item *item = &players[index].inventory[slot].item;
+            
+            // Check if there's already an equipped item in that slot
+            if (players[index].equipment[equip_slot].item_id > 0) {
+                // Unequip current item back to inventory
+                Item old_item = players[index].equipment[equip_slot];
+                give_item_to_player(index, old_item.item_id, old_item.quantity);
+            }
+            
+            // Equip the new item
+            players[index].equipment[equip_slot] = *item;
+            
+            // Remove from inventory
+            remove_item_from_player(index, item->item_id, item->quantity);
+            
+            save_player_inventory(index);
+            send_inventory_update(index);
+            
+            LOG("Player %s equipped item %d to slot %d\n", 
+                players[index].username, item->item_id, equip_slot);
+        }
+    }
+    else if (pkt->type == PACKET_ITEM_UNEQUIP) {
+        // Client unequips an item from equipment slot
+        int equip_slot = pkt->equip_slot;
+        
+        if (equip_slot >= 0 && equip_slot < EQUIP_SLOT_COUNT) {
+            // Check if there's an item equipped
+            if (players[index].equipment[equip_slot].item_id > 0) {
+                Item equipped_item = players[index].equipment[equip_slot];
+                
+                // Add to inventory
+                give_item_to_player(index, equipped_item.item_id, equipped_item.quantity);
+                
+                // Clear equipment slot
+                memset(&players[index].equipment[equip_slot], 0, sizeof(Item));
+                
+                save_player_inventory(index);
+                send_inventory_update(index);
+                
+                LOG("Player %s unequipped item %d from slot %d\n", 
+                    players[index].username, equipped_item.item_id, equip_slot);
+            }
+        }
+    }
 }
 
 int recv_full(socket_t sockfd, void *buf, size_t len) {
@@ -1215,6 +1793,54 @@ int recv_full(socket_t sockfd, void *buf, size_t len) {
         bytes_left -= n;
     }
     return total;
+}
+
+void cleanup_server() {
+    static int cleanup_called = 0;
+    if (cleanup_called) return;  // Prevent double cleanup
+    cleanup_called = 1;
+    
+    printf("\nShutting down server...\n");
+    if (log_file) LOG("Shutting down server...\n");
+    
+    // Close all client connections
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (SOCKET_IS_VALID(client_sockets[i])) {
+            close(client_sockets[i]);
+            client_sockets[i] = SOCKET_INVALID;
+        }
+    }
+    
+    // Close database properly with flush
+    if (db) {
+        // Ensure all pending transactions are completed
+        sqlite3_exec(db, "PRAGMA optimize;", 0, 0, 0);
+        int rc = sqlite3_close(db);
+        if (rc == SQLITE_BUSY) {
+            // Force close if busy
+            sqlite3_close_v2(db);
+        }
+        db = NULL;
+        printf("Database closed\n");
+        if (log_file) LOG("Database closed\n");
+    }
+    
+    // Close log file last
+    if (log_file) {
+        fclose(log_file);
+        log_file = NULL;
+    }
+    
+#ifdef _WIN32
+    WSACleanup();
+#endif
+    printf("Server shutdown complete\n");
+}
+
+void signal_handler(int signum) {
+    printf("\nReceived signal %d, shutting down...\n", signum);
+    cleanup_server();
+    exit(0);
 }
 
 // --- NEW TICK THREAD ---
@@ -1306,7 +1932,22 @@ int main(int argc, char *argv[]) {
     }
 #else
     signal(SIGPIPE, SIG_IGN);
-#endif 
+#endif
+
+    // Register cleanup function to run on exit (more reliable than signals on Windows)
+    atexit(cleanup_server);
+
+    // Install signal handlers for clean shutdown
+#ifdef _WIN32
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+    signal(SIGBREAK, signal_handler);
+#else
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+    signal(SIGPIPE, SIG_IGN);
+#endif
+    
     init_game();
     
     if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == SOCKET_INVALID) exit(1);

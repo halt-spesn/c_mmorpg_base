@@ -404,6 +404,17 @@ extern SDL_FingerID scroll_touch_id;
 extern int scroll_last_y;
 extern int joystick_active;
 
+// --- Inventory System ---
+extern InventorySlot my_inventory[MAX_INVENTORY_SLOTS];
+extern Item my_equipment[EQUIP_SLOT_COUNT];
+extern int my_inventory_count;
+extern int show_inventory;
+extern SDL_Rect inventory_win;
+extern SDL_Rect btn_inventory_toggle;
+extern int inventory_scroll;
+extern int selected_inv_slot;
+extern int dragging_item_slot;
+
 // --- Function Declarations ---
 
 // Network functions (client_network.c)
@@ -468,6 +479,14 @@ void render_inbox(SDL_Renderer *renderer, int w, int h);
 void render_add_friend_popup(SDL_Renderer *renderer, int w, int h);
 void render_sanction_popup(SDL_Renderer *renderer, int w, int h);
 void render_my_warnings(SDL_Renderer *renderer, int w, int h);
+void render_inventory(SDL_Renderer *renderer, int w, int h);
+void render_equipment_slot(SDL_Renderer *renderer, int slot, SDL_Rect rect);
+void render_inventory_slot(SDL_Renderer *renderer, InventorySlot *slot, SDL_Rect rect);
+void handle_inventory_click(int mx, int my);
+void request_item_pickup(void);
+void request_item_drop(int slot);
+void request_item_use(int slot);
+void request_item_equip(int slot, int equip_slot);
 void render_debug_overlay(SDL_Renderer *renderer, int screen_w);
 void render_role_list(SDL_Renderer *renderer, int w, int h);
 void process_slider_drag(int mx);
