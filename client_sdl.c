@@ -205,6 +205,14 @@ char gl_renderer_cache[128] = "";
 char gl_vendor_cache[128] = "";
 int gl_probe_done = 0;
 
+// Debug overlay caching to avoid expensive text rendering every frame
+SDL_Texture *debug_text_textures[14];
+SDL_Rect debug_text_rects[14];
+int debug_text_line_count = 0;
+Uint32 debug_cache_last_update = 0;
+int debug_box_w = 0, debug_box_h = 0;
+int debug_box_x = 0;
+
 #ifdef USE_VULKAN
 char vk_device_name[128] = "";
 int vk_probe_done = 0;
@@ -297,6 +305,16 @@ SDL_Rect btn_sanction_open;
 SDL_Rect btn_my_warnings;
 
 int active_slider = SLIDER_NONE;
+
+// Track scroll gesture vs tap
+int scroll_start_x = 0;
+int scroll_start_y = 0;
+int scroll_moved = 0;  // Flag to track if finger actually moved during scroll
+
+// Track overlay touch for proper click handling
+SDL_FingerID overlay_touch_id = -1;
+int overlay_touch_start_x = 0;
+int overlay_touch_start_y = 0;
 
 int my_r = 255, my_g = 255, my_b = 255;
 
@@ -668,84 +686,133 @@ void render_my_warnings(SDL_Renderer *renderer, int w, int h) {
 }
 
 void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
-    if (!show_debug_info) return;
-    char lines[14][128]; int line_count = 0;
-    snprintf(lines[line_count++], 128, get_string(STR_PING), current_ping);
-    snprintf(lines[line_count++], 128, "Server IP: %s", server_ip);
-    float px=0, py=0; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { px=local_players[i].x; py=local_players[i].y; }
-    snprintf(lines[line_count++], 128, "Pos: %.1f, %.1f", px, py);
-    
-    // Rendering backend info
-    #ifdef USE_VULKAN
-    if (render_backend == RENDER_BACKEND_VULKAN) {
-        snprintf(lines[line_count++], 128, "Render: Vulkan");
-    } else {
-        snprintf(lines[line_count++], 128, "Render: OpenGL");
-    }
-    #else
-    snprintf(lines[line_count++], 128, "Render: OpenGL");
-    #endif
-    
-    SDL_RendererInfo info;
-    SDL_GetRendererInfo(renderer, &info);
-    const char *renderer_str = info.name;
-    const char *video_drv = SDL_GetCurrentVideoDriver();
-    snprintf(lines[line_count++], 128, "VideoDrv: %s", video_drv ? video_drv : "Unknown");
-    
-    // Show GPU info based on backend
-    #ifdef USE_VULKAN
-    if (render_backend == RENDER_BACKEND_VULKAN && vk_device_name[0]) {
-        // Show Vulkan device name
-        snprintf(lines[line_count++], 128, "GPU: %s", vk_device_name);
-    } else
-    #endif
-    {
-        // Show SDL renderer name (fallback)
-        if (renderer_str) snprintf(lines[line_count++], 128, "GPU: %s", renderer_str); 
-        else snprintf(lines[line_count++], 128, "GPU: Unknown");
+    if (!show_debug_info) {
+        // Clean up cached textures when overlay is hidden
+        for(int i = 0; i < debug_text_line_count; i++) {
+            if (debug_text_textures[i]) {
+                SDL_DestroyTexture(debug_text_textures[i]);
+                debug_text_textures[i] = NULL;
+            }
+        }
+        debug_cache_last_update = 0;
+        debug_text_line_count = 0;
+        return;
     }
     
-    // Only show GL renderer info if we're actually using OpenGL backend
-    int is_gl_backend = (render_backend == RENDER_BACKEND_OPENGL);
+    Uint32 now = SDL_GetTicks();
+    // Only update debug textures every 500ms (2 times per second) to reduce overhead
+    int should_update = (debug_text_line_count == 0) || (now - debug_cache_last_update > 500);
     
-    void *glctx = SDL_GL_GetCurrentContext();
-    if (glctx && is_gl_backend) {
-        const char *gl_renderer = (const char*)glGetString(GL_RENDERER);
-        const char *gl_vendor   = (const char*)glGetString(GL_VENDOR);
-        if (gl_renderer && strlen(gl_renderer) > 0) snprintf(lines[line_count++], 128, "GL Renderer: %s", gl_renderer);
-        if (gl_vendor   && strlen(gl_vendor)   > 0) snprintf(lines[line_count++], 128, "GL Vendor: %s", gl_vendor);
-    } else if (is_gl_backend && !glctx) {
-        // OpenGL backend but no context - show cached info
-        if (gl_renderer_cache[0]) snprintf(lines[line_count++], 128, "GL Renderer: %s", gl_renderer_cache);
-        if (gl_vendor_cache[0])   snprintf(lines[line_count++], 128, "GL Vendor: %s", gl_vendor_cache);
-        else snprintf(lines[line_count++], 128, "GL Renderer: N/A");
+    if (should_update) {
+        // Clean up old textures
+        for(int i = 0; i < debug_text_line_count; i++) {
+            if (debug_text_textures[i]) {
+                SDL_DestroyTexture(debug_text_textures[i]);
+                debug_text_textures[i] = NULL;
+            }
+        }
+        
+        // Get current values
+        float px=0, py=0; 
+        for(int i=0; i<MAX_CLIENTS; i++) 
+            if(local_players[i].active && local_players[i].id == local_player_id) { 
+                px=local_players[i].x; py=local_players[i].y; 
+            }
+        
+        // Build debug text
+        char lines[14][128]; 
+        debug_text_line_count = 0;
+        snprintf(lines[debug_text_line_count++], 128, get_string(STR_PING), current_ping);
+        snprintf(lines[debug_text_line_count++], 128, "Server IP: %s", server_ip);
+        snprintf(lines[debug_text_line_count++], 128, "Pos: %.1f, %.1f", px, py);
+        
+        // Rendering backend info
+        #ifdef USE_VULKAN
+        if (render_backend == RENDER_BACKEND_VULKAN) {
+            snprintf(lines[debug_text_line_count++], 128, "Render: Vulkan");
+        } else {
+            snprintf(lines[debug_text_line_count++], 128, "Render: OpenGL");
+        }
+        #else
+        snprintf(lines[debug_text_line_count++], 128, "Render: OpenGL");
+        #endif
+        
+        SDL_RendererInfo info;
+        SDL_GetRendererInfo(renderer, &info);
+        const char *video_drv = SDL_GetCurrentVideoDriver();
+        snprintf(lines[debug_text_line_count++], 128, "VideoDrv: %s", video_drv ? video_drv : "Unknown");
+        
+        // Show GPU info based on backend
+        #ifdef USE_VULKAN
+        if (render_backend == RENDER_BACKEND_VULKAN && vk_device_name[0]) {
+            snprintf(lines[debug_text_line_count++], 128, "GPU: %s", vk_device_name);
+        } else
+        #endif
+        {
+            if (info.name) snprintf(lines[debug_text_line_count++], 128, "GPU: %s", info.name); 
+            else snprintf(lines[debug_text_line_count++], 128, "GPU: Unknown");
+        }
+        
+        // Always use cached GL info to avoid expensive glGetString() calls
+        int is_gl_backend = (render_backend == RENDER_BACKEND_OPENGL);
+        if (is_gl_backend) {
+            if (gl_renderer_cache[0]) snprintf(lines[debug_text_line_count++], 128, "GL Renderer: %s", gl_renderer_cache);
+            if (gl_vendor_cache[0]) snprintf(lines[debug_text_line_count++], 128, "GL Vendor: %s", gl_vendor_cache);
+        }
+        
+        SDL_version compiled; SDL_VERSION(&compiled); 
+        snprintf(lines[debug_text_line_count++], 128, "SDL: %d.%d.%d", compiled.major, compiled.minor, compiled.patch);
+        #ifndef _WIN32
+        struct utsname buffer; 
+        if (uname(&buffer) == 0) snprintf(lines[debug_text_line_count++], 128, "OS: %s %s", buffer.sysname, buffer.release); 
+        else snprintf(lines[debug_text_line_count++], 128, "OS: Unknown");
+        #else
+        snprintf(lines[debug_text_line_count++], 128, "OS: Windows");
+        #endif
+        char compiler_name[10] = "Unknown";
+        #if defined(__clang__) 
+            strcpy(compiler_name, "Clang");
+        #elif defined(__GNUC__)
+            strcpy(compiler_name, "GCC");
+        #endif
+        snprintf(lines[debug_text_line_count++], 128, "Compiler: %s %s", compiler_name, __VERSION__);
+        
+        // Pre-render all text lines to textures
+        for(int i = 0; i < debug_text_line_count; i++) {
+            SDL_Color color = col_white; 
+            if (strncmp(lines[i], "Ping:", 5) == 0) color = col_green;
+            if (strncmp(lines[i], "Render: Vulkan", 14) == 0) color = col_cyan;
+            
+            SDL_Surface *surface = TTF_RenderUTF8_Blended(font, lines[i], color);
+            if (surface) {
+                debug_text_textures[i] = SDL_CreateTextureFromSurface(renderer, surface);
+                debug_text_rects[i].w = surface->w;
+                debug_text_rects[i].h = surface->h;
+                SDL_FreeSurface(surface);
+            }
+        }
+        
+        // Calculate box dimensions
+        debug_box_w = 450;
+        debug_box_h = (debug_text_line_count * 20) + 10;
+        debug_box_x = screen_w - debug_box_w - 10;
+        if (debug_box_x < 10) debug_box_x = 10;
+        
+        debug_cache_last_update = now;
     }
-    // Note: For Vulkan/other non-GL backends, we don't show GL renderer info
-    SDL_version compiled; SDL_VERSION(&compiled); snprintf(lines[line_count++], 128, "SDL: %d.%d.%d", compiled.major, compiled.minor, compiled.patch);
-    #ifndef _WIN32
-    struct utsname buffer; 
-    if (uname(&buffer) == 0) snprintf(lines[line_count++], 128, "OS: %s %s", buffer.sysname, buffer.release); 
-    else snprintf(lines[line_count++], 128, "OS: Unknown");
-    #else
-    snprintf(lines[line_count++], 128, "OS: Windows");
-    #endif
-    char compiler_name[10] = "Unknown";
-    #if defined(__clang__) 
-        strcpy(compiler_name, "Clang");
-    #elif defined(__GNUC__)
-        strcpy(compiler_name, "GCC");
-    #endif
-    snprintf(lines[line_count++], 128, "Compiler: %s %s", compiler_name, __VERSION__);
-    int max_w = 200; for(int i=0; i<line_count; i++) { int w, h; TTF_SizeText(font, lines[i], &w, &h); if (w > max_w) max_w = w; }
-    int box_w = max_w + 20; int box_h = (line_count * 20) + 10;
-    int start_x = screen_w - box_w - 10; if (start_x < 10) start_x = 10;
-    SDL_Rect dbg_box = {start_x, 10, box_w, box_h};
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 150); SDL_RenderFillRect(renderer, &dbg_box);
+    
+    // Render cached textures (fast)
+    SDL_Rect dbg_box = {debug_box_x, 10, debug_box_w, debug_box_h};
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 150); 
+    SDL_RenderFillRect(renderer, &dbg_box);
+    
     int y = 15;
-    for(int i=0; i<line_count; i++) {
-        SDL_Color color = col_white; if (strncmp(lines[i], "Ping:", 5) == 0) color = col_green;
-        if (strncmp(lines[i], "Render: Vulkan", 14) == 0) color = col_cyan;
-        render_raw_text(renderer, lines[i], dbg_box.x + 10, y, color, 0); y += 20;
+    for(int i = 0; i < debug_text_line_count; i++) {
+        if (debug_text_textures[i]) {
+            SDL_Rect dst = {dbg_box.x + 10, y, debug_text_rects[i].w, debug_text_rects[i].h};
+            SDL_RenderCopy(renderer, debug_text_textures[i], NULL, &dst);
+        }
+        y += 20;
     }
 }
 
@@ -2199,6 +2266,8 @@ void render_game(SDL_Renderer *renderer) {
     }
 
     if (show_debug_info) {
+        // Batch blend mode changes to reduce state switches
+        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
         for(int t=0; t<trigger_count; t++) {
             // Only draw triggers for the current map
             if (strcmp(triggers[t].src_map, current_map_file) == 0) {
@@ -2207,9 +2276,16 @@ void render_game(SDL_Renderer *renderer) {
                 r.y -= cam_y;
                 
                 SDL_SetRenderDrawColor(renderer, 0, 255, 0, 100); // Semi-transparent Green
-                SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
                 SDL_RenderFillRect(renderer, &r);
-                SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+            }
+        }
+        // Draw all outlines after fills
+        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+        for(int t=0; t<trigger_count; t++) {
+            if (strcmp(triggers[t].src_map, current_map_file) == 0) {
+                SDL_Rect r = triggers[t].rect;
+                r.x -= cam_x;
+                r.y -= cam_y;
                 SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255); // Solid Outline
                 SDL_RenderDrawRect(renderer, &r);
             }
@@ -2805,7 +2881,10 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
 
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &viewport)) {
             // Toggles
-            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_debug)) { show_debug_info = !show_debug_info; save_config(); return; }
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_debug)) { 
+                show_debug_info = !show_debug_info; 
+                save_config(); return; 
+            }
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_fps)) { show_fps = !show_fps; save_config(); return; }
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_coords)) { show_coords = !show_coords; save_config(); return; }
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_toggle_unread)) { show_unread_counter = !show_unread_counter; save_config(); return; }
@@ -2895,6 +2974,11 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
                 save_config();
                 return;
             }
+        }
+        
+        // Close settings if clicked outside the window
+        if (!SDL_PointInRect(&(SDL_Point){mx, my}, &s_win)) {
+            is_settings_open = 0;
         }
         return; 
     }
@@ -3621,7 +3705,6 @@ int main(int argc, char *argv[]) {
                 // Convert touch coordinates to UI space
                 int tx = (int)((event.tfinger.x * w) / ui_scale);
                 int ty = (int)((event.tfinger.y * h) / ui_scale);
-                printf("[FINGERDOWN] tx=%d ty=%d w=%d h=%d fingerId=%lld state=%d ui_scale=%.2f\n", tx, ty, w, h, (long long)event.tfinger.fingerId, client_state, ui_scale);
 
                 #if defined(__ANDROID__) || defined(__IPHONEOS__)
                 // Check if clicking on mobile text menu
@@ -3748,8 +3831,8 @@ int main(int argc, char *argv[]) {
 
                 // Touch scrolling support for all scrollable windows
                 // Check each window independently to see if touch is within its bounds
-                // This allows overlay windows (docs, contributors, etc.) to work even when settings is open
-                // NOTE: tx, ty are in UI space (divided by ui_scale), so window coords must match
+                // NOTE: Scroll detection doesn't block button clicks - both can happen
+                // Actual scrolling happens on FINGERMOTION
                 int scaled_w = w / ui_scale;
                 int scaled_h = h / ui_scale;
                 
@@ -3759,81 +3842,180 @@ int main(int argc, char *argv[]) {
                     if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
                         scroll_touch_id = event.tfinger.fingerId;
                         scroll_last_y = ty;
+                        scroll_start_x = tx;
+                        scroll_start_y = ty;
+                        scroll_moved = 0;
                         scroll_window_id = 1; // Documentation
-                        printf("[FINGERDOWN] Documentation scroll touch started\n");
                     }
                 }
-                else if (show_contributors) {
+                if (show_contributors) {
                     SDL_Rect win = {scaled_w/2 - 200, scaled_h/2 - 200, 400, 400};
                     SDL_Rect content_area = {win.x + 10, win.y + 50, win.w - 20, win.h - 60};
                     if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
                         scroll_touch_id = event.tfinger.fingerId;
                         scroll_last_y = ty;
+                        scroll_start_x = tx;
+                        scroll_start_y = ty;
+                        scroll_moved = 0;
                         scroll_window_id = 2; // Contributors
-                        printf("[FINGERDOWN] Contributors scroll touch started\n");
                     }
                 }
-                else if (show_role_list) {
+                if (show_role_list) {
                     SDL_Rect win = {scaled_w/2 - 200, scaled_h/2 - 225, 400, 450};
                     SDL_Rect content_area = {win.x + 10, win.y + 50, win.w - 20, win.h - 60};
                     if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
                         scroll_touch_id = event.tfinger.fingerId;
                         scroll_last_y = ty;
+                        scroll_start_x = tx;
+                        scroll_start_y = ty;
+                        scroll_moved = 0;
                         scroll_window_id = 6; // Role list
-                        printf("[FINGERDOWN] Staff list scroll touch started\n");
                     }
                 }
-                else if (show_friend_list) {
+                if (show_friend_list) {
                     SDL_Rect win = {scaled_w/2 - 200, scaled_h/2 - 200, 400, 400};
                     SDL_Rect content_area = {win.x + 10, win.y + 80, win.w - 20, win.h - 85};
                     if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
                         scroll_touch_id = event.tfinger.fingerId;
                         scroll_last_y = ty;
+                        scroll_start_x = tx;
+                        scroll_start_y = ty;
+                        scroll_moved = 0;
                         scroll_window_id = 3; // Friend list
-                        printf("[FINGERDOWN] Friend list scroll touch started\n");
                     }
                 }
-                else if (is_inbox_open) {
+                if (is_inbox_open) {
                     SDL_Rect win = {scaled_w/2 - 150, scaled_h/2 - 150, 300, 300};
                     SDL_Rect content_area = {win.x + 10, win.y + 35, win.w - 20, win.h - 40};
                     if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
                         scroll_touch_id = event.tfinger.fingerId;
                         scroll_last_y = ty;
+                        scroll_start_x = tx;
+                        scroll_start_y = ty;
+                        scroll_moved = 0;
                         scroll_window_id = 4; // Inbox
-                        printf("[FINGERDOWN] Inbox scroll touch started\n");
                     }
                 }
-                else if (show_my_warnings) {
+                if (show_my_warnings) {
                     SDL_Rect win = {scaled_w/2 - 200, scaled_h/2 - 200, 400, 400};
                     SDL_Rect content_area = {win.x + 10, win.y + 45, win.w - 20, win.h - 50};
                     if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
                         scroll_touch_id = event.tfinger.fingerId;
                         scroll_last_y = ty;
+                        scroll_start_x = tx;
+                        scroll_start_y = ty;
+                        scroll_moved = 0;
                         scroll_window_id = 5; // Warnings
-                        printf("[FINGERDOWN] Warnings scroll touch started\n");
                     }
                 }
-                else if (show_blocked_list) {
+                if (show_blocked_list) {
                     SDL_Rect win = {scaled_w/2 - 150, scaled_h/2 - 200, 300, 400};
                     SDL_Rect content_area = {win.x + 10, win.y + 45, win.w - 20, win.h - 50};
                     if (SDL_PointInRect(&(SDL_Point){tx, ty}, &content_area)) {
                         scroll_touch_id = event.tfinger.fingerId;
                         scroll_last_y = ty;
+                        scroll_start_x = tx;
+                        scroll_start_y = ty;
+                        scroll_moved = 0;
                         scroll_window_id = 7; // Blocked list
-                        printf("[FINGERDOWN] Blocked list scroll touch started\n");
                     }
                 }
-                else if (is_settings_open && SDL_PointInRect(&(SDL_Point){tx, ty}, &settings_view_port)) {
-                    scroll_touch_id = event.tfinger.fingerId;
-                    scroll_last_y = ty;
-                    scroll_window_id = 0; // Settings
-                    printf("[FINGERDOWN] Settings scroll touch started\n");
+                // Don't allow settings scrolling if any popups/overlays are open over it
+                // Also check for slider touches first - if touching a slider, don't enable scrolling
+                if (is_settings_open && 
+                    !show_nick_popup && !show_password_popup && 
+                    !show_blocked_list && !show_add_friend_popup && 
+                    !show_contributors && !show_documentation && 
+                    !show_my_warnings && !show_role_list && 
+                    SDL_PointInRect(&(SDL_Point){tx, ty}, &settings_view_port)) {
+                    
+                    // Check if this touch is on a slider - if so, don't enable scrolling
+                    int is_slider_touch = 0;
+                    SDL_Rect sliders[] = {slider_r, slider_g, slider_b, slider_r2, slider_g2, slider_b2, 
+                                         slider_volume, slider_afk, slider_ui_scale, slider_game_zoom};
+                    int margin = 15;
+                    for (int i = 0; i < 10; i++) {
+                        SDL_Rect touch_area = sliders[i];
+                        touch_area.x -= margin; touch_area.y -= margin;
+                        touch_area.w += margin*2; touch_area.h += margin*2;
+                        if (SDL_PointInRect(&(SDL_Point){tx, ty}, &touch_area)) {
+                            is_slider_touch = 1;
+                            break;
+                        }
+                    }
+                    
+                    if (!is_slider_touch) {
+                        scroll_touch_id = event.tfinger.fingerId;
+                        scroll_last_y = ty;
+                        scroll_start_x = tx;
+                        scroll_start_y = ty;
+                        scroll_moved = 0;
+                        scroll_window_id = 0; // Settings
+                    }
                 }
-                // Game-specific touch handling only in STATE_GAME
-                else if (client_state == STATE_GAME) {
+                
+                // Game-specific touch handling - process regardless of scroll detection
+                if (client_state == STATE_GAME) {
                     // Use scaled height for UI coordinate calculations
                     int scaled_h = (int)(h / ui_scale);
-                    if (is_chat_open) {
+                    int scaled_w = (int)(w / ui_scale);
+                    
+                    // PRIORITY 1: Check HUD buttons FIRST - they should always be accessible
+                    if (SDL_PointInRect(&(SDL_Point){tx, ty}, &(SDL_Rect){10, scaled_h-40, 100, 30})) {
+                        // Chat button
+                        is_chat_open = !is_chat_open; 
+                        if(is_chat_open) { 
+                            unread_chat_count = 0; 
+                            #if defined(__ANDROID__) || defined(__IPHONEOS__)
+                            chat_input_active = 0;
+                            #else
+                            chat_input_active = 1;
+                            SDL_StartTextInput();
+                            #endif
+                        } else { 
+                            chat_input_active = 0; 
+                            SDL_StopTextInput();
+                            #if defined(__ANDROID__) || defined(__IPHONEOS__)
+                            keyboard_height = 0;
+                            #endif
+                        }
+                    }
+                    else if (SDL_PointInRect(&(SDL_Point){tx, ty}, &(SDL_Rect){120, scaled_h-40, 100, 30})) {
+                        // Friends button
+                        show_friend_list = !show_friend_list;
+                    }
+                    else if (SDL_PointInRect(&(SDL_Point){tx, ty}, &(SDL_Rect){230, scaled_h-40, 100, 30})) {
+                        // Settings button
+                        is_settings_open = !is_settings_open;
+                        if (!is_settings_open) { 
+                            show_nick_popup = 0; 
+                            show_password_popup = 0; 
+                            show_blocked_list = 0; 
+                            active_field = -1; 
+                        } else {
+                            // Sync Globals
+                            for(int i=0; i<MAX_CLIENTS; i++) {
+                                if(local_players[i].active && local_players[i].id == local_player_id) {
+                                    my_r = local_players[i].r; 
+                                    my_g = local_players[i].g; 
+                                    my_b = local_players[i].b;
+                                    my_r2 = local_players[i].r2; 
+                                    my_g2 = local_players[i].g2; 
+                                    my_b2 = local_players[i].b2;
+                                }
+                            }
+                        }
+                    }
+                    else if (SDL_PointInRect(&(SDL_Point){tx, ty}, &(SDL_Rect){scaled_w - 50, 10, 40, 40})) {
+                        // Inbox button
+                        is_inbox_open = !is_inbox_open;
+                        if (is_inbox_open) { 
+                            show_friend_list = 0; 
+                            show_add_friend_popup = 0; 
+                            is_settings_open = 0; 
+                        }
+                    }
+                    else if (is_chat_open) {
                         // Calculate chat window position with keyboard shift (same as rendering)
                         #if defined(__ANDROID__) || defined(__IPHONEOS__)
                         int chat_y = get_chat_window_y(scaled_h, ui_scale);
@@ -3897,7 +4079,6 @@ int main(int argc, char *argv[]) {
                             scroll_touch_id = event.tfinger.fingerId;
                             scroll_last_y = ty;
                             scroll_window_id = 8; // Chat
-                            printf("[FINGERDOWN] Chat scroll touch started\n");
                         } else if (!SDL_PointInRect(&(SDL_Point){tx, ty}, &chat_win)) {
                             chat_input_active = 0;
                             if (active_field < 0) SDL_StopTextInput();
@@ -3905,18 +4086,118 @@ int main(int argc, char *argv[]) {
                             keyboard_height = 0;
                             #endif
                         }
-                    } else if (touch_id_dpad == -1) {
-                        // Create joystick only in game state
+                    }
+                    // Check if touching inside any overlay/popup window - prevents joystick creation
+                    // Don't call handle_game_click here - wait for FINGERUP to avoid double-clicks
+                    else if (show_friend_list || is_inbox_open || is_settings_open || show_sanction_popup || 
+                             show_my_warnings || show_add_friend_popup || show_blocked_list ||
+                             show_contributors || show_documentation || show_role_list) {
+                        // Define overlay window rectangles (must match rendering positions)
+                        int touching_overlay_window = 0;
+                        
+                        if (show_friend_list) {
+                            SDL_Rect win = {scaled_w/2 - 200, scaled_h/2 - 200, 400, 400};
+                            if (SDL_PointInRect(&(SDL_Point){tx, ty}, &win)) touching_overlay_window = 1;
+                        }
+                        if (is_inbox_open) {
+                            SDL_Rect win = {scaled_w - 320, 60, 300, 300};
+                            if (SDL_PointInRect(&(SDL_Point){tx, ty}, &win)) touching_overlay_window = 1;
+                        }
+                        if (is_settings_open) {
+                            SDL_Rect win = {scaled_w/2 - 175, scaled_h/2 - 300, 350, 600};
+                            if (SDL_PointInRect(&(SDL_Point){tx, ty}, &win)) touching_overlay_window = 1;
+                            // Check settings sub-popups
+                            if (show_nick_popup) {
+                                SDL_Rect pop = {scaled_w/2 - 150, scaled_h/2 - 150, 300, 300};
+                                if (SDL_PointInRect(&(SDL_Point){tx, ty}, &pop)) touching_overlay_window = 1;
+                            }
+                            if (show_password_popup) {
+                                SDL_Rect pop = {scaled_w/2 - 175, scaled_h/2 - 200, 350, 400};
+                                if (SDL_PointInRect(&(SDL_Point){tx, ty}, &pop)) touching_overlay_window = 1;
+                            }
+                        }
+                        if (show_sanction_popup) {
+                            SDL_Rect win = {scaled_w/2 - 150, scaled_h/2 - 150, 300, 300};
+                            if (SDL_PointInRect(&(SDL_Point){tx, ty}, &win)) touching_overlay_window = 1;
+                        }
+                        if (show_my_warnings) {
+                            SDL_Rect win = {scaled_w/2 - 200, scaled_h/2 - 200, 400, 400};
+                            if (SDL_PointInRect(&(SDL_Point){tx, ty}, &win)) touching_overlay_window = 1;
+                        }
+                        if (show_add_friend_popup) {
+                            SDL_Rect pop = {scaled_w/2 - 150, scaled_h/2 - 100, 300, 200};
+                            if (SDL_PointInRect(&(SDL_Point){tx, ty}, &pop)) touching_overlay_window = 1;
+                        }
+                        if (show_blocked_list) {
+                            SDL_Rect win = {scaled_w/2 - 150, scaled_h/2 - 200, 300, 400};
+                            if (SDL_PointInRect(&(SDL_Point){tx, ty}, &win)) touching_overlay_window = 1;
+                        }
+                        if (show_contributors) {
+                            SDL_Rect win = {scaled_w/2 - 200, scaled_h/2 - 225, 400, 450};
+                            if (SDL_PointInRect(&(SDL_Point){tx, ty}, &win)) touching_overlay_window = 1;
+                        }
+                        if (show_documentation) {
+                            SDL_Rect win = {scaled_w/2 - 225, scaled_h/2 - 250, 450, 500};
+                            if (SDL_PointInRect(&(SDL_Point){tx, ty}, &win)) touching_overlay_window = 1;
+                        }
+                        if (show_role_list) {
+                            SDL_Rect win = {scaled_w/2 - 200, scaled_h/2 - 225, 400, 450};
+                            if (SDL_PointInRect(&(SDL_Point){tx, ty}, &win)) touching_overlay_window = 1;
+                        }
+                        
+                        if (touching_overlay_window) {
+                            // Touch is inside an overlay window - track it for FINGERUP handling
+                            // But first check if it's on a slider in settings (and no popups are blocking)
+                            int is_slider_touch = 0;
+                            if (is_settings_open && !show_nick_popup && !show_password_popup && 
+                                !show_blocked_list && !show_add_friend_popup && 
+                                !show_contributors && !show_documentation && 
+                                !show_my_warnings && !show_role_list) {
+                                // Check if touching any slider (with expanded hit area)
+                                SDL_Rect sliders[] = {slider_r, slider_g, slider_b, slider_r2, slider_g2, slider_b2, 
+                                                     slider_volume, slider_afk, slider_ui_scale, slider_game_zoom};
+                                int slider_ids[] = {SLIDER_R, SLIDER_G, SLIDER_B, SLIDER_R2, SLIDER_G2, SLIDER_B2,
+                                                   SLIDER_VOL, SLIDER_AFK, SLIDER_UI_SCALE, SLIDER_GAME_ZOOM};
+                                int margin = 15;
+                                for (int i = 0; i < 10; i++) {
+                                    SDL_Rect touch_area = sliders[i];
+                                    touch_area.x -= margin; touch_area.y -= margin;
+                                    touch_area.w += margin*2; touch_area.h += margin*2;
+                                    if (SDL_PointInRect(&(SDL_Point){tx, ty}, &touch_area)) {
+                                        active_slider = slider_ids[i];
+                                        overlay_touch_id = event.tfinger.fingerId; // Track this finger for slider
+                                        process_slider_drag(tx);
+                                        is_slider_touch = 1;
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            if (!is_slider_touch) {
+                                overlay_touch_id = event.tfinger.fingerId;
+                                overlay_touch_start_x = tx;
+                                overlay_touch_start_y = ty;
+                            }
+                        } else if (touch_id_dpad == -1) {
+                            // Touch is outside overlay windows - allow joystick creation
+                            dpad_rect = (SDL_Rect){tx - 75, ty - 75, 150, 150};
+                            touch_id_dpad = event.tfinger.fingerId;
+                            vjoy_dx = 0; vjoy_dy = 0;
+                            joystick_active = 1;
+                        } else {
+                            // Already have joystick - will handle click on FINGERUP
+                        }
+                    }
+                    else if (touch_id_dpad == -1) {
+                        // Create joystick only in game state (and only if not touching UI buttons)
                         // dpad_rect is in UI space (renderer will apply ui_scale)
                         dpad_rect = (SDL_Rect){tx - 75, ty - 75, 150, 150};
                         touch_id_dpad = event.tfinger.fingerId;
                         vjoy_dx = 0; vjoy_dy = 0;
                         joystick_active = 1;
-                        printf("[FINGERDOWN] Joystick created at tx=%d ty=%d, fingerId=%lld\n", tx, ty, (long long)touch_id_dpad);
                     } else {
                         // Treat other touches as Mouse Clicks for UI (use scaled coordinates)
-                        handle_game_click(tx, ty, 0, 0, (int)(w / ui_scale), (int)(h / ui_scale)); 
-                        printf("[FINGERDOWN] Game click\n");
+                        handle_game_click(tx, ty, 0, 0, scaled_w, scaled_h);
                     }
                 }
             }
@@ -3940,6 +4221,9 @@ int main(int argc, char *argv[]) {
                     int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
                     int ty = (int)((event.tfinger.y * h) / ui_scale);
                     int delta = scroll_last_y - ty;
+                    
+                    // Mark that scrolling actually happened (finger moved)
+                    if (abs(delta) > 3) scroll_moved = 1;
                     
                     // Apply scrolling only to the window that was touched
                     if (scroll_window_id == 0 && is_settings_open) {
@@ -4054,8 +4338,6 @@ int main(int argc, char *argv[]) {
                     // Clamp
                     if(vjoy_dx > 1.0f) vjoy_dx = 1.0f; if(vjoy_dx < -1.0f) vjoy_dx = -1.0f;
                     if(vjoy_dy > 1.0f) vjoy_dy = 1.0f; if(vjoy_dy < -1.0f) vjoy_dy = -1.0f;
-                    printf("[FINGERMOTION] Joystick: fingerId=%lld touch_x=%d touch_y=%d vjoy_dx=%.2f vjoy_dy=%.2f\n", 
-                    (long long)event.tfinger.fingerId, touch_x, touch_y, vjoy_dx, vjoy_dy);
                 } 
                 #if defined(__ANDROID__) || defined(__IPHONEOS__)
                 // Handle text selection dragging on mobile
@@ -4079,10 +4361,15 @@ int main(int argc, char *argv[]) {
                         selection_len = cursor_pos - selection_start;
                     }
                 }
+                // Handle slider dragging with touch (check if this finger is the overlay touch)
+                else if (active_slider != SLIDER_NONE && event.tfinger.fingerId == overlay_touch_id) {
+                    int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
+                    int tx = (int)((event.tfinger.x * w) / ui_scale);
+                    process_slider_drag(tx);
+                }
                 #endif
                 else {
-                    printf("[FINGERMOTION] Unknown finger: %lld (scroll=%lld, dpad=%lld)\n", 
-                           (long long)event.tfinger.fingerId, (long long)scroll_touch_id, (long long)touch_id_dpad);
+                    // Unknown finger motion - ignore
                 }
             }
             else if (event.type == SDL_FINGERUP) {
@@ -4092,7 +4379,6 @@ int main(int argc, char *argv[]) {
                 int ty = (int)((event.tfinger.y * h) / ui_scale);
                 int scaled_w = (int)(w / ui_scale);
                 int scaled_h = (int)(h / ui_scale);
-                
                 // Check for long press and show menu
                 if (long_press_active) {
                     Uint32 press_duration = SDL_GetTicks() - long_press_start_time;
@@ -4118,14 +4404,48 @@ int main(int argc, char *argv[]) {
                 #endif
                 
                 if (event.tfinger.fingerId == scroll_touch_id) {
+                    // If finger didn't move much, treat as a tap/click instead of scroll
+                    if (!scroll_moved && client_state == STATE_GAME) {
+                        int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
+                        int tap_x = scroll_start_x;
+                        int tap_y = scroll_start_y;
+                        int scaled_w = (int)(w / ui_scale);
+                        int scaled_h = (int)(h / ui_scale);
+                        handle_game_click(tap_x, tap_y, 0, 0, scaled_w, scaled_h);
+                    }
                     scroll_touch_id = -1;
                     scroll_window_id = -1;
                     scroll_last_y = 0;
+                    scroll_moved = 0;
+                } else if (event.tfinger.fingerId == overlay_touch_id) {
+                    // Handle overlay touch that wasn't a scroll or slider
+                    // Only process click if finger is released near where it started (within 50 pixels)
+                    int dx = abs(tx - overlay_touch_start_x);
+                    int dy = abs(ty - overlay_touch_start_y);
+                    if (client_state == STATE_GAME && active_slider == SLIDER_NONE && dx < 50 && dy < 50) {
+                        int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
+                        int scaled_w = (int)(w / ui_scale);
+                        int scaled_h = (int)(h / ui_scale);
+                        handle_game_click(overlay_touch_start_x, overlay_touch_start_y, 0, 0, scaled_w, scaled_h);
+                    }
+                    overlay_touch_id = -1;
                 } else if (event.tfinger.fingerId == touch_id_dpad) {
                     touch_id_dpad = -1;
                     vjoy_dx = 0; vjoy_dy = 0;
                     joystick_active = 0;
                 }
+                
+                // Apply pending slider changes on finger up (same as mouse up)
+                if (active_slider == SLIDER_UI_SCALE && pending_ui_scale != ui_scale) {
+                    ui_scale = pending_ui_scale;
+                    reload_font_for_ui_scale();
+                    save_config();
+                }
+                if (active_slider == SLIDER_GAME_ZOOM && pending_game_zoom != game_zoom) {
+                    game_zoom = pending_game_zoom;
+                    save_config();
+                }
+                active_slider = SLIDER_NONE;
             }
             
             // --- Mouse Drag Handling ---
@@ -4195,6 +4515,15 @@ int main(int argc, char *argv[]) {
                     int mx = (int)((event.button.x * scale_x) / ui_scale);
                     int my = (int)((event.button.y * scale_y) / ui_scale);
                     handle_auth_click(mx, my);
+                }
+                // Handle touch input on mobile devices
+                else if(event.type == SDL_FINGERDOWN) {
+                    int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
+                    // Convert touch coordinates to UI space
+                    int tx = (int)((event.tfinger.x * w) / ui_scale);
+                    int ty = (int)((event.tfinger.y * h) / ui_scale);
+                    printf("[AUTH FINGERDOWN] tx=%d ty=%d\n", tx, ty);
+                    handle_auth_click(tx, ty);
                 }
                 
                 char *target = NULL; int max = 31;

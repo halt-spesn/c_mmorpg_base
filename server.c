@@ -1250,7 +1250,51 @@ int main(int argc, char *argv[]) {
         exit(1); 
     }
     
-    printf("Server running on port %d...\n", current_port);
+    // Get and display server IP address
+    char hostname[256];
+    char ip_address[INET_ADDRSTRLEN] = "0.0.0.0";
+    int found_good_ip = 0;
+    
+    if (gethostname(hostname, sizeof(hostname)) == 0) {
+        struct hostent *host_entry = gethostbyname(hostname);
+        if (host_entry != NULL && host_entry->h_addr_list[0] != NULL) {
+            // Iterate through all IP addresses and prefer non-virtual interfaces
+            for (int i = 0; host_entry->h_addr_list[i] != NULL; i++) {
+                struct in_addr addr;
+                memcpy(&addr, host_entry->h_addr_list[i], sizeof(struct in_addr));
+#ifdef _WIN32
+                char *current_ip = inet_ntoa(addr);
+#else
+                char current_ip[INET_ADDRSTRLEN];
+                inet_ntop(AF_INET, &addr, current_ip, INET_ADDRSTRLEN);
+#endif
+                
+                // Skip localhost
+                if (strncmp(current_ip, "127.", 4) == 0) continue;
+                
+                // Prefer private network IPs (192.168.x.x, 10.x.x.x) over virtual adapters
+                // WSL typically uses 172.x.x.x but so do some LANs, so we prefer 192.168 first
+                if (!found_good_ip || 
+                    (strncmp(current_ip, "192.168.", 8) == 0) ||
+                    (strncmp(current_ip, "10.", 3) == 0 && strncmp(ip_address, "192.168.", 8) != 0)) {
+                    strcpy(ip_address, current_ip);
+                    found_good_ip = 1;
+                    // If we found a 192.168.x.x address, use it immediately (most likely WiFi/LAN)
+                    if (strncmp(current_ip, "192.168.", 8) == 0) break;
+                }
+            }
+            
+            if (found_good_ip) {
+                printf("Server running on %s:%d\n", ip_address, current_port);
+            } else {
+                printf("Server running on port %d (could not determine IP)\n", current_port);
+            }
+        } else {
+            printf("Server running on port %d (could not determine IP)\n", current_port);
+        }
+    } else {
+        printf("Server running on port %d (could not determine IP)\n", current_port);
+    }
 
     // Start Tick Thread
     pthread_t ticker;
