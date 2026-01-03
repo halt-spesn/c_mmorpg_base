@@ -289,7 +289,12 @@ void load_telemetry();  // Forward declaration
 
 void init_game() {
     init_db(); init_storage(); load_triggers(); load_telemetry();
-    for (int i = 0; i < MAX_CLIENTS; i++) { client_sockets[i] = SOCKET_INVALID; players[i].active = 0; players[i].id = -1; }
+    for (int i = 0; i < MAX_CLIENTS; i++) { 
+        client_sockets[i] = SOCKET_INVALID; 
+        players[i].active = 0; 
+        players[i].id = -1; 
+        players[i].is_typing = 0;
+    }
 }
 
 void broadcast_state() {
@@ -1191,6 +1196,11 @@ void handle_client_message(int index, Packet *pkt) {
         if (players[index].id != -1) {
             update_telemetry(players[index].id, pkt->gl_renderer, pkt->os_info);
         }
+    }
+    else if (pkt->type == PACKET_TYPING) {
+        // Update typing status and broadcast
+        players[index].is_typing = pkt->player_id; // 1 = typing, 0 = not typing
+        broadcast_state();
     }
 }
 

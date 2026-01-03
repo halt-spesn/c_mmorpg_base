@@ -32,7 +32,7 @@ typedef enum {
     PACKET_SANCTION_REQUEST, PACKET_WARNINGS_REQUEST, PACKET_WARNINGS_RESPONSE,
     PACKET_KICK, PACKET_MAP_CHANGE, PACKET_TRIGGERS_DATA,
     PACKET_CHANGE_PASSWORD_REQUEST, PACKET_CHANGE_PASSWORD_RESPONSE,
-    PACKET_TELEMETRY
+    PACKET_TELEMETRY, PACKET_TYPING
 } PacketType;
 
 typedef enum {
@@ -71,6 +71,7 @@ typedef struct {
     uint8_t r, g, b;
     uint8_t r2, g2, b2;
     char map_name[32];
+    int32_t is_typing;
 } Player;
 
 typedef struct {

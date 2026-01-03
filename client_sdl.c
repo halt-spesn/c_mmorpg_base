@@ -94,6 +94,8 @@ int is_chat_open = 0;
 int chat_target_id = -1;
 int chat_input_active = 0;
 char input_buffer[64] = "";
+int is_typing = 0;  // Local typing status
+Uint32 last_typing_update = 0;  // Last time we sent typing status
 
 ClientState client_state = STATE_AUTH;
 
@@ -2317,6 +2319,30 @@ void render_game(SDL_Renderer *renderer) {
             }
             render_text_gradient(renderer, local_players[i].username, dst.x+16, dst.y - 18, c1, c2, 1);
             
+            // Draw typing indicator
+            if (local_players[i].is_typing) {
+                // Animated dots: cycle through 1, 2, 3 dots based on time
+                int dot_count = ((now / 500) % 3) + 1;
+                char typing_text[8] = "";
+                for (int d = 0; d < dot_count; d++) {
+                    strcat(typing_text, ".");
+                }
+                
+                // Measure text width for centering
+                int tw, th; 
+                TTF_SizeText(font, typing_text, &tw, &th);
+                
+                // Semi-transparent background box
+                SDL_Rect typing_bg = { (dst.x + 16) - (tw / 2) - 4, (dst.y - 50) - 2, tw + 8, th + 4 };
+                SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+                SDL_SetRenderDrawColor(renderer, 40, 40, 40, 180); 
+                SDL_RenderFillRect(renderer, &typing_bg);
+                SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+                
+                // Render dots
+                render_text(renderer, typing_text, dst.x+16, dst.y - 50, (SDL_Color){200, 200, 200, 255}, 1);
+            }
+            
             if (now - floating_texts[i].timestamp < 4000) {
                 int fw, fh; TTF_SizeText(font, floating_texts[i].msg, &fw, &fh);
                 SDL_Rect bg_rect = { (dst.x + 16) - (fw / 2) - 4, (dst.y - 38) - 2, fw + 8, fh + 4 };
@@ -3975,12 +4001,27 @@ int main(int argc, char *argv[]) {
                             chat_input_active = 1;
                             SDL_StartTextInput();
                             #endif
+                            // Send typing started
+                            Packet typing_pkt;
+                            memset(&typing_pkt, 0, sizeof(Packet));
+                            typing_pkt.type = PACKET_TYPING;
+                            typing_pkt.player_id = 1;
+                            send_packet(&typing_pkt);
+                            is_typing = 1;
+                            last_typing_update = SDL_GetTicks();
                         } else { 
                             chat_input_active = 0; 
                             SDL_StopTextInput();
                             #if defined(__ANDROID__) || defined(__IPHONEOS__)
                             keyboard_height = 0;
                             #endif
+                            // Send typing stopped
+                            Packet typing_pkt;
+                            memset(&typing_pkt, 0, sizeof(Packet));
+                            typing_pkt.type = PACKET_TYPING;
+                            typing_pkt.player_id = 0;
+                            send_packet(&typing_pkt);
+                            is_typing = 0;
                         }
                     }
                     else if (SDL_PointInRect(&(SDL_Point){tx, ty}, &(SDL_Rect){120, scaled_h-40, 100, 30})) {
@@ -4584,6 +4625,14 @@ int main(int argc, char *argv[]) {
                             chat_input_active = 1;
                             SDL_StartTextInput();
                             #endif
+                            // Send typing started
+                            Packet typing_pkt;
+                            memset(&typing_pkt, 0, sizeof(Packet));
+                            typing_pkt.type = PACKET_TYPING;
+                            typing_pkt.player_id = 1;
+                            send_packet(&typing_pkt);
+                            is_typing = 1;
+                            last_typing_update = SDL_GetTicks();
                         } 
                         else { 
                             chat_input_active = 0; 
@@ -4591,6 +4640,13 @@ int main(int argc, char *argv[]) {
                             #if defined(__ANDROID__) || defined(__IPHONEOS__)
                             keyboard_height = 0;
                             #endif
+                            // Send typing stopped
+                            Packet typing_pkt;
+                            memset(&typing_pkt, 0, sizeof(Packet));
+                            typing_pkt.type = PACKET_TYPING;
+                            typing_pkt.player_id = 0;
+                            send_packet(&typing_pkt);
+                            is_typing = 0;
                         }
                      } 
                      else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_settings_toggle)) {
@@ -4730,6 +4786,13 @@ int main(int argc, char *argv[]) {
                             #if defined(__ANDROID__) || defined(__IPHONEOS__)
                             keyboard_height = 0;
                             #endif
+                            // Send typing stopped after sending message
+                            Packet typing_pkt;
+                            memset(&typing_pkt, 0, sizeof(Packet));
+                            typing_pkt.type = PACKET_TYPING;
+                            typing_pkt.player_id = 0;
+                            send_packet(&typing_pkt);
+                            is_typing = 0;
                         }
                         else if(event.key.keysym.sym == SDLK_ESCAPE) { 
                             is_chat_open = 0; 
@@ -4739,6 +4802,13 @@ int main(int argc, char *argv[]) {
                             #if defined(__ANDROID__) || defined(__IPHONEOS__)
                             keyboard_height = 0;
                             #endif
+                            // Send typing stopped when canceling
+                            Packet typing_pkt;
+                            memset(&typing_pkt, 0, sizeof(Packet));
+                            typing_pkt.type = PACKET_TYPING;
+                            typing_pkt.player_id = 0;
+                            send_packet(&typing_pkt);
+                            is_typing = 0;
                         }
                     }
                 }
