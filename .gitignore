@@ -2,6 +2,7 @@ client
 server
 mmorpg.db
 avatars/
+logs/
 mmorpg.db-shm
 mmorpg.db-wal
 servers.txt
