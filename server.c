@@ -16,6 +16,7 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <netdb.h>
 #include <signal.h>
 #include <sys/stat.h>
 #include <errno.h>
@@ -1895,16 +1896,26 @@ int main(int argc, char *argv[]) {
     //printf("DEBUG: Packet Size is %d bytes\n", (int)sizeof(Packet));
     
     // Initialize logging
+    #ifdef _WIN32
+    mkdir("logs");
+    #else
     mkdir("logs", 0755);
+    #endif
+    
     time_t now = time(NULL);
     struct tm *tm_info = localtime(&now);
     char log_filename[256];
-    strftime(log_filename, sizeof(log_filename), "logs/server_%Y%m%d_%H%M%S.log", tm_info);
+    if (tm_info) {
+        strftime(log_filename, sizeof(log_filename), "logs/server_%Y%m%d_%H%M%S.log", tm_info);
+    } else {
+        snprintf(log_filename, sizeof(log_filename), "logs/server_default.log");
+    }
+    
     log_file = fopen(log_filename, "w");
     if (log_file) {
-        LOG("Server log started\\n");
+        LOG("Server log started\n");
     } else {
-        printf("Warning: Could not create log file %s\\n", log_filename);
+        printf("Warning: Could not create log file %s\n", log_filename);
     }
     
     socket_t server_fd, new_socket; 
