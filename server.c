@@ -1897,7 +1897,7 @@ int main(int argc, char *argv[]) {
     
     // Initialize logging
     #ifdef _WIN32
-    mkdir("logs");
+    _mkdir("logs");
     #else
     mkdir("logs", 0755);
     #endif
