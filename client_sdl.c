@@ -47,6 +47,16 @@ Player local_players[MAX_CLIENTS];
 FriendInfo my_friends[20];
 int friend_count = 0;
 
+// NPCs
+NPC client_npcs[50];
+int client_npc_count = 0;
+#define NPC_INTERACTION_RADIUS 64  // Interaction range in pixels
+
+// Player stats
+int my_gold = 100;
+int my_xp = 0;
+int my_level = 1;
+
 int blocked_ids[50];
 int blocked_count = 0;
 int show_blocked_list = 0;
@@ -61,8 +71,34 @@ SDL_Rect btn_change_avatar;
 SDL_Rect btn_change_password;
 
 int selected_player_id = -1;
+int selected_npc_id = -1;
 int pending_friend_req_id = -1;
 char pending_friend_name[32] = "";
+
+// Dialogue system
+int show_dialogue = 0;
+char dialogue_text[256] = "";
+char dialogue_npc_name[32] = "";
+SDL_Rect dialogue_window;
+
+// Shop system
+int show_shop = 0;
+int shop_tab = 0; // 0=buy, 1=sell
+ShopData current_shop;
+int shop_scroll = 0;
+SDL_Rect shop_window;
+
+// Quest system
+int show_quest_log = 0;
+Quest my_quests[10];
+int my_quest_count = 0;
+Quest available_quests[10];  // Quests offered by current NPC
+int available_quest_count = 0;
+int show_quest_offer = 0;
+int quest_scroll = 0;
+int quest_offer_scroll = 0;
+SDL_Rect quest_window;
+SDL_Rect btn_toggle_quest_log;
 
 SDL_Rect profile_win = {10, 10, 200, 130};
 SDL_Rect btn_add_friend = {20, 50, 180, 30};
@@ -545,8 +581,32 @@ void render_hud(SDL_Renderer *renderer, int screen_w, int screen_h) {
         snprintf(buf, 64, "XY: %.0f, %.0f", px, py);
         int w, h; TTF_SizeText(font, buf, &w, &h); SDL_Rect bg = {10, y, w+4, h};
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 150); SDL_RenderFillRect(renderer, &bg);
-        render_text(renderer, buf, 12, y, col_white, 0);
+        render_text(renderer, buf, 12, y, col_white, 0); y += 20;
     }
+    
+    // Player stats (Gold, Level, XP) - Top left
+    snprintf(buf, 64, "Gold: %d", my_gold);
+    int w, h; TTF_SizeText(font, buf, &w, &h); 
+    SDL_Rect gold_bg = {10, y, w+8, h+4};
+    SDL_SetRenderDrawColor(renderer, 40, 30, 0, 200); SDL_RenderFillRect(renderer, &gold_bg);
+    SDL_SetRenderDrawColor(renderer, 255, 215, 0, 255); SDL_RenderDrawRect(renderer, &gold_bg);
+    render_text(renderer, buf, 14, y+2, (SDL_Color){255, 215, 0, 255}, 0); 
+    y += h + 6;
+    
+    snprintf(buf, 64, "Level: %d", my_level);
+    TTF_SizeText(font, buf, &w, &h); 
+    SDL_Rect lvl_bg = {10, y, w+8, h+4};
+    SDL_SetRenderDrawColor(renderer, 20, 20, 40, 200); SDL_RenderFillRect(renderer, &lvl_bg);
+    SDL_SetRenderDrawColor(renderer, 100, 200, 255, 255); SDL_RenderDrawRect(renderer, &lvl_bg);
+    render_text(renderer, buf, 14, y+2, (SDL_Color){100, 200, 255, 255}, 0); 
+    y += h + 6;
+    
+    snprintf(buf, 64, "XP: %d", my_xp);
+    TTF_SizeText(font, buf, &w, &h); 
+    SDL_Rect xp_bg = {10, y, w+8, h+4};
+    SDL_SetRenderDrawColor(renderer, 20, 40, 20, 200); SDL_RenderFillRect(renderer, &xp_bg);
+    SDL_SetRenderDrawColor(renderer, 100, 255, 100, 255); SDL_RenderDrawRect(renderer, &xp_bg);
+    render_text(renderer, buf, 14, y+2, (SDL_Color){100, 255, 100, 255}, 0);
 
     // INBOX BUTTON (Top Right) - use passed scaled width, not SDL_GetRendererOutputSize
     btn_inbox = (SDL_Rect){screen_w - 50, 10, 40, 40};
@@ -566,6 +626,21 @@ void render_hud(SDL_Renderer *renderer, int screen_w, int screen_h) {
     SDL_SetRenderDrawColor(renderer, 60, 50, 30, 255); SDL_RenderFillRect(renderer, &btn_inventory_toggle);
     SDL_SetRenderDrawColor(renderer, 200, 150, 0, 255); SDL_RenderDrawRect(renderer, &btn_inventory_toggle);
     render_text(renderer, "[I]", btn_inventory_toggle.x+8, btn_inventory_toggle.y+10, col_yellow, 0);
+    
+    // QUEST LOG BUTTON (Next to inventory)
+    btn_toggle_quest_log = (SDL_Rect){screen_w - 150, 10, 40, 40};
+    SDL_SetRenderDrawColor(renderer, 60, 50, 60, 255); SDL_RenderFillRect(renderer, &btn_toggle_quest_log);
+    SDL_SetRenderDrawColor(renderer, 200, 150, 255, 255); SDL_RenderDrawRect(renderer, &btn_toggle_quest_log);
+    render_text(renderer, "[Q]", btn_toggle_quest_log.x+8, btn_toggle_quest_log.y+10, (SDL_Color){200, 150, 255, 255}, 0);
+    
+    // Quest count badge
+    if (my_quest_count > 0) {
+        SDL_Rect badge = {btn_toggle_quest_log.x + 25, btn_toggle_quest_log.y - 5, 20, 20};
+        SDL_SetRenderDrawColor(renderer, 200, 0, 0, 255); SDL_RenderFillRect(renderer, &badge);
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderDrawRect(renderer, &badge);
+        char num[4]; sprintf(num, "%d", my_quest_count);
+        render_text(renderer, num, badge.x+6, badge.y+2, col_white, 0);
+    }
 }
 
 void render_inbox(SDL_Renderer *renderer, int w, int h) {
@@ -988,6 +1063,378 @@ void render_inventory(SDL_Renderer *renderer, int w, int h) {
     SDL_SetRenderDrawColor(renderer, 0, 0, 150, 255);
     SDL_RenderFillRect(renderer, &btn_equip);
     render_text(renderer, get_string(STR_EQUIP), btn_equip.x + 25, btn_equip.y + 7, col_white, 0);
+}
+
+void render_dialogue(SDL_Renderer *renderer, int w, int h) {
+    if (!show_dialogue) return;
+    
+    // Center dialogue window
+    dialogue_window = (SDL_Rect){w/2 - 250, h/2 - 150, 500, 300};
+    
+    // Background
+    SDL_SetRenderDrawColor(renderer, 40, 30, 20, 240);
+    SDL_RenderFillRect(renderer, &dialogue_window);
+    
+    // Border
+    SDL_SetRenderDrawColor(renderer, 200, 150, 100, 255);
+    SDL_RenderDrawRect(renderer, &dialogue_window);
+    
+    // NPC Name header
+    SDL_Rect header = {dialogue_window.x, dialogue_window.y, dialogue_window.w, 40};
+    SDL_SetRenderDrawColor(renderer, 60, 40, 20, 255);
+    SDL_RenderFillRect(renderer, &header);
+    render_text(renderer, dialogue_npc_name, header.x + header.w/2, header.y + 10, (SDL_Color){255, 215, 0, 255}, 1);
+    
+    // Dialogue text (word wrapped)
+    int text_x = dialogue_window.x + 20;
+    int text_y = dialogue_window.y + 60;
+    int max_width = dialogue_window.w - 40;
+    
+    // Simple word wrapping
+    char word[64];
+    char line[128] = "";
+    int word_idx = 0;
+    for (int i = 0; i <= strlen(dialogue_text); i++) {
+        if (dialogue_text[i] == ' ' || dialogue_text[i] == '\0') {
+            word[word_idx] = '\0';
+            
+            // Check if adding this word would exceed line width
+            char test_line[128];
+            snprintf(test_line, 128, "%s%s ", line, word);
+            int tw, th;
+            TTF_SizeText(font, test_line, &tw, &th);
+            
+            if (tw > max_width && strlen(line) > 0) {
+                // Render current line and start new one
+                render_text(renderer, line, text_x, text_y, col_white, 0);
+                text_y += 20;
+                strcpy(line, word);
+                strcat(line, " ");
+            } else {
+                strcat(line, word);
+                strcat(line, " ");
+            }
+            
+            word_idx = 0;
+        } else {
+            word[word_idx++] = dialogue_text[i];
+        }
+    }
+    
+    // Render last line
+    if (strlen(line) > 0) {
+        render_text(renderer, line, text_x, text_y, col_white, 0);
+    }
+    
+    // Close button
+    SDL_Rect btn_close = {dialogue_window.x + dialogue_window.w - 80, dialogue_window.y + dialogue_window.h - 50, 60, 35};
+    SDL_SetRenderDrawColor(renderer, 100, 50, 50, 255);
+    SDL_RenderFillRect(renderer, &btn_close);
+    SDL_SetRenderDrawColor(renderer, 200, 100, 100, 255);
+    SDL_RenderDrawRect(renderer, &btn_close);
+    render_text(renderer, "Close", btn_close.x + 10, btn_close.y + 8, col_white, 0);
+}
+
+void render_shop(SDL_Renderer *renderer, int w, int h) {
+    if (!show_shop) return;
+    
+    // Center shop window
+    shop_window = (SDL_Rect){w/2 - 300, h/2 - 250, 600, 500};
+    
+    // Background
+    SDL_SetRenderDrawColor(renderer, 30, 25, 20, 240);
+    SDL_RenderFillRect(renderer, &shop_window);
+    
+    // Border
+    SDL_SetRenderDrawColor(renderer, 150, 120, 80, 255);
+    SDL_RenderDrawRect(renderer, &shop_window);
+    
+    // Title
+    char title[64];
+    snprintf(title, 64, "%s - Shop", dialogue_npc_name);
+    render_text(renderer, title, shop_window.x + shop_window.w/2, shop_window.y + 10, (SDL_Color){255, 215, 0, 255}, 1);
+    
+    // Tab buttons
+    SDL_Rect tab_buy = {shop_window.x + 20, shop_window.y + 40, 100, 30};
+    SDL_Rect tab_sell = {shop_window.x + 130, shop_window.y + 40, 100, 30};
+    
+    if (shop_tab == 0) {
+        SDL_SetRenderDrawColor(renderer, 0, 100, 0, 255);
+        SDL_RenderFillRect(renderer, &tab_buy);
+        SDL_SetRenderDrawColor(renderer, 50, 50, 50, 255);
+        SDL_RenderFillRect(renderer, &tab_sell);
+    } else {
+        SDL_SetRenderDrawColor(renderer, 50, 50, 50, 255);
+        SDL_RenderFillRect(renderer, &tab_buy);
+        SDL_SetRenderDrawColor(renderer, 100, 100, 0, 255);
+        SDL_RenderFillRect(renderer, &tab_sell);
+    }
+    
+    SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255);
+    SDL_RenderDrawRect(renderer, &tab_buy);
+    SDL_RenderDrawRect(renderer, &tab_sell);
+    
+    render_text(renderer, "Buy", tab_buy.x + 35, tab_buy.y + 7, col_white, 0);
+    render_text(renderer, "Sell", tab_sell.x + 30, tab_sell.y + 7, col_white, 0);
+    
+    // Gold display
+    char gold_str[32];
+    snprintf(gold_str, 32, "Your Gold: %d", my_gold);
+    render_text(renderer, gold_str, shop_window.x + shop_window.w - 150, shop_window.y + 48, (SDL_Color){255, 215, 0, 255}, 0);
+    
+    // Item list area
+    SDL_Rect list_area = {shop_window.x + 20, shop_window.y + 80, shop_window.w - 40, shop_window.h - 140};
+    SDL_SetRenderDrawColor(renderer, 20, 20, 20, 200);
+    SDL_RenderFillRect(renderer, &list_area);
+    SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255);
+    SDL_RenderDrawRect(renderer, &list_area);
+    
+    if (shop_tab == 0) {
+        // Buy tab - show shop items
+        int y_offset = 0;
+        for (int i = 0; i < current_shop.item_count; i++) {
+            if (i < shop_scroll) continue;
+            if (y_offset > list_area.h - 40) break;
+            
+            SDL_Rect item_rect = {list_area.x + 10, list_area.y + 10 + y_offset, list_area.w - 20, 35};
+            
+            // Hover effect
+            int mx, my;
+            SDL_GetMouseState(&mx, &my);
+            SDL_Point scaled_mouse = {(int)(mx * scale_x / ui_scale), (int)(my * scale_y / ui_scale)};
+            
+            if (SDL_PointInRect(&scaled_mouse, &item_rect)) {
+                SDL_SetRenderDrawColor(renderer, 60, 60, 40, 255);
+            } else {
+                SDL_SetRenderDrawColor(renderer, 40, 40, 30, 255);
+            }
+            SDL_RenderFillRect(renderer, &item_rect);
+            SDL_SetRenderDrawColor(renderer, 80, 80, 60, 255);
+            SDL_RenderDrawRect(renderer, &item_rect);
+            
+            // Item info
+            char item_info[128];
+            snprintf(item_info, 128, "%s - %d gold", 
+                current_shop.items[i].name, current_shop.buy_prices[i]);
+            render_text(renderer, item_info, item_rect.x + 10, item_rect.y + 10, col_white, 0);
+            
+            y_offset += 40;
+        }
+        
+        if (current_shop.item_count == 0) {
+            render_text(renderer, "No items available", list_area.x + list_area.w/2, list_area.y + list_area.h/2, (SDL_Color){150, 150, 150, 255}, 1);
+        }
+    } else {
+        // Sell tab - show player inventory
+        int y_offset = 0;
+        int visible_item_count = 0;
+        for (int i = 0; i < my_inventory_count; i++) {
+            if (my_inventory[i].is_equipped) continue; // Don't show equipped items
+            if (my_inventory[i].item.item_id <= 0) continue;
+            
+            if (visible_item_count < shop_scroll) {
+                visible_item_count++;
+                continue;
+            }
+            if (y_offset > list_area.h - 40) break;
+            visible_item_count++;
+            
+            SDL_Rect item_rect = {list_area.x + 10, list_area.y + 10 + y_offset, list_area.w - 20, 35};
+            
+            // Hover effect
+            int mx, my;
+            SDL_GetMouseState(&mx, &my);
+            SDL_Point scaled_mouse = {(int)(mx * scale_x / ui_scale), (int)(my * scale_y / ui_scale)};
+            
+            if (SDL_PointInRect(&scaled_mouse, &item_rect)) {
+                SDL_SetRenderDrawColor(renderer, 60, 60, 40, 255);
+            } else {
+                SDL_SetRenderDrawColor(renderer, 40, 40, 30, 255);
+            }
+            SDL_RenderFillRect(renderer, &item_rect);
+            SDL_SetRenderDrawColor(renderer, 80, 80, 60, 255);
+            SDL_RenderDrawRect(renderer, &item_rect);
+            
+            // Item info with sell price (half of buy price from shop)
+            int sell_price = 0;
+            for (int j = 0; j < current_shop.item_count; j++) {
+                if (current_shop.items[j].item_id == my_inventory[i].item.item_id) {
+                    sell_price = current_shop.sell_prices[j];
+                    break;
+                }
+            }
+            if (sell_price == 0) sell_price = 1; // Minimum 1 gold
+            
+            char item_info[128];
+            snprintf(item_info, 128, "%s x%d - %d gold", 
+                my_inventory[i].item.name, my_inventory[i].item.quantity, sell_price);
+            render_text(renderer, item_info, item_rect.x + 10, item_rect.y + 10, col_white, 0);
+            
+            y_offset += 40;
+        }
+        
+        if (my_inventory_count == 0) {
+            render_text(renderer, "No items to sell", list_area.x + list_area.w/2, list_area.y + list_area.h/2, (SDL_Color){150, 150, 150, 255}, 1);
+        }
+    }
+    
+    // Close button
+    SDL_Rect btn_close = {shop_window.x + shop_window.w - 100, shop_window.y + shop_window.h - 50, 80, 35};
+    SDL_SetRenderDrawColor(renderer, 100, 50, 50, 255);
+    SDL_RenderFillRect(renderer, &btn_close);
+    SDL_SetRenderDrawColor(renderer, 200, 100, 100, 255);
+    SDL_RenderDrawRect(renderer, &btn_close);
+    render_text(renderer, "Close", btn_close.x + 20, btn_close.y + 8, col_white, 0);
+}
+
+void render_quest_log(SDL_Renderer *renderer, int w, int h) {
+    if (!show_quest_log) return;
+    
+    // Quest log window
+    quest_window = (SDL_Rect){w/2 - 300, h/2 - 250, 600, 500};
+    
+    // Background
+    SDL_SetRenderDrawColor(renderer, 30, 20, 40, 240);
+    SDL_RenderFillRect(renderer, &quest_window);
+    
+    // Border
+    SDL_SetRenderDrawColor(renderer, 150, 100, 200, 255);
+    SDL_RenderDrawRect(renderer, &quest_window);
+    
+    // Title
+    render_text(renderer, "Quest Log", quest_window.x + quest_window.w/2, quest_window.y + 10, (SDL_Color){200, 150, 255, 255}, 1);
+    
+    // Quest list
+    if (my_quest_count == 0) {
+        render_text(renderer, "No active quests", quest_window.x + quest_window.w/2, quest_window.y + quest_window.h/2, (SDL_Color){150, 150, 150, 255}, 1);
+    } else {
+        int y = quest_window.y + 50;
+        for (int i = 0; i < my_quest_count; i++) {
+            Quest *q = &my_quests[i];
+            
+            // Quest name
+            render_text(renderer, q->name, quest_window.x + 20, y, col_yellow, 0);
+            y += 25;
+            
+            // Objectives
+            for (int j = 0; j < q->objective_count; j++) {
+                QuestObjective *obj = &q->objectives[j];
+                char obj_text[128];
+                
+                const char *obj_type = "";
+                if (obj->objective_type == 0) obj_type = "Kill";
+                else if (obj->objective_type == 1) obj_type = "Collect";
+                else if (obj->objective_type == 2) obj_type = "Visit";
+                
+                snprintf(obj_text, 128, "  %s %s: %d/%d", obj_type, obj->target_name, obj->current_count, obj->required_count);
+                
+                SDL_Color obj_color = obj->current_count >= obj->required_count ? (SDL_Color){0, 255, 0, 255} : col_white;
+                render_text(renderer, obj_text, quest_window.x + 30, y, obj_color, 0);
+                y += 20;
+            }
+            
+            // Rewards
+            char reward_text[128];
+            snprintf(reward_text, 128, "  Rewards: %dg, %dxp", q->reward_gold, q->reward_xp);
+            render_text(renderer, reward_text, quest_window.x + 30, y, (SDL_Color){255, 215, 0, 255}, 0);
+            y += 20;
+            
+            // Check if quest is complete
+            int all_complete = 1;
+            for (int j = 0; j < q->objective_count; j++) {
+                if (q->objectives[j].current_count < q->objectives[j].required_count) {
+                    all_complete = 0;
+                    break;
+                }
+            }
+            
+            // Complete button if ready
+            if (all_complete) {
+                SDL_Rect btn_complete = {quest_window.x + 30, y, 120, 30};
+                SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255);
+                SDL_RenderFillRect(renderer, &btn_complete);
+                SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
+                SDL_RenderDrawRect(renderer, &btn_complete);
+                render_text(renderer, "Complete!", btn_complete.x + 25, btn_complete.y + 7, col_white, 0);
+            }
+            
+            y += 35;
+        }
+    }
+    
+    // Close button
+    SDL_Rect btn_close = {quest_window.x + quest_window.w - 100, quest_window.y + quest_window.h - 50, 80, 35};
+    SDL_SetRenderDrawColor(renderer, 100, 50, 50, 255);
+    SDL_RenderFillRect(renderer, &btn_close);
+    SDL_SetRenderDrawColor(renderer, 200, 100, 100, 255);
+    SDL_RenderDrawRect(renderer, &btn_close);
+    render_text(renderer, "Close", btn_close.x + 20, btn_close.y + 8, col_white, 0);
+}
+
+void render_quest_offer(SDL_Renderer *renderer, int w, int h) {
+    if (!show_quest_offer) return;
+    
+    // Quest offer window
+    SDL_Rect offer_window = {w/2 - 300, h/2 - 250, 600, 500};
+    
+    // Background
+    SDL_SetRenderDrawColor(renderer, 40, 30, 20, 240);
+    SDL_RenderFillRect(renderer, &offer_window);
+    
+    // Border
+    SDL_SetRenderDrawColor(renderer, 200, 150, 100, 255);
+    SDL_RenderDrawRect(renderer, &offer_window);
+    
+    // Title
+    render_text(renderer, "Available Quests", offer_window.x + offer_window.w/2, offer_window.y + 10, col_yellow, 1);
+    
+    if (available_quest_count == 0) {
+        render_text(renderer, "No quests available", offer_window.x + offer_window.w/2, offer_window.y + offer_window.h/2, (SDL_Color){150, 150, 150, 255}, 1);
+    } else {
+        int y = offer_window.y + 50;
+        for (int i = 0; i < available_quest_count; i++) {
+            Quest *q = &available_quests[i];
+            
+            // Quest name (clickable)
+            SDL_Rect quest_rect = {offer_window.x + 20, y - 5, offer_window.w - 40, 25};
+            
+            int mx, my;
+            SDL_GetMouseState(&mx, &my);
+            SDL_Point scaled_mouse = {(int)(mx * scale_x / ui_scale), (int)(my * scale_y / ui_scale)};
+            
+            if (SDL_PointInRect(&scaled_mouse, &quest_rect)) {
+                SDL_SetRenderDrawColor(renderer, 80, 60, 40, 255);
+                SDL_RenderFillRect(renderer, &quest_rect);
+            }
+            
+            render_text(renderer, q->name, offer_window.x + 30, y, col_yellow, 0);
+            y += 25;
+            
+            // Description
+            render_text(renderer, q->description, offer_window.x + 30, y, (SDL_Color){200, 200, 200, 255}, 0);
+            y += 20;
+            
+            // Level requirement
+            char level_text[64];
+            snprintf(level_text, 64, "  Level Required: %d", q->level_required);
+            render_text(renderer, level_text, offer_window.x + 30, y, (SDL_Color){150, 150, 255, 255}, 0);
+            y += 20;
+            
+            // Rewards
+            char reward_text[128];
+            snprintf(reward_text, 128, "  Rewards: %dg, %dxp", q->reward_gold, q->reward_xp);
+            render_text(renderer, reward_text, offer_window.x + 30, y, (SDL_Color){255, 215, 0, 255}, 0);
+            y += 30;
+        }
+    }
+    
+    // Close button
+    SDL_Rect btn_close = {offer_window.x + offer_window.w - 100, offer_window.y + offer_window.h - 50, 80, 35};
+    SDL_SetRenderDrawColor(renderer, 100, 50, 50, 255);
+    SDL_RenderFillRect(renderer, &btn_close);
+    SDL_SetRenderDrawColor(renderer, 200, 100, 100, 255);
+    SDL_RenderDrawRect(renderer, &btn_close);
+    render_text(renderer, "Close", btn_close.x + 20, btn_close.y + 8, col_white, 0);
 }
 
 void render_debug_overlay(SDL_Renderer *renderer, int screen_w) {
@@ -2661,6 +3108,85 @@ void render_game(SDL_Renderer *renderer) {
         }
     }
 
+    // 2.4. Draw NPCs
+    // Get player position for proximity check
+    float player_x = 0, player_y = 0;
+    for(int i=0; i<MAX_CLIENTS; i++) {
+        if(local_players[i].active && local_players[i].id == local_player_id) {
+            player_x = local_players[i].x + PLAYER_WIDTH/2;
+            player_y = local_players[i].y + PLAYER_HEIGHT/2;
+            break;
+        }
+    }
+    
+    for (int i = 0; i < client_npc_count; i++) {
+        NPC *npc = &client_npcs[i];
+        if (strcmp(npc->map_name, current_map_file) == 0) {
+            // Only render NPCs within map boundaries
+            if (npc->x < 0 || npc->x > map_w || npc->y < 0 || npc->y > map_h) continue;
+            
+            SDL_Rect dst = { (int)npc->x - cam_x, (int)npc->y - cam_y, PLAYER_WIDTH, PLAYER_HEIGHT };
+            
+            // Calculate distance from player to NPC center
+            float npc_center_x = npc->x + PLAYER_WIDTH/2;
+            float npc_center_y = npc->y + PLAYER_HEIGHT/2;
+            float dx = player_x - npc_center_x;
+            float dy = player_y - npc_center_y;
+            float distance = sqrtf(dx*dx + dy*dy);
+            
+            // Draw interaction radius if player is nearby
+            if (distance <= NPC_INTERACTION_RADIUS) {
+                // Draw semi-transparent circle to show interaction range
+                SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+                
+                // Draw filled circle using multiple rectangles (simple approach)
+                int radius = NPC_INTERACTION_RADIUS;
+                SDL_SetRenderDrawColor(renderer, 200, 200, 255, 40);
+                for (int y = -radius; y <= radius; y++) {
+                    for (int x = -radius; x <= radius; x++) {
+                        if (x*x + y*y <= radius*radius) {
+                            SDL_RenderDrawPoint(renderer, 
+                                dst.x + PLAYER_WIDTH/2 + x, 
+                                dst.y + PLAYER_HEIGHT/2 + y);
+                        }
+                    }
+                }
+                
+                // Draw circle outline
+                SDL_SetRenderDrawColor(renderer, 150, 150, 255, 180);
+                int points = 32;
+                for (int j = 0; j < points; j++) {
+                    float angle1 = (j * 2.0f * 3.14159f) / points;
+                    float angle2 = ((j+1) * 2.0f * 3.14159f) / points;
+                    SDL_RenderDrawLine(renderer,
+                        dst.x + PLAYER_WIDTH/2 + radius * cosf(angle1),
+                        dst.y + PLAYER_HEIGHT/2 + radius * sinf(angle1),
+                        dst.x + PLAYER_WIDTH/2 + radius * cosf(angle2),
+                        dst.y + PLAYER_HEIGHT/2 + radius * sinf(angle2));
+                }
+                
+                SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+            }
+            
+            // Color NPCs based on type: quest=yellow, merchant=green, generic=white
+            if (npc->npc_type == NPC_TYPE_QUEST) {
+                SDL_SetRenderDrawColor(renderer, 255, 255, 0, 255); // Yellow for quest givers
+            } else if (npc->npc_type == NPC_TYPE_MERCHANT) {
+                SDL_SetRenderDrawColor(renderer, 0, 255, 100, 255); // Green for merchants
+            } else {
+                SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255); // Gray for generic
+            }
+            SDL_RenderFillRect(renderer, &dst);
+            
+            // Draw border
+            SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+            SDL_RenderDrawRect(renderer, &dst);
+            
+            // Render NPC name
+            render_text(renderer, npc->name, dst.x+16, dst.y - 18, col_white, 1);
+        }
+    }
+
     // 2.5. Draw Ground Items
     // Get mouse position for tooltip (before UI scaling)
     int mouse_x, mouse_y;
@@ -2749,6 +3275,10 @@ void render_game(SDL_Renderer *renderer) {
     render_sanction_popup(renderer, scaled_w, scaled_h);
     render_my_warnings(renderer, scaled_w, scaled_h);
     render_inventory(renderer, scaled_w, scaled_h);
+    render_dialogue(renderer, scaled_w, scaled_h);
+    render_shop(renderer, scaled_w, scaled_h);
+    render_quest_log(renderer, scaled_w, scaled_h);
+    render_quest_offer(renderer, scaled_w, scaled_h);
     render_debug_overlay(renderer, scaled_w);
     render_hud(renderer, scaled_w, scaled_h);
     render_mobile_controls(renderer, scaled_w);
@@ -3038,6 +3568,210 @@ void request_item_unequip(int equip_slot) {
 void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
 
     // ============================================================
+    // LAYER -2: QUEST WINDOWS (highest priority)
+    // ============================================================
+    
+    if (show_quest_log) {
+        SDL_Rect btn_close = {quest_window.x + quest_window.w - 100, quest_window.y + quest_window.h - 50, 80, 35};
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_close)) {
+            show_quest_log = 0;
+            return;
+        }
+        
+        // Check for Complete button clicks
+        int y = quest_window.y + 50;
+        for (int i = 0; i < my_quest_count; i++) {
+            Quest *q = &my_quests[i];
+            
+            // Skip to button position (name + objectives + rewards)
+            y += 25; // Quest name
+            for (int j = 0; j < q->objective_count; j++) {
+                y += 20; // Each objective
+            }
+            y += 20; // Rewards
+            
+            // Check if quest is complete
+            int all_complete = 1;
+            for (int j = 0; j < q->objective_count; j++) {
+                if (q->objectives[j].current_count < q->objectives[j].required_count) {
+                    all_complete = 0;
+                    break;
+                }
+            }
+            
+            if (all_complete) {
+                SDL_Rect btn_complete = {quest_window.x + 30, y, 120, 30};
+                if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_complete)) {
+                    // Complete quest
+                    Packet pkt;
+                    memset(&pkt, 0, sizeof(Packet));
+                    pkt.type = PACKET_QUEST_COMPLETE;
+                    pkt.quest_id = q->quest_id;
+                    send_packet(&pkt);
+                    printf("Completing quest %d\n", q->quest_id);
+                    return;
+                }
+            }
+            
+            y += 35;
+        }
+        
+        // Consume clicks inside quest log
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &quest_window)) {
+            return;
+        }
+    }
+    
+    if (show_quest_offer) {
+        SDL_Rect offer_window = {w/2 - 300, h/2 - 250, 600, 500};
+        SDL_Rect btn_close = {offer_window.x + offer_window.w - 100, offer_window.y + offer_window.h - 50, 80, 35};
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_close)) {
+            show_quest_offer = 0;
+            return;
+        }
+        
+        // Quest clickable areas
+        int y = offer_window.y + 50;
+        for (int i = 0; i < available_quest_count; i++) {
+            SDL_Rect quest_rect = {offer_window.x + 20, y - 5, offer_window.w - 40, 25};
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &quest_rect)) {
+                // Accept quest
+                Packet pkt;
+                memset(&pkt, 0, sizeof(Packet));
+                pkt.type = PACKET_QUEST_ACCEPT;
+                pkt.quest_id = available_quests[i].quest_id;
+                pkt.npc_id = available_quests[i].npc_id;
+                send_packet(&pkt);
+                printf("Accepting quest %d\n", available_quests[i].quest_id);
+                show_quest_offer = 0;
+                return;
+            }
+            y += 95; // Name + description + level + rewards
+        }
+        
+        // Consume clicks inside quest offer
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &offer_window)) {
+            return;
+        }
+    }
+
+    // ============================================================
+    // LAYER -1: SHOP WINDOW (highest priority after dialogue)
+    // ============================================================
+    
+    if (show_shop) {
+        // Close button
+        SDL_Rect btn_close = {shop_window.x + shop_window.w - 100, shop_window.y + shop_window.h - 50, 80, 35};
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_close)) {
+            show_shop = 0;
+            return;
+        }
+        
+        // Tab buttons
+        SDL_Rect tab_buy = {shop_window.x + 20, shop_window.y + 40, 100, 30};
+        SDL_Rect tab_sell = {shop_window.x + 130, shop_window.y + 40, 100, 30};
+        
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &tab_buy)) {
+            shop_tab = 0;
+            shop_scroll = 0;
+            return;
+        }
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &tab_sell)) {
+            shop_tab = 1;
+            shop_scroll = 0;
+            return;
+        }
+        
+        // Item clicks
+        SDL_Rect list_area = {shop_window.x + 20, shop_window.y + 80, shop_window.w - 40, shop_window.h - 140};
+        
+        if (shop_tab == 0) {
+            // Buy tab - click on shop items
+            int y_offset = 0;
+            for (int i = 0; i < current_shop.item_count; i++) {
+                if (i < shop_scroll) continue;
+                if (y_offset > list_area.h - 40) break;
+                
+                SDL_Rect item_rect = {list_area.x + 10, list_area.y + 10 + y_offset, list_area.w - 20, 35};
+                
+                if (SDL_PointInRect(&(SDL_Point){mx, my}, &item_rect)) {
+                    // Buy item
+                    int price = current_shop.buy_prices[i];
+                    if (my_gold >= price) {
+                        Packet pkt;
+                        memset(&pkt, 0, sizeof(Packet));
+                        pkt.type = PACKET_SHOP_BUY;
+                        pkt.npc_id = current_shop.npc_id;
+                        pkt.buy_sell_item_id = current_shop.items[i].item_id;
+                        pkt.buy_sell_quantity = 1;
+                        send_packet(&pkt);
+                        printf("Attempting to buy %s for %d gold\n", current_shop.items[i].name, price);
+                    }
+                    return;
+                }
+                
+                y_offset += 40;
+            }
+        } else {
+            // Sell tab - click on inventory items
+            int y_offset = 0;
+            int visible_item_count = 0;
+            for (int i = 0; i < my_inventory_count; i++) {
+                if (my_inventory[i].is_equipped) continue;
+                if (my_inventory[i].item.item_id <= 0) continue;
+                
+                // Skip items before scroll position
+                if (visible_item_count < shop_scroll) {
+                    visible_item_count++;
+                    continue;
+                }
+                if (y_offset > list_area.h - 40) break;
+                visible_item_count++;
+                
+                SDL_Rect item_rect = {list_area.x + 10, list_area.y + 10 + y_offset, list_area.w - 20, 35};
+                
+                if (SDL_PointInRect(&(SDL_Point){mx, my}, &item_rect)) {
+                    // Sell item
+                    Packet pkt;
+                    memset(&pkt, 0, sizeof(Packet));
+                    pkt.type = PACKET_SHOP_SELL;
+                    pkt.npc_id = current_shop.npc_id;
+                    pkt.buy_sell_item_id = my_inventory[i].item.item_id;
+                    pkt.buy_sell_quantity = 1;
+                    pkt.item_slot = my_inventory[i].slot_index;
+                    send_packet(&pkt);
+                    printf("Attempting to sell %s (slot %d, item_id %d)\\n", 
+                        my_inventory[i].item.name, my_inventory[i].slot_index, my_inventory[i].item.item_id);
+                    return;
+                }
+                
+                y_offset += 40;
+            }
+        }
+        
+        // If clicked inside shop window but not on interactive elements, consume the click
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &shop_window)) {
+            return;
+        }
+    }
+
+    // ============================================================
+    // LAYER 0: DIALOGUE WINDOW (highest priority)
+    // ============================================================
+    
+    if (show_dialogue) {
+        SDL_Rect btn_close = {dialogue_window.x + dialogue_window.w - 80, dialogue_window.y + dialogue_window.h - 50, 60, 35};
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_close)) {
+            show_dialogue = 0;
+            return;
+        }
+        // If clicked inside dialogue window but not on close, consume the click
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &dialogue_window)) {
+            return;
+        }
+    }
+
+    // ============================================================
     // LAYER 1: HUD BUTTONS
     // ============================================================
     
@@ -3051,7 +3785,25 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
     SDL_Rect btn_inventory_check = {w - 100, 10, 40, 40};
     if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_inventory_check)) {
         show_inventory = !show_inventory;
-        if (show_inventory) { is_inbox_open = 0; show_friend_list = 0; show_add_friend_popup = 0; is_settings_open = 0; }
+        if (show_inventory) { is_inbox_open = 0; show_friend_list = 0; show_add_friend_popup = 0; is_settings_open = 0; show_quest_log = 0; }
+        return;
+    }
+    
+    SDL_Rect btn_quest_check = {w - 150, 10, 40, 40};
+    if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_quest_check)) {
+        show_quest_log = !show_quest_log;
+        if (show_quest_log) { 
+            is_inbox_open = 0; 
+            show_friend_list = 0; 
+            show_add_friend_popup = 0; 
+            is_settings_open = 0; 
+            show_inventory = 0;
+            // Request quest list from server
+            Packet pkt;
+            memset(&pkt, 0, sizeof(Packet));
+            pkt.type = PACKET_QUEST_LIST;
+            send_packet(&pkt);
+        }
         return;
     }
 
@@ -3595,16 +4347,69 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
     int game_my = (int)((my * ui_scale) / game_zoom) + cam_y;
     
     int clicked = 0;
+    
+    // Get player position for proximity check
+    float player_x = 0, player_y = 0;
+    for(int i=0; i<MAX_CLIENTS; i++) {
+        if(local_players[i].active && local_players[i].id == local_player_id) {
+            player_x = local_players[i].x + PLAYER_WIDTH/2;
+            player_y = local_players[i].y + PLAYER_HEIGHT/2;
+            break;
+        }
+    }
+    
+    // Check NPCs first (higher priority)
+    for (int i = 0; i < client_npc_count; i++) {
+        if (strcmp(client_npcs[i].map_name, current_map_file) == 0) {
+            SDL_Rect r = { (int)client_npcs[i].x, (int)client_npcs[i].y, PLAYER_WIDTH, PLAYER_HEIGHT };
+            if (SDL_PointInRect(&(SDL_Point){game_mx, game_my}, &r)) {
+                // Check if player is within interaction range
+                float npc_center_x = client_npcs[i].x + PLAYER_WIDTH/2;
+                float npc_center_y = client_npcs[i].y + PLAYER_HEIGHT/2;
+                float dx = player_x - npc_center_x;
+                float dy = player_y - npc_center_y;
+                float distance = sqrtf(dx*dx + dy*dy);
+                
+                if (distance <= NPC_INTERACTION_RADIUS) {
+                    selected_npc_id = client_npcs[i].npc_id;
+                    selected_player_id = -1;
+                    
+                    // Send interaction packet to server
+                    Packet pkt;
+                    memset(&pkt, 0, sizeof(Packet));
+                    pkt.type = PACKET_NPC_INTERACT;
+                    pkt.npc_id = client_npcs[i].npc_id;
+                    send_packet(&pkt);
+                    
+                    printf("Interacting with NPC: %s (ID: %d, Type: %d) - Distance: %.1f\n", 
+                        client_npcs[i].name, client_npcs[i].npc_id, client_npcs[i].npc_type, distance);
+                } else {
+                    printf("Too far from NPC %s (Distance: %.1f, Required: %d)\n", 
+                        client_npcs[i].name, distance, NPC_INTERACTION_RADIUS);
+                }
+                
+                clicked = 1;
+                return;
+            }
+        }
+    }
+    
+    // Check players
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (local_players[i].active) {
             // Player rect in world coordinates (no camera offset)
             SDL_Rect r = { (int)local_players[i].x, (int)local_players[i].y, PLAYER_WIDTH, PLAYER_HEIGHT };
-            if (SDL_PointInRect(&(SDL_Point){game_mx, game_my}, &r)) { selected_player_id = local_players[i].id; clicked = 1; }
+            if (SDL_PointInRect(&(SDL_Point){game_mx, game_my}, &r)) { 
+                selected_player_id = local_players[i].id; 
+                selected_npc_id = -1;
+                clicked = 1; 
+            }
         }
     }
     
     if (!clicked && !SDL_PointInRect(&(SDL_Point){mx, my}, &profile_win) && !SDL_PointInRect(&(SDL_Point){mx, my}, &btn_chat_toggle) && !SDL_PointInRect(&(SDL_Point){mx, my}, &btn_settings_toggle) && !SDL_PointInRect(&(SDL_Point){mx, my}, &btn_view_friends)) {
         selected_player_id = -1;
+        selected_npc_id = -1;
     }
 }
 
@@ -5650,6 +6455,11 @@ int main(int argc, char *argv[]) {
                         memcpy(local_players, pkt.players, sizeof(local_players));
                         for(int i=0; i<MAX_CLIENTS; i++) {
                             if (local_players[i].id == local_player_id) {
+                                // Update player stats from server
+                                my_gold = local_players[i].gold;
+                                my_xp = local_players[i].xp;
+                                my_level = local_players[i].level;
+                                
                                 if (strcmp(local_players[i].map_name, current_map_file) != 0) {
                                     switch_map(local_players[i].map_name, local_players[i].x, local_players[i].y);
                                 }
@@ -5660,6 +6470,70 @@ int main(int argc, char *argv[]) {
                         add_chat_message(&pkt);
                         if (!is_chat_open) unread_chat_count++;
                         if (pkt.player_id == -1 && show_add_friend_popup) strncpy(friend_popup_msg, pkt.msg, 127);
+                    }
+                    if (pkt.type == PACKET_DIALOGUE) {
+                        // Display dialogue from NPC
+                        strncpy(dialogue_text, pkt.dialogue.text, 255);
+                        dialogue_text[255] = '\0';
+                        
+                        // Find NPC name from NPC ID
+                        for (int i = 0; i < client_npc_count; i++) {
+                            if (client_npcs[i].npc_id == pkt.dialogue.npc_id) {
+                                strncpy(dialogue_npc_name, client_npcs[i].name, 31);
+                                dialogue_npc_name[31] = '\0';
+                                break;
+                            }
+                        }
+                        
+                        show_dialogue = 1;
+                        printf("Received dialogue from NPC %d: %s\n", pkt.dialogue.npc_id, dialogue_text);
+                    }
+                    if (pkt.type == PACKET_SHOP_OPEN) {
+                        // Open shop window with items
+                        current_shop = pkt.shop_data;
+                        
+                        // Find NPC name from NPC ID
+                        for (int i = 0; i < client_npc_count; i++) {
+                            if (client_npcs[i].npc_id == pkt.shop_data.npc_id) {
+                                strncpy(dialogue_npc_name, client_npcs[i].name, 31);
+                                dialogue_npc_name[31] = '\0';
+                                break;
+                            }
+                        }
+                        
+                        show_shop = 1;
+                        shop_tab = 0;
+                        shop_scroll = 0;
+                        printf("Opened shop with %d items from NPC %d\n", current_shop.item_count, pkt.shop_data.npc_id);
+                    }
+                    if (pkt.type == PACKET_QUEST_LIST) {
+                        // Check if this is quest offers (npc_id set) or player's active quests (npc_id = 0)
+                        if (pkt.npc_id > 0) {
+                            // Quest offers from NPC
+                            available_quest_count = pkt.quest_count;
+                            memcpy(available_quests, pkt.quests, sizeof(Quest) * pkt.quest_count);
+                            show_quest_offer = 1;
+                            quest_offer_scroll = 0;
+                            printf("Received %d quest offers from NPC %d\n", available_quest_count, pkt.npc_id);
+                        } else {
+                            // Player's active quests
+                            my_quest_count = pkt.quest_count;
+                            memcpy(my_quests, pkt.quests, sizeof(Quest) * pkt.quest_count);
+                            printf("Received %d active quests\n", my_quest_count);
+                        }
+                    }
+                    if (pkt.type == PACKET_QUEST_PROGRESS) {
+                        // Update quest progress
+                        if (pkt.quest_count > 0) {
+                            Quest *updated_quest = &pkt.quests[0];
+                            for (int i = 0; i < my_quest_count; i++) {
+                                if (my_quests[i].quest_id == updated_quest->quest_id) {
+                                    my_quests[i] = *updated_quest;
+                                    printf("Quest %d progress updated\n", updated_quest->quest_id);
+                                    break;
+                                }
+                            }
+                        }
                     }
                     if (pkt.type == PACKET_FRIEND_LIST) { friend_count = pkt.friend_count; memcpy(my_friends, pkt.friends, sizeof(pkt.friends)); }                
                     if (pkt.type == PACKET_FRIEND_INCOMING) { 
@@ -5717,6 +6591,21 @@ int main(int argc, char *argv[]) {
                     }
                     if (pkt.type == PACKET_TRIGGERS_DATA) {
                         receive_triggers_from_server(&pkt);
+                    }
+                    if (pkt.type == PACKET_NPC_LIST) {
+                        // Update NPC list from server
+                        client_npc_count = pkt.npc_count;
+                        for (int i = 0; i < pkt.npc_count; i++) {
+                            client_npcs[i] = pkt.npcs[i];
+                        }
+                        printf("NPCs updated: %d NPCs loaded\n", client_npc_count);
+                    }
+                    if (pkt.type == PACKET_CURRENCY_UPDATE) {
+                        // Update player currency and stats
+                        my_gold = pkt.gold;
+                        my_xp = pkt.xp;
+                        my_level = pkt.level;
+                        printf("Currency updated: Gold=%d, XP=%d, Level=%d\n", my_gold, my_xp, my_level);
                     }
                     if (pkt.type == PACKET_INVENTORY_UPDATE) {
                         // Update local inventory from server

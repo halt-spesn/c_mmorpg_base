@@ -27,6 +27,23 @@ typedef enum {
 } ItemType;
 
 typedef enum {
+    NPC_TYPE_QUEST, NPC_TYPE_MERCHANT, NPC_TYPE_GENERIC
+} NPCType;
+
+typedef enum {
+    QUEST_STATUS_ACTIVE, QUEST_STATUS_COMPLETED, QUEST_STATUS_FAILED
+} QuestStatus;
+
+typedef enum {
+    OBJECTIVE_TYPE_KILL, OBJECTIVE_TYPE_COLLECT, OBJECTIVE_TYPE_VISIT
+} ObjectiveType;
+
+typedef enum {
+    CHAT_CHANNEL_GLOBAL, CHAT_CHANNEL_LOCAL, CHAT_CHANNEL_TRADE, 
+    CHAT_CHANNEL_GUILD, CHAT_CHANNEL_WHISPER
+} ChatChannel;
+
+typedef enum {
     EQUIP_SLOT_WEAPON, EQUIP_SLOT_HELMET, EQUIP_SLOT_CHEST,
     EQUIP_SLOT_LEGS, EQUIP_SLOT_BOOTS, EQUIP_SLOT_ACCESSORY,
     EQUIP_SLOT_COUNT
@@ -47,7 +64,12 @@ typedef enum {
     PACKET_CHANGE_PASSWORD_REQUEST, PACKET_CHANGE_PASSWORD_RESPONSE,
     PACKET_TELEMETRY, PACKET_TYPING,
     PACKET_INVENTORY_UPDATE, PACKET_ITEM_PICKUP, PACKET_ITEM_DROP,
-    PACKET_ITEM_USE, PACKET_ITEM_EQUIP, PACKET_ITEM_UNEQUIP, PACKET_GROUND_ITEMS
+    PACKET_ITEM_USE, PACKET_ITEM_EQUIP, PACKET_ITEM_UNEQUIP, PACKET_GROUND_ITEMS,
+    PACKET_NPC_LIST, PACKET_NPC_INTERACT, PACKET_DIALOGUE,
+    PACKET_QUEST_LIST, PACKET_QUEST_ACCEPT, PACKET_QUEST_COMPLETE, PACKET_QUEST_ABANDON, PACKET_QUEST_PROGRESS,
+    PACKET_SHOP_OPEN, PACKET_SHOP_BUY, PACKET_SHOP_SELL,
+    PACKET_TRADE_REQUEST, PACKET_TRADE_RESPONSE, PACKET_TRADE_OFFER, PACKET_TRADE_CONFIRM, PACKET_TRADE_CANCEL,
+    PACKET_CURRENCY_UPDATE, PACKET_ENEMY_LIST, PACKET_ENEMY_ATTACK
 } PacketType;
 
 typedef enum {
@@ -82,6 +104,56 @@ typedef struct {
 } GroundItem;
 
 typedef struct {
+    int32_t npc_id;
+    char name[32];
+    float x, y;
+    char map_name[32];
+    int32_t npc_type;     // NPCType enum
+    char icon[16];
+} NPC;
+
+typedef struct {
+    int32_t dialogue_id;
+    int32_t npc_id;
+    char text[256];
+    int32_t next_dialogue_id;
+} Dialogue;
+
+typedef struct {
+    int32_t objective_id;
+    int32_t quest_id;
+    int32_t objective_type;  // ObjectiveType enum
+    int32_t target_id;
+    char target_name[32];
+    int32_t required_count;
+    int32_t current_count;   // For tracking progress
+} QuestObjective;
+
+typedef struct {
+    int32_t quest_id;
+    char name[64];
+    char description[256];
+    int32_t npc_id;
+    int32_t reward_gold;
+    int32_t reward_xp;
+    int32_t reward_item_id;
+    int32_t reward_item_qty;
+    int32_t level_required;
+    int32_t status;          // QuestStatus enum
+    QuestObjective objectives[5];  // Max 5 objectives per quest
+    int32_t objective_count;
+} Quest;
+
+typedef struct {
+    int32_t shop_id;
+    int32_t npc_id;
+    Item items[20];       // Shop inventory
+    int32_t buy_prices[20];
+    int32_t sell_prices[20];
+    int32_t item_count;
+} ShopData;
+
+typedef struct {
     char src_map[32];
     int32_t rect_x;
     int32_t rect_y;
@@ -100,6 +172,17 @@ typedef struct {
 } FriendInfo;
 
 typedef struct {
+    int32_t enemy_id;
+    int32_t type;        // 1=Rat, 2=Goblin, etc.
+    char name[32];
+    float x, y;
+    int32_t hp;
+    int32_t max_hp;
+    int32_t active;
+    char map_name[32];
+} Enemy;
+
+typedef struct {
     int32_t id;
     float x; float y;
     int32_t direction; int32_t is_moving; int32_t active;
@@ -113,6 +196,11 @@ typedef struct {
     InventorySlot inventory[MAX_INVENTORY_SLOTS];
     Item equipment[EQUIP_SLOT_COUNT];
     int32_t inventory_count;  // Number of items in inventory
+    int32_t gold;             // Player currency
+    int32_t xp;               // Experience points
+    int32_t level;            // Player level
+    // NOTE: Quest data NOT included in Player struct for broadcast_state (too large)
+    // Quests are stored separately and sent via PACKET_QUEST_LIST
 } Player;
 
 typedef struct {
@@ -160,6 +248,33 @@ typedef struct {
     int32_t equip_slot;           // Equipment slot for equip operations
     GroundItem ground_items[MAX_GROUND_ITEMS];
     int32_t ground_item_count;
+    // Currency and level
+    int32_t gold;
+    int32_t xp;
+    int32_t level;
+    // NPC and quest fields
+    NPC npcs[20];
+    int32_t npc_count;
+    int32_t npc_id;               // For NPC interactions
+    Dialogue dialogue;            // Current dialogue
+    Quest quests[3];              // Reduced from 10 to 3 for packet size
+    int32_t quest_count;
+    int32_t quest_id;             // For quest operations
+    ShopData shop_data;           // Shop contents
+    int32_t buy_sell_item_id;     // Item ID for shop transactions
+    int32_t buy_sell_quantity;    // Quantity for shop transactions
+    // Enemy fields
+    Enemy enemies[20];
+    int32_t enemy_count;
+    int32_t enemy_id;             // For enemy interactions/combat
+    // Trade fields
+    int32_t trade_partner_id;
+    Item trade_offer_items[10];
+    int32_t trade_offer_count;
+    int32_t trade_offer_gold;
+    int32_t trade_confirmed;
+    // Chat channel
+    int32_t chat_channel;         // ChatChannel enum
 } Packet;
 
 #pragma pack(pop)

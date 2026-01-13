@@ -85,6 +85,10 @@ socket_t client_sockets[MAX_CLIENTS];
 sqlite3 *db;
 int next_player_id = 100;
 
+// Quest storage separate from Player struct (to keep broadcast_state packet small)
+Quest player_quests[MAX_CLIENTS][10];  // Each player can have up to 10 active quests
+int32_t player_quest_counts[MAX_CLIENTS];  // Number of quests each player has
+
 // Triggers data
 TriggerData server_triggers[20];
 int server_trigger_count = 0;
@@ -93,11 +97,23 @@ int server_trigger_count = 0;
 GroundItem ground_items[MAX_GROUND_ITEMS];
 int ground_item_count = 0;
 
+// NPCs
+NPC server_npcs[50];
+int server_npc_count = 0;
+
+// Enemies
+Enemy server_enemies[50];
+int server_enemy_count = 0;
+int next_enemy_id = 1;
+
 pthread_mutex_t state_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // --- Prototypes ---
 void broadcast_state();
 int send_all(socket_t sockfd, void *buf, size_t len, int flags);
+void update_collect_quest_progress(int player_index, int item_id, int quantity);
+void update_kill_quest_progress(int player_index, int enemy_type);
+void update_quest_progress(int player_index, int npc_id);
 
 // --- Database ---
 int get_role_id_from_name(char *name) {
@@ -204,6 +220,81 @@ void init_db() {
         "SPAWN_TIME INTEGER);";
     sqlite3_exec(db, sql_ground, 0, 0, 0);
 
+    // 6. Create NPCs Table
+    char *sql_npcs =
+        "CREATE TABLE IF NOT EXISTS npcs ("
+        "NPC_ID INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "NAME TEXT NOT NULL, "
+        "X REAL NOT NULL, "
+        "Y REAL NOT NULL, "
+        "MAP_NAME TEXT DEFAULT 'map.jpg', "
+        "NPC_TYPE INTEGER DEFAULT 0, "  // 0=quest, 1=merchant, 2=generic
+        "DIALOGUE_ID INTEGER, "
+        "ICON TEXT DEFAULT 'npc.png');";
+    sqlite3_exec(db, sql_npcs, 0, 0, 0);
+
+    // 7. Create Dialogues Table
+    char *sql_dialogues =
+        "CREATE TABLE IF NOT EXISTS dialogues ("
+        "DIALOGUE_ID INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "NPC_ID INTEGER, "
+        "TEXT TEXT NOT NULL, "
+        "NEXT_DIALOGUE_ID INTEGER);";  // For dialogue chains
+    sqlite3_exec(db, sql_dialogues, 0, 0, 0);
+
+    // 8. Create Quests Table
+    char *sql_quests =
+        "CREATE TABLE IF NOT EXISTS quests ("
+        "QUEST_ID INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "NAME TEXT NOT NULL, "
+        "DESCRIPTION TEXT, "
+        "NPC_ID INTEGER, "  // Quest giver
+        "REWARD_GOLD INTEGER DEFAULT 0, "
+        "REWARD_XP INTEGER DEFAULT 0, "
+        "REWARD_ITEM_ID INTEGER, "
+        "REWARD_ITEM_QTY INTEGER DEFAULT 1, "
+        "LEVEL_REQUIRED INTEGER DEFAULT 1);";
+    sqlite3_exec(db, sql_quests, 0, 0, 0);
+
+    // 9. Create Quest Objectives Table
+    char *sql_objectives =
+        "CREATE TABLE IF NOT EXISTS quest_objectives ("
+        "OBJECTIVE_ID INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "QUEST_ID INTEGER, "
+        "OBJECTIVE_TYPE INTEGER, "  // 0=kill, 1=collect, 2=visit
+        "TARGET_ID INTEGER, "  // NPC/Item/Location ID
+        "TARGET_NAME TEXT, "
+        "REQUIRED_COUNT INTEGER DEFAULT 1);";
+    sqlite3_exec(db, sql_objectives, 0, 0, 0);
+
+    // 10. Create Player Quests Table
+    char *sql_player_quests =
+        "CREATE TABLE IF NOT EXISTS player_quests ("
+        "ID INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "USER_ID INTEGER, "
+        "QUEST_ID INTEGER, "
+        "STATUS INTEGER DEFAULT 0, "  // 0=active, 1=completed, 2=failed
+        "PROGRESS TEXT, "  // JSON or CSV of objective progress
+        "ACCEPTED_TIME INTEGER, "
+        "COMPLETED_TIME INTEGER);";
+    sqlite3_exec(db, sql_player_quests, 0, 0, 0);
+
+    // 11. Create Shop Items Table
+    char *sql_shops =
+        "CREATE TABLE IF NOT EXISTS shop_items ("
+        "SHOP_ID INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "NPC_ID INTEGER, "
+        "ITEM_ID INTEGER, "
+        "BUY_PRICE INTEGER, "
+        "SELL_PRICE INTEGER, "
+        "STOCK INTEGER DEFAULT -1);";  // -1 = infinite
+    sqlite3_exec(db, sql_shops, 0, 0, 0);
+
+    // 12. Add currency column to users table
+    sqlite3_exec(db, "ALTER TABLE users ADD COLUMN GOLD INTEGER DEFAULT 100;", 0, 0, 0);
+    sqlite3_exec(db, "ALTER TABLE users ADD COLUMN XP INTEGER DEFAULT 0;", 0, 0, 0);
+    sqlite3_exec(db, "ALTER TABLE users ADD COLUMN LEVEL INTEGER DEFAULT 1;", 0, 0, 0);
+
     // Insert some default items if table is empty
     sqlite3_stmt *check_stmt;
     if (sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM items;", -1, &check_stmt, 0) == SQLITE_OK) {
@@ -238,6 +329,70 @@ void init_db() {
             sqlite3_finalize(check_stmt);
         }
     }
+    
+    // Insert default dialogues if empty
+    sqlite3_stmt *check_dlg;
+    if (sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM dialogues;", -1, &check_dlg, NULL) == SQLITE_OK) {
+        if (sqlite3_step(check_dlg) == SQLITE_ROW && sqlite3_column_int(check_dlg, 0) == 0) {
+            sqlite3_exec(db, "INSERT INTO dialogues (NPC_ID, TEXT) VALUES (1, 'Welcome to my shop! I have the finest goods in town. Come back when you are ready to trade!');", 0, 0, 0);
+            sqlite3_exec(db, "INSERT INTO dialogues (NPC_ID, TEXT) VALUES (2, 'Greetings, adventurer! I have a quest for you. There are dangerous creatures in the forest that need to be dealt with. Will you help?');", 0, 0, 0);
+            sqlite3_exec(db, "INSERT INTO dialogues (NPC_ID, TEXT) VALUES (3, 'Need your weapons sharpened? Or perhaps some armor repaired? I am the best blacksmith in the land!');", 0, 0, 0);
+            LOG("Created default dialogues\n");
+        }
+        sqlite3_finalize(check_dlg);
+    }
+    
+    // Insert default shop items if empty
+    sqlite3_stmt *check_shop;
+    if (sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM shop_items;", -1, &check_shop, NULL) == SQLITE_OK) {
+        if (sqlite3_step(check_shop) == SQLITE_ROW && sqlite3_column_int(check_shop, 0) == 0) {
+            // Blacksmith John (NPC 2) sells weapons and armor
+            sqlite3_exec(db, "INSERT INTO shop_items (NPC_ID, ITEM_ID, BUY_PRICE, SELL_PRICE) VALUES (2, 2, 100, 50);", 0, 0, 0); // Iron Sword
+            sqlite3_exec(db, "INSERT INTO shop_items (NPC_ID, ITEM_ID, BUY_PRICE, SELL_PRICE) VALUES (2, 3, 150, 75);", 0, 0, 0); // Leather Armor
+            sqlite3_exec(db, "INSERT INTO shop_items (NPC_ID, ITEM_ID, BUY_PRICE, SELL_PRICE) VALUES (2, 4, 80, 40);", 0, 0, 0);  // Iron Helmet
+            sqlite3_exec(db, "INSERT INTO shop_items (NPC_ID, ITEM_ID, BUY_PRICE, SELL_PRICE) VALUES (2, 5, 60, 30);", 0, 0, 0);  // Leather Boots
+            sqlite3_exec(db, "INSERT INTO shop_items (NPC_ID, ITEM_ID, BUY_PRICE, SELL_PRICE) VALUES (2, 9, 120, 60);", 0, 0, 0); // Iron Leggings
+            sqlite3_exec(db, "INSERT INTO shop_items (NPC_ID, ITEM_ID, BUY_PRICE, SELL_PRICE) VALUES (2, 6, 200, 100);", 0, 0, 0); // Magic Ring
+            
+            // General Store (NPC 3) sells basic items
+            sqlite3_exec(db, "INSERT INTO shop_items (NPC_ID, ITEM_ID, BUY_PRICE, SELL_PRICE) VALUES (3, 1, 20, 10);", 0, 0, 0); // Health Potion
+            sqlite3_exec(db, "INSERT INTO shop_items (NPC_ID, ITEM_ID, BUY_PRICE, SELL_PRICE) VALUES (3, 7, 5, 2);", 0, 0, 0);  // Wood
+            sqlite3_exec(db, "INSERT INTO shop_items (NPC_ID, ITEM_ID, BUY_PRICE, SELL_PRICE) VALUES (3, 8, 10, 5);", 0, 0, 0); // Stone
+            
+            LOG("Created default shop items\n");
+        }
+        sqlite3_finalize(check_shop);
+    }
+    
+    // Insert default quests if empty
+    sqlite3_stmt *check_quests;
+    if (sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM quests;", -1, &check_quests, NULL) == SQLITE_OK) {
+        if (sqlite3_step(check_quests) == SQLITE_ROW && sqlite3_column_int(check_quests, 0) == 0) {
+            // Quest 1: Rat Problem (Kill quest) - offered by Quest Giver Sarah (NPC 1)
+            sqlite3_exec(db, "INSERT INTO quests (QUEST_ID, NAME, DESCRIPTION, NPC_ID, REWARD_GOLD, REWARD_XP, REWARD_ITEM_ID, REWARD_ITEM_QTY, LEVEL_REQUIRED) "
+                            "VALUES (1, 'Rat Problem', 'The town cellar is infested with rats. Kill 5 rats to help clean up the town.', 1, 50, 100, 1, 2, 1);", 0, 0, 0);
+            sqlite3_exec(db, "INSERT INTO quest_objectives (QUEST_ID, OBJECTIVE_TYPE, TARGET_ID, TARGET_NAME, REQUIRED_COUNT) "
+                            "VALUES (1, 0, 1, 'Rat', 5);", 0, 0, 0);
+            
+            // Quest 2: Gather Resources (Collect quest) - offered by Quest Giver Sarah (NPC 1)
+            sqlite3_exec(db, "INSERT INTO quests (QUEST_ID, NAME, DESCRIPTION, NPC_ID, REWARD_GOLD, REWARD_XP, REWARD_ITEM_ID, REWARD_ITEM_QTY, LEVEL_REQUIRED) "
+                            "VALUES (2, 'Gather Resources', 'I need materials for repairs. Bring me 10 Wood and 5 Stone.', 1, 75, 150, 2, 1, 1);", 0, 0, 0);
+            sqlite3_exec(db, "INSERT INTO quest_objectives (QUEST_ID, OBJECTIVE_TYPE, TARGET_ID, TARGET_NAME, REQUIRED_COUNT) "
+                            "VALUES (2, 1, 7, 'Wood', 10);", 0, 0, 0);
+            sqlite3_exec(db, "INSERT INTO quest_objectives (QUEST_ID, OBJECTIVE_TYPE, TARGET_ID, TARGET_NAME, REQUIRED_COUNT) "
+                            "VALUES (2, 1, 8, 'Stone', 5);", 0, 0, 0);
+            
+            // Quest 3: Meet the Blacksmith (Visit quest) - offered by Quest Giver Sarah (NPC 1)
+            sqlite3_exec(db, "INSERT INTO quests (QUEST_ID, NAME, DESCRIPTION, NPC_ID, REWARD_GOLD, REWARD_XP, REWARD_ITEM_ID, REWARD_ITEM_QTY, LEVEL_REQUIRED) "
+                            "VALUES (3, 'Meet the Blacksmith', 'Go speak with Blacksmith John. He may have work for you.', 1, 25, 50, 0, 0, 1);", 0, 0, 0);
+            sqlite3_exec(db, "INSERT INTO quest_objectives (QUEST_ID, OBJECTIVE_TYPE, TARGET_ID, TARGET_NAME, REQUIRED_COUNT) "
+                            "VALUES (3, 2, 2, 'Blacksmith John', 1);", 0, 0, 0);
+            
+            LOG("Created default quests\n");
+        }
+        sqlite3_finalize(check_quests);
+    }
+    
     LOG("Database initialization complete\n");
 }
 
@@ -296,10 +451,10 @@ AuthStatus register_user(const char *user, const char *pass) {
     return AUTH_REGISTER_SUCCESS;
 }
 
-// Update signature to accept 'long *ban_expire'
-int login_user(const char *username, const char *password, float *x, float *y, uint8_t *r, uint8_t *g, uint8_t *b, uint8_t *r2, uint8_t *g2, uint8_t *b2, int *role, long *ban_expire, char *map_name_out) {
+// Update signature to accept 'long *ban_expire' and currency/level
+int login_user(const char *username, const char *password, float *x, float *y, uint8_t *r, uint8_t *g, uint8_t *b, uint8_t *r2, uint8_t *g2, uint8_t *b2, int *role, long *ban_expire, char *map_name_out, int *gold, int *xp, int *level) {
     sqlite3_stmt *stmt;
-  const char *sql = "SELECT X, Y, R, G, B, ROLE, BAN_EXPIRE, R2, G2, B2, MAP FROM users WHERE USERNAME=? AND PASSWORD=?;";
+    const char *sql = "SELECT X, Y, R, G, B, ROLE, BAN_EXPIRE, R2, G2, B2, MAP, GOLD, XP, LEVEL FROM users WHERE USERNAME=? AND PASSWORD=?;";
     
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, 0) != SQLITE_OK) return 0;
     
@@ -321,6 +476,9 @@ int login_user(const char *username, const char *password, float *x, float *y, u
         const unsigned char *m = sqlite3_column_text(stmt, 10); // Index 10
         if (m) strncpy(map_name_out, (const char*)m, 31);
         else strcpy(map_name_out, "map.jpg");
+        *gold = sqlite3_column_int(stmt, 11);
+        *xp = sqlite3_column_int(stmt, 12);
+        *level = sqlite3_column_int(stmt, 13);
         success = 1;
     }
     sqlite3_finalize(stmt);
@@ -463,6 +621,7 @@ int give_item_to_player(int player_index, int item_id, int quantity) {
     }
     
     // Add to new slots
+    int quantity_added = quantity;  // Track how much we actually added for quest tracking
     while (quantity > 0 && p->inventory_count < MAX_INVENTORY_SLOTS) {
         int to_add = (quantity < max_stack) ? quantity : max_stack;
         p->inventory[p->inventory_count].item.item_id = item_id;
@@ -477,6 +636,13 @@ int give_item_to_player(int player_index, int item_id, int quantity) {
     }
     
     save_player_inventory(player_index);
+    
+    // Update collect quest progress
+    int actually_added = quantity_added - quantity;  // How much actually got into inventory
+    if (actually_added > 0) {
+        update_collect_quest_progress(player_index, item_id, actually_added);
+    }
+    
     return (quantity == 0) ? 1 : 0;
 }
 
@@ -533,6 +699,333 @@ void send_inventory_update(int player_index) {
     send_all(client_sockets[player_index], &pkt, sizeof(Packet), 0);
 }
 
+// Quest System Functions
+void load_player_quests(int player_index) {
+    Player *p = &players[player_index];
+    player_quest_counts[player_index] = 0;
+    
+    sqlite3_stmt *stmt;
+    const char *sql = "SELECT pq.QUEST_ID, q.NAME, q.DESCRIPTION, q.NPC_ID, q.REWARD_GOLD, q.REWARD_XP, "
+                     "q.REWARD_ITEM_ID, q.REWARD_ITEM_QTY, q.LEVEL_REQUIRED, pq.STATUS, pq.PROGRESS "
+                     "FROM player_quests pq JOIN quests q ON pq.QUEST_ID = q.QUEST_ID "
+                     "WHERE pq.USER_ID=? AND pq.STATUS=0 ORDER BY pq.ACCEPTED_TIME DESC;";
+    
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, p->id);
+        
+        while (sqlite3_step(stmt) == SQLITE_ROW && player_quest_counts[player_index] < 10) {
+            Quest *q = &player_quests[player_index][player_quest_counts[player_index]];
+            q->quest_id = sqlite3_column_int(stmt, 0);
+            strncpy(q->name, (const char*)sqlite3_column_text(stmt, 1), 63);
+            strncpy(q->description, (const char*)sqlite3_column_text(stmt, 2), 255);
+            q->npc_id = sqlite3_column_int(stmt, 3);
+            q->reward_gold = sqlite3_column_int(stmt, 4);
+            q->reward_xp = sqlite3_column_int(stmt, 5);
+            q->reward_item_id = sqlite3_column_int(stmt, 6);
+            q->reward_item_qty = sqlite3_column_int(stmt, 7);
+            q->level_required = sqlite3_column_int(stmt, 8);
+            q->status = sqlite3_column_int(stmt, 9);
+            
+            // Parse progress string (format: "0/5,0/10")
+            const char *progress = (const char*)sqlite3_column_text(stmt, 10);
+            
+            // Load objectives for this quest
+            sqlite3_stmt *obj_stmt;
+            const char *obj_sql = "SELECT OBJECTIVE_ID, OBJECTIVE_TYPE, TARGET_ID, TARGET_NAME, REQUIRED_COUNT "
+                                 "FROM quest_objectives WHERE QUEST_ID=? ORDER BY OBJECTIVE_ID;";
+            q->objective_count = 0;
+            
+            if (sqlite3_prepare_v2(db, obj_sql, -1, &obj_stmt, NULL) == SQLITE_OK) {
+                sqlite3_bind_int(obj_stmt, 1, q->quest_id);
+                
+                while (sqlite3_step(obj_stmt) == SQLITE_ROW && q->objective_count < 5) {
+                    QuestObjective *obj = &q->objectives[q->objective_count];
+                    obj->objective_id = sqlite3_column_int(obj_stmt, 0);
+                    obj->quest_id = q->quest_id;
+                    obj->objective_type = sqlite3_column_int(obj_stmt, 1);
+                    obj->target_id = sqlite3_column_int(obj_stmt, 2);
+                    strncpy(obj->target_name, (const char*)sqlite3_column_text(obj_stmt, 3), 31);
+                    obj->required_count = sqlite3_column_int(obj_stmt, 4);
+                    
+                    // Parse current progress from progress string
+                    obj->current_count = 0;
+                    if (progress && strlen(progress) > 0) {
+                        int obj_idx = q->objective_count;
+                        const char *ptr = progress;
+                        for (int i = 0; i <= obj_idx && ptr; i++) {
+                            if (i == obj_idx) {
+                                sscanf(ptr, "%d", &obj->current_count);
+                                break;
+                            }
+                            ptr = strchr(ptr, ',');
+                            if (ptr) ptr++;
+                        }
+                    }
+                    
+                    q->objective_count++;
+                }
+                sqlite3_finalize(obj_stmt);
+            }
+            
+            player_quest_counts[player_index]++;
+        }
+        sqlite3_finalize(stmt);
+    }
+    
+    LOG("Loaded %d active quests for player %s\n", player_quest_counts[player_index], p->username);
+}
+
+void send_quest_list(int player_index) {
+    Packet pkt;
+    memset(&pkt, 0, sizeof(Packet));
+    pkt.type = PACKET_QUEST_LIST;
+    
+    // Copy player's active quests
+    for (int i = 0; i < player_quest_counts[player_index]; i++) {
+        pkt.quests[i] = player_quests[player_index][i];
+    }
+    pkt.quest_count = player_quest_counts[player_index];
+    
+    send_all(client_sockets[player_index], &pkt, sizeof(Packet), 0);
+}
+
+void save_quest_progress(int player_index, int quest_id) {
+    Player *p = &players[player_index];
+    
+    // Find quest in player's quest list
+    Quest *quest = NULL;
+    int quest_index = -1;
+    for (int i = 0; i < player_quest_counts[player_index]; i++) {
+        if (player_quests[player_index][i].quest_id == quest_id) {
+            quest = &player_quests[player_index][i];
+            quest_index = i;
+            break;
+        }
+    }
+    
+    if (!quest) return;
+    
+    // Build progress string
+    char progress[256] = "";
+    for (int i = 0; i < quest->objective_count; i++) {
+        char buf[16];
+        snprintf(buf, 16, "%d", quest->objectives[i].current_count);
+        strcat(progress, buf);
+        if (i < quest->objective_count - 1) strcat(progress, ",");
+    }
+    
+    // Update database
+    char sql[512];
+    snprintf(sql, 512, "UPDATE player_quests SET PROGRESS='%s' WHERE USER_ID=%d AND QUEST_ID=%d;",
+            progress, p->id, quest_id);
+    sqlite3_exec(db, sql, 0, 0, 0);
+}
+
+void update_quest_progress(int player_index, int npc_id) {
+    Player *p = &players[player_index];
+    int progress_made = 0;
+    
+    // Check all active quests for visit objectives matching this NPC
+    for (int i = 0; i < player_quest_counts[player_index]; i++) {
+        Quest *quest = &player_quests[player_index][i];
+        
+        for (int j = 0; j < quest->objective_count; j++) {
+            QuestObjective *obj = &quest->objectives[j];
+            
+            // Check for visit objectives (type 2) targeting this NPC
+            if (obj->objective_type == 2 && obj->target_id == npc_id) {
+                if (obj->current_count < obj->required_count) {
+                    obj->current_count++;
+                    save_quest_progress(player_index, quest->quest_id);
+                    progress_made = 1;
+                    
+                    // Send progress update to client
+                    Packet progress_pkt;
+                    memset(&progress_pkt, 0, sizeof(Packet));
+                    progress_pkt.type = PACKET_QUEST_PROGRESS;
+                    progress_pkt.quest_id = quest->quest_id;
+                    progress_pkt.quests[0] = *quest;
+                    progress_pkt.quest_count = 1;
+                    send_all(client_sockets[player_index], &progress_pkt, sizeof(Packet), 0);
+                    
+                    // Check if quest is now complete
+                    int all_complete = 1;
+                    for (int k = 0; k < quest->objective_count; k++) {
+                        if (quest->objectives[k].current_count < quest->objectives[k].required_count) {
+                            all_complete = 0;
+                            break;
+                        }
+                    }
+                    
+                    if (all_complete) {
+                        Packet chat_pkt;
+                        memset(&chat_pkt, 0, sizeof(Packet));
+                        chat_pkt.type = PACKET_CHAT;
+                        chat_pkt.player_id = -1;
+                        snprintf(chat_pkt.msg, 64, "Quest '%s' ready to complete!", quest->name);
+                        send_all(client_sockets[player_index], &chat_pkt, sizeof(Packet), 0);
+                    }
+                    
+                    LOG("Player %s updated quest %d objective %d: %d/%d\n", 
+                        p->username, quest->quest_id, j, obj->current_count, obj->required_count);
+                }
+            }
+        }
+    }
+}
+
+void update_collect_quest_progress(int player_index, int item_id, int quantity) {
+    Player *p = &players[player_index];
+    
+    // Check all active quests for collect objectives matching this item
+    for (int i = 0; i < player_quest_counts[player_index]; i++) {
+        Quest *quest = &player_quests[player_index][i];
+        
+        for (int j = 0; j < quest->objective_count; j++) {
+            QuestObjective *obj = &quest->objectives[j];
+            
+            // Check for collect objectives (type 1) targeting this item
+            if (obj->objective_type == 1 && obj->target_id == item_id) {
+                obj->current_count += quantity;
+                if (obj->current_count > obj->required_count) {
+                    obj->current_count = obj->required_count;
+                }
+                
+                save_quest_progress(player_index, quest->quest_id);
+                
+                // Send progress update to client
+                Packet progress_pkt;
+                memset(&progress_pkt, 0, sizeof(Packet));
+                progress_pkt.type = PACKET_QUEST_PROGRESS;
+                progress_pkt.quest_id = quest->quest_id;
+                progress_pkt.quests[0] = *quest;
+                progress_pkt.quest_count = 1;
+                send_all(client_sockets[player_index], &progress_pkt, sizeof(Packet), 0);
+                
+                LOG("Player %s updated quest %d collect objective: +%d %s (%d/%d)\n", 
+                    p->username, quest->quest_id, quantity, obj->target_name, 
+                    obj->current_count, obj->required_count);
+                
+                // Check if quest is now complete
+                int all_complete = 1;
+                for (int k = 0; k < quest->objective_count; k++) {
+                    if (quest->objectives[k].current_count < quest->objectives[k].required_count) {
+                        all_complete = 0;
+                        break;
+                    }
+                }
+                
+                if (all_complete) {
+                    Packet chat_pkt;
+                    memset(&chat_pkt, 0, sizeof(Packet));
+                    chat_pkt.type = PACKET_CHAT;
+                    chat_pkt.player_id = -1;
+                    snprintf(chat_pkt.msg, 64, "Quest '%s' ready to complete!", quest->name);
+                    send_all(client_sockets[player_index], &chat_pkt, sizeof(Packet), 0);
+                }
+            }
+        }
+    }
+}
+
+void update_kill_quest_progress(int player_index, int enemy_type) {
+    Player *p = &players[player_index];
+    
+    // Check all active quests for kill objectives matching this enemy type
+    for (int i = 0; i < player_quest_counts[player_index]; i++) {
+        Quest *quest = &player_quests[player_index][i];
+        
+        for (int j = 0; j < quest->objective_count; j++) {
+            QuestObjective *obj = &quest->objectives[j];
+            
+            // Check for kill objectives (type 0) targeting this enemy type
+            if (obj->objective_type == 0 && obj->target_id == enemy_type) {
+                if (obj->current_count < obj->required_count) {
+                    obj->current_count++;
+                    save_quest_progress(player_index, quest->quest_id);
+                    
+                    // Send progress update to client
+                    Packet progress_pkt;
+                    memset(&progress_pkt, 0, sizeof(Packet));
+                    progress_pkt.type = PACKET_QUEST_PROGRESS;
+                    progress_pkt.quest_id = quest->quest_id;
+                    progress_pkt.quests[0] = *quest;
+                    progress_pkt.quest_count = 1;
+                    send_all(client_sockets[player_index], &progress_pkt, sizeof(Packet), 0);
+                    
+                    LOG("Player %s updated quest %d kill objective: %s (%d/%d)\n", 
+                        p->username, quest->quest_id, obj->target_name, 
+                        obj->current_count, obj->required_count);
+                    
+                    // Check if quest is now complete
+                    int all_complete = 1;
+                    for (int k = 0; k < quest->objective_count; k++) {
+                        if (quest->objectives[k].current_count < quest->objectives[k].required_count) {
+                            all_complete = 0;
+                            break;
+                        }
+                    }
+                    
+                    if (all_complete) {
+                        Packet chat_pkt;
+                        memset(&chat_pkt, 0, sizeof(Packet));
+                        chat_pkt.type = PACKET_CHAT;
+                        chat_pkt.player_id = -1;
+                        snprintf(chat_pkt.msg, 64, "Quest '%s' ready to complete!", quest->name);
+                        send_all(client_sockets[player_index], &chat_pkt, sizeof(Packet), 0);
+                    }
+                }
+            }
+        }
+    }
+}
+
+void spawn_enemies() {
+    server_enemy_count = 0;
+    
+    // Spawn 5 rats around the map
+    for (int i = 0; i < 5 && server_enemy_count < 50; i++) {
+        Enemy *rat = &server_enemies[server_enemy_count];
+        rat->enemy_id = next_enemy_id++;
+        rat->type = 1;  // 1 = Rat
+        strcpy(rat->name, "Rat");
+        rat->x = 300.0f + (rand() % 800);
+        rat->y = 300.0f + (rand() % 600);
+        rat->hp = 10;
+        rat->max_hp = 10;
+        rat->active = 1;
+        strcpy(rat->map_name, "map.jpg");
+        server_enemy_count++;
+    }
+    
+    LOG("Spawned %d enemies\n", server_enemy_count);
+}
+
+void send_enemy_list(int player_index) {
+    Packet pkt;
+    memset(&pkt, 0, sizeof(Packet));
+    pkt.type = PACKET_ENEMY_LIST;
+    
+    // Send all active enemies
+    pkt.enemy_count = 0;
+    for (int i = 0; i < server_enemy_count && pkt.enemy_count < 20; i++) {
+        if (server_enemies[i].active) {
+            pkt.enemies[pkt.enemy_count++] = server_enemies[i];
+        }
+    }
+    
+    send_all(client_sockets[player_index], &pkt, sizeof(Packet), 0);
+    LOG("Sent %d enemies to player %d\n", pkt.enemy_count, player_index);
+}
+
+void broadcast_enemy_list() {
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (SOCKET_IS_VALID(client_sockets[i]) && players[i].active) {
+            send_enemy_list(i);
+        }
+    }
+}
+
 void load_triggers() {
     FILE *fp = fopen("triggers.txt", "r");
     if (!fp) {
@@ -568,6 +1061,66 @@ void load_triggers() {
     }
     LOG("Server: Total Triggers Loaded: %d\n", server_trigger_count);
     fclose(fp);
+}
+
+void load_npcs() {
+    sqlite3_stmt *stmt;
+    const char *sql = "SELECT NPC_ID, NAME, X, Y, MAP_NAME, NPC_TYPE, ICON FROM npcs;";
+    
+    server_npc_count = 0;
+    
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW && server_npc_count < 50) {
+            server_npcs[server_npc_count].npc_id = sqlite3_column_int(stmt, 0);
+            strncpy(server_npcs[server_npc_count].name, (const char*)sqlite3_column_text(stmt, 1), 31);
+            server_npcs[server_npc_count].name[31] = '\0';
+            server_npcs[server_npc_count].x = (float)sqlite3_column_double(stmt, 2);
+            server_npcs[server_npc_count].y = (float)sqlite3_column_double(stmt, 3);
+            strncpy(server_npcs[server_npc_count].map_name, (const char*)sqlite3_column_text(stmt, 4), 31);
+            server_npcs[server_npc_count].map_name[31] = '\0';
+            server_npcs[server_npc_count].npc_type = sqlite3_column_int(stmt, 5);
+            strncpy(server_npcs[server_npc_count].icon, (const char*)sqlite3_column_text(stmt, 6), 15);
+            server_npcs[server_npc_count].icon[15] = '\0';
+            
+            LOG("Loaded NPC %d: %s at (%.1f, %.1f) on %s\n",
+                server_npcs[server_npc_count].npc_id,
+                server_npcs[server_npc_count].name,
+                server_npcs[server_npc_count].x,
+                server_npcs[server_npc_count].y,
+                server_npcs[server_npc_count].map_name);
+            
+            server_npc_count++;
+        }
+        sqlite3_finalize(stmt);
+    }
+    
+    LOG("Loaded %d NPCs from database\n", server_npc_count);
+    
+    // If no NPCs in database, create some default ones
+    if (server_npc_count == 0) {
+        LOG("No NPCs found, creating default NPCs...\n");
+        sqlite3_exec(db, "INSERT INTO npcs (NPC_ID, NAME, X, Y, MAP_NAME, NPC_TYPE, ICON) VALUES (1, 'Quest Giver Sarah', 200.0, 200.0, 'map.jpg', 0, 'quest.png');", 0, 0, 0);
+        sqlite3_exec(db, "INSERT INTO npcs (NPC_ID, NAME, X, Y, MAP_NAME, NPC_TYPE, ICON) VALUES (2, 'Blacksmith John', 250.0, 150.0, 'map.jpg', 1, 'blacksmith.png');", 0, 0, 0);
+        sqlite3_exec(db, "INSERT INTO npcs (NPC_ID, NAME, X, Y, MAP_NAME, NPC_TYPE, ICON) VALUES (3, 'General Store', 150.0, 150.0, 'map.jpg', 1, 'merchant.png');", 0, 0, 0);
+        
+        // Reload after adding defaults
+        load_npcs();
+    }
+}
+
+void send_npc_list(int player_index) {
+    Packet pkt;
+    memset(&pkt, 0, sizeof(Packet));
+    pkt.type = PACKET_NPC_LIST;
+    
+    // Copy NPCs into packet (max 20)
+    pkt.npc_count = (server_npc_count > 20) ? 20 : server_npc_count;
+    for (int i = 0; i < pkt.npc_count; i++) {
+        pkt.npcs[i] = server_npcs[i];
+    }
+    
+    send_all(client_sockets[player_index], &pkt, sizeof(Packet), 0);
+    LOG("Sent %d NPCs to player %d\n", pkt.npc_count, player_index);
 }
 
 void spawn_random_ground_items() {
@@ -661,13 +1214,14 @@ void send_triggers_to_client(int client_index) {
 void load_telemetry();  // Forward declaration
 
 void init_game() {
-    init_db(); init_storage(); load_triggers(); load_telemetry();
+    init_db(); init_storage(); load_triggers(); load_npcs(); load_telemetry(); spawn_enemies();
     // spawn_random_ground_items();  // Spawn items on server start - DISABLED for mobile testing
     for (int i = 0; i < MAX_CLIENTS; i++) { 
         client_sockets[i] = SOCKET_INVALID; 
         players[i].active = 0; 
         players[i].id = -1; 
         players[i].is_typing = 0;
+        player_quest_counts[i] = 0;  // Initialize quest counts
     }
 }
 
@@ -1153,14 +1707,15 @@ void handle_client_message(int index, Packet *pkt) {
             int role;
             long ban_expire = 0;
             char db_map[32] = "map.jpg";
+            int gold, xp, level;
 
-            // Pass &ban_expire to the function
+            // Pass &ban_expire and currency fields to the function
             if (pkt->username[0] == '\0' || pkt->password[0] == '\0') {
                 response.status = AUTH_FAILURE;
                 strcpy(response.msg, "Username and password required.");
                 LOG("Login failed from client %d: %s\n", index, response.msg);
             }
-            else if (login_user(pkt->username, pkt->password, &x, &y, &r, &g, &b, &r2, &g2, &b2, &role, &ban_expire, db_map)) {
+            else if (login_user(pkt->username, pkt->password, &x, &y, &r, &g, &b, &r2, &g2, &b2, &role, &ban_expire, db_map, &gold, &xp, &level)) {
                 
                 // 1. Check Ban Logic
                 if (time(NULL) < ban_expire) {
@@ -1203,11 +1758,15 @@ void handle_client_message(int index, Packet *pkt) {
                     players[index].r2 = r2; 
                     players[index].g2 = g2; 
                     players[index].b2 = b2;
-                    players[index].role = role; 
+                    players[index].role = role;
+                    players[index].gold = gold;
+                    players[index].xp = xp;
+                    players[index].level = level;
                     strncpy(players[index].username, pkt->username, 31);
                     strncpy(players[index].map_name, db_map, 31);
                     
-                    LOG("User '%s' (ID: %d) logged in successfully\n", pkt->username, players[index].id);
+                    LOG("User '%s' (ID: %d) logged in successfully (Gold: %d, Level: %d)\n", 
+                        pkt->username, players[index].id, gold, level);
                     
                     response.player_id = players[index].id;
                     send_all(client_sockets[index], &response, sizeof(Packet), 0);
@@ -1216,11 +1775,22 @@ void handle_client_message(int index, Packet *pkt) {
                     load_player_inventory(index);
                     send_inventory_update(index);
                     
+                    // Load player's active quests
+                    load_player_quests(index);
+                    // Don't send quest list on login - too large, send on demand instead
+                    // send_quest_list(index);
+                    
+                    // Send NPCs to client
+                    send_npc_list(index);
+                    
                     // Send triggers to client after successful login
                     send_triggers_to_client(index);
                     
                     // Send ground items to client
                     send_ground_items_to_client(index);
+                    
+                    // Send enemies to client
+                    send_enemy_list(index);
                     
                     broadcast_friend_update(); 
                     send_pending_requests(index); 
@@ -1327,7 +1897,55 @@ void handle_client_message(int index, Packet *pkt) {
                     send_all(client_sockets[index], &resp, sizeof(Packet), 0);
                 }
             }
-            // 5. /removeitem <player_id> <item_id> <quantity>
+            // 5. /setgold <player_id> <amount>
+            else if (strncmp(pkt->msg, "/setgold ", 9) == 0) {
+                int target_id, amount;
+                if (sscanf(pkt->msg + 9, "%d %d", &target_id, &amount) == 2) {
+                    // Find target player by user ID
+                    int target_index = -1;
+                    for (int i = 0; i < MAX_CLIENTS; i++) {
+                        if (players[i].active && players[i].id == target_id) {
+                            target_index = i;
+                            break;
+                        }
+                    }
+                    
+                    if (target_index >= 0 && amount >= 0) {
+                        players[target_index].gold = amount;
+                        
+                        // Update database
+                        char sql[256];
+                        snprintf(sql, 256, "UPDATE users SET GOLD=%d WHERE ID=%d;", amount, target_id);
+                        sqlite3_exec(db, sql, 0, 0, 0);
+                        
+                        // Send currency update to target player
+                        Packet currency_pkt;
+                        memset(&currency_pkt, 0, sizeof(Packet));
+                        currency_pkt.type = PACKET_CURRENCY_UPDATE;
+                        currency_pkt.gold = players[target_index].gold;
+                        currency_pkt.xp = players[target_index].xp;
+                        currency_pkt.level = players[target_index].level;
+                        send_all(client_sockets[target_index], &currency_pkt, sizeof(Packet), 0);
+                        
+                        Packet resp; resp.type = PACKET_CHAT; resp.player_id = -1;
+                        snprintf(resp.msg, 127, "Set gold to %d for player ID %d (%s)", 
+                                amount, target_id, players[target_index].username);
+                        send_all(client_sockets[index], &resp, sizeof(Packet), 0);
+                        
+                        LOG("Admin %s set gold to %d for player %s\n", 
+                            players[index].username, amount, players[target_index].username);
+                    } else {
+                        Packet resp; resp.type = PACKET_CHAT; resp.player_id = -1;
+                        snprintf(resp.msg, 127, "Player ID %d not found or invalid amount.", target_id);
+                        send_all(client_sockets[index], &resp, sizeof(Packet), 0);
+                    }
+                } else {
+                    Packet resp; resp.type = PACKET_CHAT; resp.player_id = -1;
+                    strcpy(resp.msg, "Usage: /setgold <player_id> <amount>");
+                    send_all(client_sockets[index], &resp, sizeof(Packet), 0);
+                }
+            }
+            // 6. /removeitem <player_id> <item_id> <quantity>
             else if (strncmp(pkt->msg, "/removeitem ", 12) == 0 || strncmp(pkt->msg, "/removeitm ", 11) == 0) {
                 int offset = (pkt->msg[8] == 'e') ? 12 : 11;
                 int target_id, item_id, quantity;
@@ -1779,6 +2397,579 @@ void handle_client_message(int index, Packet *pkt) {
                 LOG("Player %s unequipped item %d from slot %d\n", 
                     players[index].username, equipped_item.item_id, equip_slot);
             }
+        }
+    }
+    else if (pkt->type == PACKET_NPC_INTERACT) {
+        // Player clicked on an NPC
+        int npc_id = pkt->npc_id;
+        
+        LOG("Player %s interacted with NPC %d\n", players[index].username, npc_id);
+        
+        // Check NPC type
+        int npc_type = -1;
+        for (int i = 0; i < server_npc_count; i++) {
+            if (server_npcs[i].npc_id == npc_id) {
+                npc_type = server_npcs[i].npc_type;
+                break;
+            }
+        }
+        
+        // If merchant, send shop data
+        if (npc_type == NPC_TYPE_MERCHANT) {
+            Packet shop_pkt;
+            memset(&shop_pkt, 0, sizeof(Packet));
+            shop_pkt.type = PACKET_SHOP_OPEN;
+            shop_pkt.shop_data.npc_id = npc_id;
+            
+            // Load shop items from database
+            sqlite3_stmt *shop_stmt;
+            const char *shop_sql = "SELECT si.ITEM_ID, i.NAME, i.TYPE, i.ICON, i.MAX_STACK, si.BUY_PRICE, si.SELL_PRICE "
+                                   "FROM shop_items si JOIN items i ON si.ITEM_ID = i.ITEM_ID "
+                                   "WHERE si.NPC_ID=? LIMIT 20;";
+            
+            shop_pkt.shop_data.item_count = 0;
+            
+            if (sqlite3_prepare_v2(db, shop_sql, -1, &shop_stmt, NULL) == SQLITE_OK) {
+                sqlite3_bind_int(shop_stmt, 1, npc_id);
+                
+                while (sqlite3_step(shop_stmt) == SQLITE_ROW && shop_pkt.shop_data.item_count < 20) {
+                    int idx = shop_pkt.shop_data.item_count;
+                    shop_pkt.shop_data.items[idx].item_id = sqlite3_column_int(shop_stmt, 0);
+                    strncpy(shop_pkt.shop_data.items[idx].name, (const char*)sqlite3_column_text(shop_stmt, 1), 31);
+                    shop_pkt.shop_data.items[idx].name[31] = '\0';
+                    shop_pkt.shop_data.items[idx].type = sqlite3_column_int(shop_stmt, 2);
+                    strncpy(shop_pkt.shop_data.items[idx].icon, (const char*)sqlite3_column_text(shop_stmt, 3), 15);
+                    shop_pkt.shop_data.items[idx].icon[15] = '\0';
+                    shop_pkt.shop_data.items[idx].quantity = sqlite3_column_int(shop_stmt, 4);
+                    shop_pkt.shop_data.buy_prices[idx] = sqlite3_column_int(shop_stmt, 5);
+                    shop_pkt.shop_data.sell_prices[idx] = sqlite3_column_int(shop_stmt, 6);
+                    shop_pkt.shop_data.item_count++;
+                }
+                
+                sqlite3_finalize(shop_stmt);
+            }
+            
+            send_all(client_sockets[index], &shop_pkt, sizeof(Packet), 0);
+            LOG("Sent shop with %d items to player %s\n", shop_pkt.shop_data.item_count, players[index].username);
+            
+            // Check for quest progress (visit objectives)
+            if (player_quest_counts[index] > 0) {
+                update_quest_progress(index, npc_id);
+            }
+            
+            return;
+        }
+        
+        // If quest NPC, send available quests
+        if (npc_type == NPC_TYPE_QUEST) {
+            Packet quest_offer_pkt;
+            memset(&quest_offer_pkt, 0, sizeof(Packet));
+            quest_offer_pkt.type = PACKET_QUEST_LIST;
+            quest_offer_pkt.npc_id = npc_id;
+            
+            // Load available quests from this NPC that player doesn't have
+            sqlite3_stmt *quest_stmt;
+            const char *quest_sql = "SELECT QUEST_ID, NAME, DESCRIPTION, REWARD_GOLD, REWARD_XP, REWARD_ITEM_ID, REWARD_ITEM_QTY, LEVEL_REQUIRED "
+                                   "FROM quests WHERE NPC_ID=? LIMIT 10;";
+            
+            quest_offer_pkt.quest_count = 0;
+            
+            if (sqlite3_prepare_v2(db, quest_sql, -1, &quest_stmt, NULL) == SQLITE_OK) {
+                sqlite3_bind_int(quest_stmt, 1, npc_id);
+                
+                while (sqlite3_step(quest_stmt) == SQLITE_ROW && quest_offer_pkt.quest_count < 10) {
+                    int qid = sqlite3_column_int(quest_stmt, 0);
+                    
+                    // Check if player already has this quest active
+                    int has_quest = 0;
+                    for (int i = 0; i < player_quest_counts[index]; i++) {
+                        if (player_quests[index][i].quest_id == qid) {
+                            has_quest = 1;
+                            break;
+                        }
+                    }
+                    
+                    // Check if player already completed this quest
+                    if (!has_quest) {
+                        sqlite3_stmt *check_stmt;
+                        const char *check_sql = "SELECT COUNT(*) FROM player_quests WHERE USER_ID=? AND QUEST_ID=? AND STATUS=1;";
+                        if (sqlite3_prepare_v2(db, check_sql, -1, &check_stmt, NULL) == SQLITE_OK) {
+                            sqlite3_bind_int(check_stmt, 1, players[index].id);
+                            sqlite3_bind_int(check_stmt, 2, qid);
+                            if (sqlite3_step(check_stmt) == SQLITE_ROW && sqlite3_column_int(check_stmt, 0) > 0) {
+                                has_quest = 1; // Already completed
+                            }
+                            sqlite3_finalize(check_stmt);
+                        }
+                    }
+                    
+                    if (!has_quest) {
+                        int idx = quest_offer_pkt.quest_count;
+                        Quest *q = &quest_offer_pkt.quests[idx];
+                        q->quest_id = qid;
+                        strncpy(q->name, (const char*)sqlite3_column_text(quest_stmt, 1), 63);
+                        strncpy(q->description, (const char*)sqlite3_column_text(quest_stmt, 2), 255);
+                        q->npc_id = npc_id;
+                        q->reward_gold = sqlite3_column_int(quest_stmt, 3);
+                        q->reward_xp = sqlite3_column_int(quest_stmt, 4);
+                        q->reward_item_id = sqlite3_column_int(quest_stmt, 5);
+                        q->reward_item_qty = sqlite3_column_int(quest_stmt, 6);
+                        q->level_required = sqlite3_column_int(quest_stmt, 7);
+                        q->status = QUEST_STATUS_ACTIVE; // Mark as available
+                        q->objective_count = 0;
+                        
+                        // Load objectives for display
+                        sqlite3_stmt *obj_stmt;
+                        const char *obj_sql = "SELECT OBJECTIVE_TYPE, TARGET_NAME, REQUIRED_COUNT FROM quest_objectives WHERE QUEST_ID=?;";
+                        if (sqlite3_prepare_v2(db, obj_sql, -1, &obj_stmt, NULL) == SQLITE_OK) {
+                            sqlite3_bind_int(obj_stmt, 1, qid);
+                            while (sqlite3_step(obj_stmt) == SQLITE_ROW && q->objective_count < 5) {
+                                q->objectives[q->objective_count].objective_type = sqlite3_column_int(obj_stmt, 0);
+                                strncpy(q->objectives[q->objective_count].target_name, (const char*)sqlite3_column_text(obj_stmt, 1), 31);
+                                q->objectives[q->objective_count].required_count = sqlite3_column_int(obj_stmt, 2);
+                                q->objectives[q->objective_count].current_count = 0;
+                                q->objective_count++;
+                            }
+                            sqlite3_finalize(obj_stmt);
+                        }
+                        
+                        quest_offer_pkt.quest_count++;
+                    }
+                }
+                sqlite3_finalize(quest_stmt);
+            }
+            
+            send_all(client_sockets[index], &quest_offer_pkt, sizeof(Packet), 0);
+            LOG("Sent %d available quests from NPC %d to player %s\n", quest_offer_pkt.quest_count, npc_id, players[index].username);
+            
+            // Check if player has any "visit" objectives for this NPC (only if they have quests loaded)
+            if (player_quest_counts[index] > 0) {
+                update_quest_progress(index, npc_id);
+            }
+            
+            return;
+        }
+        
+        // Otherwise, send dialogue
+        sqlite3_stmt *stmt;
+        const char *sql = "SELECT DIALOGUE_ID, NPC_ID, TEXT FROM dialogues WHERE NPC_ID=? LIMIT 1;";
+        
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
+            sqlite3_bind_int(stmt, 1, npc_id);
+            
+            if (sqlite3_step(stmt) == SQLITE_ROW) {
+                // Send dialogue to client
+                Packet response;
+                memset(&response, 0, sizeof(Packet));
+                response.type = PACKET_DIALOGUE;
+                response.dialogue.dialogue_id = sqlite3_column_int(stmt, 0);
+                response.dialogue.npc_id = sqlite3_column_int(stmt, 1);
+                strncpy(response.dialogue.text, (const char*)sqlite3_column_text(stmt, 2), 255);
+                response.dialogue.text[255] = '\0';
+                
+                send_all(client_sockets[index], &response, sizeof(Packet), 0);
+                LOG("Sent dialogue %d to player %s\n", response.dialogue.dialogue_id, players[index].username);
+                
+                // Check if player has any "visit" objectives for this NPC (only if they have quests loaded)
+                if (player_quest_counts[index] > 0) {
+                    update_quest_progress(index, npc_id);
+                }
+            } else {
+                // No dialogue found, send generic message
+                Packet response;
+                memset(&response, 0, sizeof(Packet));
+                response.type = PACKET_DIALOGUE;
+                response.dialogue.npc_id = npc_id;
+                snprintf(response.dialogue.text, 255, "Hello, adventurer!");
+                
+                send_all(client_sockets[index], &response, sizeof(Packet), 0);
+                LOG("Sent generic dialogue to player %s\n", players[index].username);
+            }
+            
+            sqlite3_finalize(stmt);
+        }
+    }
+    else if (pkt->type == PACKET_SHOP_BUY) {
+        // Player wants to buy an item
+        int item_id = pkt->buy_sell_item_id;
+        int quantity = pkt->buy_sell_quantity;
+        int npc_id = pkt->npc_id;
+        
+        // Get item price from shop
+        sqlite3_stmt *stmt;
+        const char *sql = "SELECT BUY_PRICE FROM shop_items WHERE NPC_ID=? AND ITEM_ID=?;";
+        int price = 0;
+        
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
+            sqlite3_bind_int(stmt, 1, npc_id);
+            sqlite3_bind_int(stmt, 2, item_id);
+            
+            if (sqlite3_step(stmt) == SQLITE_ROW) {
+                price = sqlite3_column_int(stmt, 0) * quantity;
+            }
+            
+            sqlite3_finalize(stmt);
+        }
+        
+        if (price > 0 && players[index].gold >= price) {
+            // Deduct gold
+            players[index].gold -= price;
+            
+            // Update database
+            char update_sql[256];
+            snprintf(update_sql, 256, "UPDATE users SET GOLD=%d WHERE ID=%d;", 
+                players[index].gold, players[index].id);
+            sqlite3_exec(db, update_sql, 0, 0, 0);
+            
+            // Give item to player
+            give_item_to_player(index, item_id, quantity);
+            
+            // Send inventory update to client
+            send_inventory_update(index);
+            
+            // Send currency update
+            Packet currency_pkt;
+            memset(&currency_pkt, 0, sizeof(Packet));
+            currency_pkt.type = PACKET_CURRENCY_UPDATE;
+            currency_pkt.gold = players[index].gold;
+            currency_pkt.xp = players[index].xp;
+            currency_pkt.level = players[index].level;
+            send_all(client_sockets[index], &currency_pkt, sizeof(Packet), 0);
+            
+            LOG("Player %s bought item %d for %d gold (remaining: %d)\n", 
+                players[index].username, item_id, price, players[index].gold);
+        } else {
+            // Not enough gold or item not found
+            Packet chat_pkt;
+            memset(&chat_pkt, 0, sizeof(Packet));
+            chat_pkt.type = PACKET_CHAT;
+            chat_pkt.player_id = -1;
+            snprintf(chat_pkt.msg, 64, "Not enough gold or item unavailable!");
+            send_all(client_sockets[index], &chat_pkt, sizeof(Packet), 0);
+            LOG("Player %s failed to buy item %d (price: %d, gold: %d)\n", 
+                players[index].username, item_id, price, players[index].gold);
+        }
+    }
+    else if (pkt->type == PACKET_SHOP_SELL) {
+        // Player wants to sell an item
+        int item_id = pkt->buy_sell_item_id;
+        int quantity = pkt->buy_sell_quantity;
+        int npc_id = pkt->npc_id;
+        int slot = pkt->item_slot;
+        
+        // Get sell price from shop
+        sqlite3_stmt *stmt;
+        const char *sql = "SELECT SELL_PRICE FROM shop_items WHERE NPC_ID=? AND ITEM_ID=?;";
+        int price = 0;
+        
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
+            sqlite3_bind_int(stmt, 1, npc_id);
+            sqlite3_bind_int(stmt, 2, item_id);
+            
+            if (sqlite3_step(stmt) == SQLITE_ROW) {
+                price = sqlite3_column_int(stmt, 0) * quantity;
+            } else {
+                // Item not in shop, give minimum price
+                price = 1 * quantity;
+            }
+            
+            sqlite3_finalize(stmt);
+        }
+        
+        // Check if player has the item
+        int has_item = 0;
+        for (int i = 0; i < players[index].inventory_count; i++) {
+            if (players[index].inventory[i].item.item_id == item_id && 
+                !players[index].inventory[i].is_equipped) {
+                has_item = 1;
+                break;
+            }
+        }
+        
+        if (has_item && price > 0) {
+            // Remove item from player
+            remove_item_from_player(index, item_id, quantity);
+            
+            // Add gold
+            players[index].gold += price;
+            
+            // Update database
+            char update_sql[256];
+            snprintf(update_sql, 256, "UPDATE users SET GOLD=%d WHERE ID=%d;", 
+                players[index].gold, players[index].id);
+            sqlite3_exec(db, update_sql, 0, 0, 0);
+            
+            // Send inventory update to client
+            send_inventory_update(index);
+            
+            // Send currency update
+            Packet currency_pkt;
+            memset(&currency_pkt, 0, sizeof(Packet));
+            currency_pkt.type = PACKET_CURRENCY_UPDATE;
+            currency_pkt.gold = players[index].gold;
+            currency_pkt.xp = players[index].xp;
+            currency_pkt.level = players[index].level;
+            send_all(client_sockets[index], &currency_pkt, sizeof(Packet), 0);
+            
+            LOG("Player %s sold item %d for %d gold (total: %d)\n", 
+                players[index].username, item_id, price, players[index].gold);
+        } else {
+            // Item not found
+            Packet chat_pkt;
+            memset(&chat_pkt, 0, sizeof(Packet));
+            chat_pkt.type = PACKET_CHAT;
+            chat_pkt.player_id = -1;
+            snprintf(chat_pkt.msg, 64, "Item not found in inventory!");
+            send_all(client_sockets[index], &chat_pkt, sizeof(Packet), 0);
+        }
+    }
+    else if (pkt->type == PACKET_QUEST_ACCEPT) {
+        // Player wants to accept a quest from an NPC
+        int quest_id = pkt->quest_id;
+        int npc_id = pkt->npc_id;
+        
+        // Check if quest exists and player meets level requirement
+        sqlite3_stmt *stmt;
+        const char *sql = "SELECT NAME, DESCRIPTION, NPC_ID, REWARD_GOLD, REWARD_XP, REWARD_ITEM_ID, REWARD_ITEM_QTY, LEVEL_REQUIRED "
+                         "FROM quests WHERE QUEST_ID=? AND NPC_ID=?;";
+        
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
+            sqlite3_bind_int(stmt, 1, quest_id);
+            sqlite3_bind_int(stmt, 2, npc_id);
+            
+            if (sqlite3_step(stmt) == SQLITE_ROW) {
+                int level_req = sqlite3_column_int(stmt, 7);
+                
+                if (players[index].level >= level_req) {
+                    // Check if player already has this quest
+                    int already_has = 0;
+                    for (int i = 0; i < player_quest_counts[index]; i++) {
+                        if (player_quests[index][i].quest_id == quest_id) {
+                            already_has = 1;
+                            break;
+                        }
+                    }
+                    
+                    if (!already_has && player_quest_counts[index] < 10) {
+                        // Add quest to player_quests table
+                        char insert_sql[512];
+                        snprintf(insert_sql, 512, 
+                                "INSERT INTO player_quests (USER_ID, QUEST_ID, STATUS, PROGRESS, ACCEPTED_TIME) "
+                                "VALUES (%d, %d, 0, '', %ld);",
+                                players[index].id, quest_id, (long)time(NULL));
+                        sqlite3_exec(db, insert_sql, 0, 0, 0);
+                        
+                        // Reload quests for this player
+                        load_player_quests(index);
+                        send_quest_list(index);
+                        
+                        // Send confirmation message
+                        Packet chat_pkt;
+                        memset(&chat_pkt, 0, sizeof(Packet));
+                        chat_pkt.type = PACKET_CHAT;
+                        chat_pkt.player_id = -1;
+                        snprintf(chat_pkt.msg, 64, "Quest accepted: %s", (const char*)sqlite3_column_text(stmt, 0));
+                        send_all(client_sockets[index], &chat_pkt, sizeof(Packet), 0);
+                        
+                        LOG("Player %s accepted quest %d\n", players[index].username, quest_id);
+                    } else {
+                        Packet chat_pkt;
+                        memset(&chat_pkt, 0, sizeof(Packet));
+                        chat_pkt.type = PACKET_CHAT;
+                        chat_pkt.player_id = -1;
+                        strcpy(chat_pkt.msg, already_has ? "You already have this quest!" : "Quest log is full!");
+                        send_all(client_sockets[index], &chat_pkt, sizeof(Packet), 0);
+                    }
+                } else {
+                    Packet chat_pkt;
+                    memset(&chat_pkt, 0, sizeof(Packet));
+                    chat_pkt.type = PACKET_CHAT;
+                    chat_pkt.player_id = -1;
+                    snprintf(chat_pkt.msg, 64, "Level %d required!", level_req);
+                    send_all(client_sockets[index], &chat_pkt, sizeof(Packet), 0);
+                }
+            }
+            sqlite3_finalize(stmt);
+        }
+    }
+    else if (pkt->type == PACKET_QUEST_COMPLETE) {
+        // Player wants to complete a quest
+        int quest_id = pkt->quest_id;
+        
+        // Find quest in player's active quests
+        Quest *quest = NULL;
+        int quest_idx = -1;
+        for (int i = 0; i < player_quest_counts[index]; i++) {
+            if (player_quests[index][i].quest_id == quest_id) {
+                quest = &player_quests[index][i];
+                quest_idx = i;
+                break;
+            }
+        }
+        
+        if (quest) {
+            // Check if all objectives are completed
+            int all_complete = 1;
+            LOG("Checking quest %d completion for player %s:\n", quest_id, players[index].username);
+            for (int i = 0; i < quest->objective_count; i++) {
+                LOG("  Objective %d: %d/%d\n", i, quest->objectives[i].current_count, quest->objectives[i].required_count);
+                if (quest->objectives[i].current_count < quest->objectives[i].required_count) {
+                    all_complete = 0;
+                    break;
+                }
+            }
+            
+            if (all_complete) {
+                // Give rewards
+                players[index].gold += quest->reward_gold;
+                players[index].xp += quest->reward_xp;
+                
+                // Check for level up (simple: every 100 XP = 1 level)
+                int new_level = 1 + (players[index].xp / 100);
+                if (new_level > players[index].level) {
+                    players[index].level = new_level;
+                }
+                
+                if (quest->reward_item_id > 0) {
+                    give_item_to_player(index, quest->reward_item_id, quest->reward_item_qty);
+                    send_inventory_update(index);
+                }
+                
+                // Update database
+                char update_sql[512];
+                snprintf(update_sql, 512, 
+                        "UPDATE player_quests SET STATUS=1, COMPLETED_TIME=%ld WHERE USER_ID=%d AND QUEST_ID=%d;",
+                        (long)time(NULL), players[index].id, quest_id);
+                sqlite3_exec(db, update_sql, 0, 0, 0);
+                
+                snprintf(update_sql, 512, "UPDATE users SET GOLD=%d, XP=%d, LEVEL=%d WHERE ID=%d;",
+                        players[index].gold, players[index].xp, players[index].level, players[index].id);
+                sqlite3_exec(db, update_sql, 0, 0, 0);
+                
+                // Remove quest from active list
+                for (int i = quest_idx; i < player_quest_counts[index] - 1; i++) {
+                    player_quests[index][i] = player_quests[index][i + 1];
+                }
+                player_quest_counts[index]--;
+                
+                // Send updates
+                send_quest_list(index);
+                
+                Packet currency_pkt;
+                memset(&currency_pkt, 0, sizeof(Packet));
+                currency_pkt.type = PACKET_CURRENCY_UPDATE;
+                currency_pkt.gold = players[index].gold;
+                currency_pkt.xp = players[index].xp;
+                currency_pkt.level = players[index].level;
+                send_all(client_sockets[index], &currency_pkt, sizeof(Packet), 0);
+                
+                Packet chat_pkt;
+                memset(&chat_pkt, 0, sizeof(Packet));
+                chat_pkt.type = PACKET_CHAT;
+                chat_pkt.player_id = -1;
+                snprintf(chat_pkt.msg, 64, "Quest Complete! +%dg +%dxp", quest->reward_gold, quest->reward_xp);
+                send_all(client_sockets[index], &chat_pkt, sizeof(Packet), 0);
+                
+                LOG("Player %s completed quest %d\n", players[index].username, quest_id);
+            } else {
+                Packet chat_pkt;
+                memset(&chat_pkt, 0, sizeof(Packet));
+                chat_pkt.type = PACKET_CHAT;
+                chat_pkt.player_id = -1;
+                strcpy(chat_pkt.msg, "Quest objectives not complete!");
+                send_all(client_sockets[index], &chat_pkt, sizeof(Packet), 0);
+            }
+        }
+    }
+    else if (pkt->type == PACKET_QUEST_ABANDON) {
+        // Player wants to abandon a quest
+        int quest_id = pkt->quest_id;
+        
+        // Remove from database
+        char sql[256];
+        snprintf(sql, 256, "DELETE FROM player_quests WHERE USER_ID=%d AND QUEST_ID=%d;",
+                players[index].id, quest_id);
+        sqlite3_exec(db, sql, 0, 0, 0);
+        
+        // Reload quests
+        load_player_quests(index);
+        send_quest_list(index);
+        
+        Packet chat_pkt;
+        memset(&chat_pkt, 0, sizeof(Packet));
+        chat_pkt.type = PACKET_CHAT;
+        chat_pkt.player_id = -1;
+        strcpy(chat_pkt.msg, "Quest abandoned.");
+        send_all(client_sockets[index], &chat_pkt, sizeof(Packet), 0);
+        
+        LOG("Player %s abandoned quest %d\n", players[index].username, quest_id);
+    }
+    else if (pkt->type == PACKET_QUEST_LIST && pkt->quest_id == 0 && pkt->npc_id == 0) {
+        // Client requesting their quest list (not from NPC interaction)
+        send_quest_list(index);
+        LOG("Sent quest list to player %s\n", players[index].username);
+    }
+    else if (pkt->type == PACKET_ENEMY_ATTACK) {
+        // Player attacking an enemy
+        int enemy_id = pkt->enemy_id;
+        
+        // Find the enemy
+        Enemy *enemy = NULL;
+        int enemy_idx = -1;
+        for (int i = 0; i < server_enemy_count; i++) {
+            if (server_enemies[i].enemy_id == enemy_id && server_enemies[i].active) {
+                enemy = &server_enemies[i];
+                enemy_idx = i;
+                break;
+            }
+        }
+        
+        if (enemy) {
+            // Deal damage (simple: 5 damage per hit)
+            enemy->hp -= 5;
+            
+            if (enemy->hp <= 0) {
+                // Enemy killed
+                enemy->active = 0;
+                enemy->hp = 0;
+                
+                // Update kill quest progress
+                update_kill_quest_progress(index, enemy->type);
+                
+                // Give XP
+                players[index].xp += 10;
+                int new_level = 1 + (players[index].xp / 100);
+                if (new_level > players[index].level) {
+                    players[index].level = new_level;
+                    
+                    Packet chat_pkt;
+                    memset(&chat_pkt, 0, sizeof(Packet));
+                    chat_pkt.type = PACKET_CHAT;
+                    chat_pkt.player_id = -1;
+                    snprintf(chat_pkt.msg, 64, "Level up! You are now level %d!", players[index].level);
+                    send_all(client_sockets[index], &chat_pkt, sizeof(Packet), 0);
+                }
+                
+                // Update database
+                char sql[256];
+                snprintf(sql, 256, "UPDATE users SET XP=%d, LEVEL=%d WHERE ID=%d;",
+                        players[index].xp, players[index].level, players[index].id);
+                sqlite3_exec(db, sql, 0, 0, 0);
+                
+                // Send currency update
+                Packet currency_pkt;
+                memset(&currency_pkt, 0, sizeof(Packet));
+                currency_pkt.type = PACKET_CURRENCY_UPDATE;
+                currency_pkt.gold = players[index].gold;
+                currency_pkt.xp = players[index].xp;
+                currency_pkt.level = players[index].level;
+                send_all(client_sockets[index], &currency_pkt, sizeof(Packet), 0);
+                
+                LOG("Player %s killed %s (enemy %d)\n", players[index].username, enemy->name, enemy_id);
+            }
+            
+            // Broadcast updated enemy list to all players
+            broadcast_enemy_list();
         }
     }
 }
