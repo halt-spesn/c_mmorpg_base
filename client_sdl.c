@@ -166,11 +166,27 @@ int clan_member_count = 0;
 Item my_clan_storage_items[20];
 int show_clan_window = 0;
 int clan_window_tab = 0; // 0=Members, 1=Storage
-int clan_scroll = 0;
+int show_deposit_popup = 0;
+char deposit_input[32] = "";
+
+SDL_Rect btn_deposit_confirm;
+SDL_Rect btn_deposit_cancel;
+SDL_Rect deposit_input_rect;
+int deposit_input_active = 0;
+int clan_member_scroll = 0;
+int clan_storage_scroll = 0;
+int active_distribute_member_index = -1;
+char distribute_input[16] = "";
 SDL_Rect clan_window;
 SDL_Rect btn_clan_toggle;
 SDL_Rect btn_clan_create;
-SDL_Rect btn_clan_leave;
+SDL_Rect btn_clan_leave; // Re-declared here just in case, but checking context, line 173 was btn_clan_leave.
+// Wait, I am replacing lines 173... 
+// Context check: 
+// 173: SDL_Rect btn_clan_leave;
+// I need to be careful not to duplicate or delete.
+// Previous replacement inserted show_deposit... before clan_scroll.
+// Let's verify line numbers with a view first.
 SDL_Rect btn_clan_close;
 char clan_name_input[32] = "";
 int clan_name_input_active = 0;
@@ -2886,7 +2902,7 @@ void render_party_list(SDL_Renderer *renderer, int w, int h) {
 void render_clan_window(SDL_Renderer *renderer, int w, int h) {
     if (!show_clan_window) return;
 
-    clan_window = (SDL_Rect){w/2 - 250, h/2 - 200, 500, 400};
+    clan_window = (SDL_Rect){w/2 - 250, h/2 - 225, 500, 450};
     SDL_SetRenderDrawColor(renderer, 40, 30, 20, 240);
     SDL_RenderFillRect(renderer, &clan_window);
     SDL_SetRenderDrawColor(renderer, 255, 150, 0, 255);
@@ -2932,12 +2948,48 @@ void render_clan_window(SDL_Renderer *renderer, int w, int h) {
         SDL_RenderFillRect(renderer, &tab_s);
         render_text(renderer, "Storage", tab_s.x + 50, tab_s.y + 5, col_white, 1);
 
+
         if (clan_window_tab == 0) {
-            // Members list
-            for (int i = 0; i < clan_member_count; i++) {
+            // Members list with Scrolling
+            int start_y = clan_window.y + 130;
+            int visible_items = 8;
+            int item_h = 30;
+            
+            // Scroll Bar (visual only for now, logic in event loop)
+            int total_h = clan_member_count * item_h;
+            int visible_h = visible_items * item_h;
+            
+            for (int i = 0; i < visible_items; i++) {
+                int idx = clan_member_scroll + i;
+                if (idx >= clan_member_count) break;
+                
+                int y = start_y + (i * item_h);
                 char member[128];
-                snprintf(member, 128, "%s (ID: %d)", clan_member_names[i], clan_member_ids[i]);
-                render_text(renderer, member, clan_window.x + 20, clan_window.y + 130 + (i * 25), col_white, 0);
+                snprintf(member, 128, "%s (ID: %d)", clan_member_names[idx], clan_member_ids[idx]);
+                render_text(renderer, member, clan_window.x + 20, y, col_white, 0);
+                
+                // Distribute Gold UI (Owner only)
+                if (my_clan_role == 1) {
+                     if (active_distribute_member_index == idx) {
+                         // Input Box
+                         SDL_Rect r_input = {clan_window.x + 220, y, 80, 24};
+                         render_input_with_cursor(renderer, r_input, distribute_input, active_field == (2000+idx), 0);
+                         
+                         // Confirm
+                         SDL_Rect r_ok = {clan_window.x + 310, y, 40, 24};
+                         SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &r_ok);
+                         render_text(renderer, "OK", r_ok.x+5, r_ok.y+2, col_white, 0);
+                         
+                         // Cancel
+                         SDL_Rect r_cancel = {clan_window.x + 360, y, 20, 24};
+                         SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &r_cancel);
+                         render_text(renderer, "X", r_cancel.x+5, r_cancel.y+2, col_white, 0);
+                     } else {
+                         SDL_Rect btn_give = {clan_window.x + 220, y, 80, 24};
+                         SDL_SetRenderDrawColor(renderer, 100, 100, 0, 255); SDL_RenderFillRect(renderer, &btn_give);
+                         render_text(renderer, "Give Gold", btn_give.x + 5, btn_give.y + 2, col_white, 0);
+                     }
+                }
             }
 
             btn_clan_leave = (SDL_Rect){clan_window.x + clan_window.w - 140, clan_window.y + clan_window.h - 50, 120, 35};
@@ -2945,56 +2997,84 @@ void render_clan_window(SDL_Renderer *renderer, int w, int h) {
             SDL_RenderFillRect(renderer, &btn_clan_leave);
             render_text(renderer, "Leave Clan", btn_clan_leave.x + 60, btn_clan_leave.y + 8, col_white, 1);
         } else {
-            // Storage
-            render_text(renderer, "Click Inventory Item to Deposit", clan_window.x + 20, clan_window.y + 125, col_white, 0);
-            render_text(renderer, "Clan Gold Storage", clan_window.x + 20, clan_window.y + 140, col_yellow, 0);
+            // --- DUAL VIEW INVENTORY ---
+            // Left: Clan Storage
+            int mid_x = clan_window.x + 250;
             
-            SDL_Rect btn_dep = {clan_window.x + 20, clan_window.y + 160, 150, 35};
-            SDL_SetRenderDrawColor(renderer, 0, 100, 150, 255);
-            SDL_RenderFillRect(renderer, &btn_dep);
-            render_text(renderer, "Deposit 500g", btn_dep.x + 75, btn_dep.y + 8, col_white, 1);
+            render_text(renderer, "Clan Storage", clan_window.x + 80, clan_window.y + 130, col_yellow, 1);
+            render_text(renderer, "Your Inventory", mid_x + 80, clan_window.y + 130, col_yellow, 1);
+
+            // Deposit/Withdraw Gold Buttons (Top Area)
+            SDL_Rect btn_dep = {clan_window.x + 20, clan_window.y + 400, 100, 30};
+            SDL_SetRenderDrawColor(renderer, 0, 100, 150, 255); SDL_RenderFillRect(renderer, &btn_dep);
+            render_text(renderer, "Deposit Gold", btn_dep.x + 10, btn_dep.y + 5, col_white, 0);
             
-            if (my_clan_role == 1) { // ROLE_OWNER
-                SDL_Rect btn_with = {clan_window.x + 180, clan_window.y + 160, 150, 35};
-                SDL_SetRenderDrawColor(renderer, 0, 150, 100, 255);
-                SDL_RenderFillRect(renderer, &btn_with);
-                render_text(renderer, "Withdraw 500g", btn_with.x + 75, btn_with.y + 8, col_white, 1);
+            if (my_clan_role == 1) {
+                 // Withdraw Gold via "Give Gold" to self in members tab
             }
 
-            // Storage Items Grid (5x4)
+            // Left Panel (Clan Items), 2 cols x 10 rows? Or 4x4. 16 items.
+            // Fit in width = 220. 4 cols * 50 = 200.
             int sx = clan_window.x + 20;
-            int sy = clan_window.y + 210;
+            int sy = clan_window.y + 160;
             int mx, my; SDL_GetMouseState(&mx, &my);
-            // Adjust mouse for UI scale (assuming ui_scale is global)
-            // Note: render_game applies scale to renderer, but GetMouseState returns raw window coords
-             mx = (int)(mx / ui_scale); my = (int)(my / ui_scale);
+            mx = (int)(mx / ui_scale); my = (int)(my / ui_scale);
 
-            for(int i=0; i<20; i++) {
-                int row = i / 5;
-                int col = i % 5;
-                SDL_Rect slot = {sx + (col * 50), sy + (row * 50), 40, 40};
+            for(int i=0; i<16; i++) {
+                int row = i / 4;
+                int col = i % 4;
+                SDL_Rect slot = {sx + (col * 45), sy + (row * 45), 40, 40};
 
-                SDL_SetRenderDrawColor(renderer, 60, 60, 60, 255);
-                SDL_RenderFillRect(renderer, &slot);
-                SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255);
-                SDL_RenderDrawRect(renderer, &slot);
+                SDL_SetRenderDrawColor(renderer, 60, 60, 60, 255); SDL_RenderFillRect(renderer, &slot);
+                SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderDrawRect(renderer, &slot);
 
                 if (my_clan_storage_items[i].item_id != 0) {
-                     // Draw Item Placeholder (Yellow Square)
                      SDL_SetRenderDrawColor(renderer, 200, 200, 50, 255); 
                      SDL_Rect item_rect = {slot.x+4, slot.y+4, 32, 32};
                      SDL_RenderFillRect(renderer, &item_rect);
-
-                     // Count
                      if (my_clan_storage_items[i].quantity > 1) {
                          char num[8]; snprintf(num, 8, "%d", my_clan_storage_items[i].quantity);
-                         render_text(renderer, num, slot.x+22, slot.y+22, col_black, 0); // Bottom-rightish
+                         render_text(renderer, num, slot.x+22, slot.y+22, col_black, 0);
                      }
-                     
-                     // Tooltip
                      if(SDL_PointInRect(&(SDL_Point){mx, my}, &slot)) {
                          show_tooltip = 1;
                          strncpy(tooltip_text, my_clan_storage_items[i].name, 63);
+                         tooltip_x = mx; tooltip_y = my;
+                     }
+                }
+            }
+
+            // Right Panel (Player Inventory), Scrollable
+            // Let's show 4 cols x 4 rows = 16 visible slots.
+            // Dimensions: 220w same.
+            int px = mid_x + 20;
+            int py = sy;
+            int inv_visible_rows = 4;
+            int inv_cols = 4;
+            
+            // Render Player Slots
+            for(int i=0; i < inv_cols * inv_visible_rows; i++) {
+                int idx = clan_storage_scroll + i; // Reusing var for this view
+                if (idx >= MAX_INVENTORY_SLOTS) break;
+
+                int row = i / inv_cols;
+                int col = i % inv_cols;
+                SDL_Rect slot = {px + (col * 45), py + (row * 45), 40, 40};
+                
+                SDL_SetRenderDrawColor(renderer, 60, 60, 60, 255); SDL_RenderFillRect(renderer, &slot);
+                SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderDrawRect(renderer, &slot);
+                
+                if (my_inventory[idx].item.item_id > 0) {
+                     SDL_SetRenderDrawColor(renderer, 50, 200, 50, 255); 
+                     SDL_Rect item_rect = {slot.x+4, slot.y+4, 32, 32};
+                     SDL_RenderFillRect(renderer, &item_rect);
+                     if (my_inventory[idx].item.quantity > 1) {
+                         char num[8]; snprintf(num, 8, "%d", my_inventory[idx].item.quantity);
+                         render_text(renderer, num, slot.x+22, slot.y+22, col_black, 0);
+                     }
+                     if(SDL_PointInRect(&(SDL_Point){mx, my}, &slot)) {
+                         show_tooltip = 1;
+                         strncpy(tooltip_text, my_inventory[idx].item.name, 63);
                          tooltip_x = mx; tooltip_y = my;
                      }
                 }
@@ -4327,6 +4407,38 @@ void render_game(SDL_Renderer *renderer) {
     SDL_RenderSetScale(renderer, old_scale_x, old_scale_y);
     
     SDL_RenderPresent(renderer);
+    // Render Deposit Popup (Modal)
+    if (show_deposit_popup) {
+        /*
+        int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
+        float scaled_w = w / ui_scale;
+        float scaled_h = h / ui_scale;
+        */
+        // Use pre-calculated or re-calculate. Here we re-calculate for safety context
+        int w, h; SDL_GetRendererOutputSize(renderer, &w, &h);
+        float scaled_w = w / ui_scale;
+        float scaled_h = h / ui_scale;
+        
+        SDL_Rect popup_rect = {scaled_w/2 - 150, scaled_h/2 - 100, 300, 200};
+        SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255); SDL_RenderFillRect(renderer, &popup_rect);
+        SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255); SDL_RenderDrawRect(renderer, &popup_rect);
+
+        render_text(renderer, "Deposit Gold", popup_rect.x + 100, popup_rect.y + 20, col_white, 1);
+        
+        // Input
+        deposit_input_rect = (SDL_Rect){popup_rect.x + 50, popup_rect.y + 60, 200, 30};
+        render_input_with_cursor(renderer, deposit_input_rect, deposit_input, active_field == 101, 0);
+
+        // Buttons
+        btn_deposit_confirm = (SDL_Rect){popup_rect.x + 50, popup_rect.y + 130, 90, 30};
+        btn_deposit_cancel = (SDL_Rect){popup_rect.x + 160, popup_rect.y + 130, 90, 30};
+
+        SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_deposit_confirm);
+        render_text(renderer, "Confirm", btn_deposit_confirm.x + 15, btn_deposit_confirm.y + 5, col_white, 0);
+
+        SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_deposit_cancel);
+        render_text(renderer, "Cancel", btn_deposit_cancel.x + 20, btn_deposit_cancel.y + 5, col_white, 0);
+    }
 }
 
 // Inventory request functions
@@ -4886,6 +4998,45 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         }
     }
 
+    // Deposit Popup Handling (Modal-ish)
+    if (show_deposit_popup) {
+        int w, h; SDL_GetRendererOutputSize(global_renderer, &w, &h);
+        float scaled_w = w / ui_scale;
+        float scaled_h = h / ui_scale;
+        SDL_Rect popup_rect = {scaled_w/2 - 150, scaled_h/2 - 100, 300, 200};
+        SDL_Rect btn_ok = {popup_rect.x + 50, popup_rect.y + 130, 90, 30};
+        SDL_Rect btn_cancel = {popup_rect.x + 160, popup_rect.y + 130, 90, 30};
+
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_ok)) {
+            int amount = atoi(deposit_input);
+            if (amount > 0) {
+                 if (my_gold >= amount) {
+                     Packet pkt; memset(&pkt, 0, sizeof(Packet));
+                     pkt.type = PACKET_CLAN_STORAGE_GOLD_DEPOSIT;
+                     pkt.gold = amount; 
+                     send_packet(&pkt);
+                     push_chat_line(CHAT_CHANNEL_LOCAL, "Gold deposited.");
+                 } else {
+                     push_chat_line(CHAT_CHANNEL_LOCAL, "Not enough gold.");
+                 }
+            }
+            show_deposit_popup = 0;
+            deposit_input_active = 0;
+            SDL_StopTextInput();
+            return;
+        } else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_cancel)) {
+            show_deposit_popup = 0;
+            deposit_input_active = 0;
+            SDL_StopTextInput();
+            return;
+        }
+        
+        // Swallow clicks inside input rect (handled by text input focus logic elsewhere)
+        // But we should swallow all clicks if strictly modal?
+        // For now, let's just allow it to fall through if not handled, but maybe return if inside popup?
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &popup_rect)) return;
+    }
+
     // Clan Window Button Handlers
     if (show_clan_window) {
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_clan_close)) {
@@ -4897,20 +5048,21 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             // Clan Name Input
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &clan_name_input_rect)) {
                 clan_name_input_active = 1;
-                active_field = FIELD_CLAN_NAME; // Need to define this or use a number
+                active_field = FIELD_CLAN_NAME;
                 active_input_rect = clan_name_input_rect;
                 SDL_StartTextInput();
                 cursor_pos = strlen(clan_name_input);
                 selection_start = 0; selection_len = 0;
                 return;
             } else if (clan_name_input_active) {
-                clan_name_input_active = 0;
-                active_field = -1;
-                SDL_StopTextInput();
+                // If clicked outside
+                if (active_field == FIELD_CLAN_NAME) {
+                    clan_name_input_active = 0;
+                    active_field = -1;
+                    SDL_StopTextInput();
+                }
             }
-
-            // Create Clan button
-            // Create Clan button
+            
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_clan_create)) {
                 if (strlen(clan_name_input) == 0) {
                      push_chat_line(CHAT_CHANNEL_LOCAL, "Please enter a clan name.");
@@ -4921,8 +5073,6 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
                     pkt.type = PACKET_CLAN_CREATE_REQUEST;
                     strncpy(pkt.clan_name, clan_name_input, 31);
                     send_packet(&pkt);
-                    printf("Creating clan: %s\n", clan_name_input);
-                    // Clear input to prevent double clicks
                     clan_name_input[0] = '\0';
                     clan_name_input_active = 0;
                 }
@@ -4933,82 +5083,142 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             SDL_Rect tab_m = {clan_window.x + 20, clan_window.y + 90, 100, 30};
             SDL_Rect tab_s = {clan_window.x + 125, clan_window.y + 90, 100, 30};
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &tab_m)) { clan_window_tab = 0; return; }
-            if (SDL_PointInRect(&(SDL_Point){mx, my}, &tab_s)) { 
-                clan_window_tab = 1; 
-                show_inventory = 1; // Auto-open inventory for deposits
-                return; 
-            }
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &tab_s)) { clan_window_tab = 1; return; }
 
             if (clan_window_tab == 0) {
+                // MEMBERS TAB
                 if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_clan_leave)) {
-                    Packet pkt; memset(&pkt, 0, sizeof(Packet));
-                    pkt.type = PACKET_CLAN_LEAVE;
-                    send_packet(&pkt);
-                    return;
-                }
-            } else {
-                // Storage actions
-                SDL_Rect btn_dep = {clan_window.x + 20, clan_window.y + 160, 150, 35};
-                if (SDL_PointInRect(&(SDL_Point){ui_mx, ui_my}, &btn_dep)) {
-                    if (my_gold >= 500) {
-                        Packet pkt; memset(&pkt, 0, sizeof(Packet));
-                        pkt.type = PACKET_CLAN_STORAGE_UPDATE;
-                        pkt.clan_gold = 500; // Deposit 500
-                        send_packet(&pkt);
-                        push_chat_line(CHAT_CHANNEL_LOCAL, "Deposited 500 gold.");
-                    } else {
-                        push_chat_line(CHAT_CHANNEL_LOCAL, "Not enough gold to deposit 500.");
-                    }
-                    return;
+                     Packet pkt; memset(&pkt, 0, sizeof(Packet));
+                     pkt.type = PACKET_CLAN_LEAVE;
+                     send_packet(&pkt);
+                     return;
                 }
                 
-                if (my_clan_role == 1) { // ROLE_OWNER
-                    SDL_Rect btn_with = {clan_window.x + 180, clan_window.y + 160, 150, 35};
-                    if (SDL_PointInRect(&(SDL_Point){ui_mx, ui_my}, &btn_with)) {
-                        if (my_clan_gold >= 500) {
-                            Packet pkt; memset(&pkt, 0, sizeof(Packet));
-                            pkt.type = PACKET_CLAN_STORAGE_UPDATE;
-                            pkt.clan_gold = -500; // Withdraw 500
-                            send_packet(&pkt);
-                            push_chat_line(CHAT_CHANNEL_LOCAL, "Withdrawn 500 gold.");
-                        } else {
-                            push_chat_line(CHAT_CHANNEL_LOCAL, "Not enough gold in clan storage to withdraw 500.");
-                        }
-                        return;
-                    }
-                }
+                // Per-member buttons
+                int start_y = clan_window.y + 130;
+                int visible_items = 8;
+                int item_h = 30;
                 
-                // Item Withdraw Interaction
-                int sx = clan_window.x + 20;
-                int sy = clan_window.y + 210;
-                for(int i=0; i<20; i++) {
-                    int row = i / 5;
-                    int col = i % 5;
-                    SDL_Rect slot = {sx + (col * 50), sy + (row * 50), 40, 40};
-                    if (SDL_PointInRect(&(SDL_Point){ui_mx, ui_my}, &slot)) {
-                         if (my_clan_storage_items[i].item_id != 0) {
-                             if (my_clan_role == 1) { // Owner only
-                                 Packet pkt; memset(&pkt, 0, sizeof(Packet));
-                                 pkt.type = PACKET_CLAN_STORAGE_UPDATE;
-                                 pkt.item_data.item_id = my_clan_storage_items[i].item_id; 
-                                 pkt.item_data.quantity = -1; // flag for withdrawal
-                                 send_packet(&pkt);
-                                 printf("Requesting withdraw of item %d\n", pkt.item_data.item_id);
-                             } else {
-                                 push_chat_line(CHAT_CHANNEL_LOCAL, "Only the clan owner can withdraw items.");
+                for (int i = 0; i < visible_items; i++) {
+                    int idx = clan_member_scroll + i;
+                    if (idx >= clan_member_count) break;
+                    int y = start_y + (i * item_h);
+                    
+                    if (my_clan_role == 1) {
+                         if (active_distribute_member_index == idx) {
+                             // OK / Cancel
+                             SDL_Rect r_ok = {clan_window.x + 310, y, 40, 24};
+                             SDL_Rect r_cancel = {clan_window.x + 360, y, 20, 24};
+                             
+                             if (SDL_PointInRect(&(SDL_Point){mx, my}, &r_ok)) {
+                                 int amount = atoi(distribute_input);
+                                 if (amount > 0) {
+                                     Packet pkt; memset(&pkt, 0, sizeof(Packet));
+                                     pkt.type = PACKET_CLAN_STORAGE_GOLD_WITHDRAW;
+                                     pkt.target_id = clan_member_ids[idx]; 
+                                     pkt.clan_gold = amount; 
+                                     send_packet(&pkt);
+                                     push_chat_line(CHAT_CHANNEL_LOCAL, "Distributed gold.");
+                                 }
+                                 active_distribute_member_index = -1;
+                                 distribute_input[0] = 0;
+                                 SDL_StopTextInput();
+                                 return;
+                             }
+                             if (SDL_PointInRect(&(SDL_Point){mx, my}, &r_cancel)) {
+                                 active_distribute_member_index = -1;
+                                 distribute_input[0] = 0;
+                                 SDL_StopTextInput();
+                                 return;
+                             }
+                             SDL_Rect r_input = {clan_window.x + 220, y, 80, 24};
+                             if (SDL_PointInRect(&(SDL_Point){mx, my}, &r_input)) {
+                                 active_field = 2000 + idx;
+                                 SDL_StartTextInput();
+                                 return;
+                             }
+                         } else {
+                             SDL_Rect btn_give = {clan_window.x + 220, y, 80, 24};
+                             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_give)) {
+                                 active_distribute_member_index = idx;
+                                 distribute_input[0] = 0;
+                                 active_field = 2000 + idx;
+                                 SDL_StartTextInput();
+                                 return;
                              }
                          }
-                         return;
                     }
+                }
+            } else {
+                // STORAGE TAB (Dual View)
+                
+                // Left Grid (Clan) - Withdraw
+                int sx = clan_window.x + 20;
+                int sy = clan_window.y + 160;
+                // mx, my are passed args
+                
+                for(int i=0; i<20; i++) {
+                    int row = i / 4;
+                    int col = i % 4;
+                    SDL_Rect slot = {sx + (col * 45), sy + (row * 45), 40, 40};
+                    if (SDL_PointInRect(&(SDL_Point){mx, my}, &slot)) {
+                         if (my_clan_storage_items[i].item_id != 0) {
+                             Packet pkt; memset(&pkt, 0, sizeof(Packet));
+                             pkt.type = PACKET_CLAN_ITEM_WITHDRAW;
+                             pkt.item_slot = i;
+                             send_packet(&pkt);
+                             return;
+                         }
+                    }
+                }
+                
+                // Right Grid (Player) - Deposit
+                int mid_x = clan_window.x + 250;
+                int px = mid_x + 20;
+                int py = sy;
+                int inv_visible_rows = 4;
+                int inv_cols = 4;
+                for(int i=0; i < inv_cols * inv_visible_rows; i++) {
+                    int idx = clan_storage_scroll + i; 
+                    if (idx >= MAX_INVENTORY_SLOTS) break;
+                    int row = i / inv_cols;
+                    int col = i % inv_cols;
+                    SDL_Rect slot = {px + (col * 45), py + (row * 45), 40, 40};
+                    
+                     if (SDL_PointInRect(&(SDL_Point){mx, my}, &slot)) {
+                         if (my_inventory[idx].item.item_id > 0) {
+                             printf("[DEBUG] Depositing item slot %d, item_id %d\n", idx, my_inventory[idx].item.item_id);
+                             Packet pkt; memset(&pkt, 0, sizeof(Packet));
+                             pkt.type = PACKET_CLAN_ITEM_DEPOSIT;
+                             pkt.item_slot = idx;
+                             pkt.item_data.item_id = my_inventory[idx].item.item_id; 
+                             pkt.item_data.quantity = my_inventory[idx].item.quantity;
+                             send_packet(&pkt);
+                             return;
+                         }
+                    }
+                }
+
+                // Deposit Gold Button
+                SDL_Rect btn_dep = {clan_window.x + 20, clan_window.y + 400, 100, 30};
+                if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_dep)) {
+                    printf("[DEBUG] Deposit button clicked!\n");
+                    show_deposit_popup = 1;
+                    deposit_input[0] = '\0';
+                    deposit_input_active = 1;
+                    active_field = 101; 
+                    SDL_StartTextInput();
+                    return;
                 }
             }
         }
+        return;
+    }
+
+
         
         // Consume clicks inside clan window
-        if (SDL_PointInRect(&(SDL_Point){mx, my}, &clan_window)) {
-            return;
-        }
-    }
+
 
     // Clan Invite Popup Handlers
     if (pending_clan_invite_id != -1) {
@@ -7729,6 +7939,14 @@ int main(int argc, char *argv[]) {
                         }
                     }
                 }
+                
+                // Handle text input for clan fields
+                if (show_deposit_popup && deposit_input_active) {
+                    handle_text_edit(deposit_input, 15, &event);
+                }
+                if (active_distribute_member_index != -1 && active_field >= 2000) {
+                    handle_text_edit(distribute_input, 15, &event);
+                }
                 else if (is_settings_open && show_nick_popup) {
                     char *target = NULL;
                     if(active_field == 10) target = nick_new;
@@ -7745,6 +7963,9 @@ int main(int argc, char *argv[]) {
                 }
                 else if (my_clan_id == -1 && show_clan_window && active_field == FIELD_CLAN_NAME) {
                     handle_text_edit(clan_name_input, 31, &event);
+                }
+                else if (show_deposit_popup && active_field == 101) {
+                    handle_text_edit(deposit_input, 10, &event);
                 }
                 else if (show_add_friend_popup) {
                     if (active_field == 25) handle_text_edit(input_friend_id, 8, &event);
