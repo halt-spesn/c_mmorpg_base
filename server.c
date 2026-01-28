@@ -4085,13 +4085,11 @@ int main(int argc, char *argv[]) {
         return 1; 
     }
 
-    // Start GUI Thread (Windows Only)
-    #ifdef _WIN32
+    // Start GUI Thread
     server_start_time = time(NULL);
     if (pthread_create(&gui_thread_handle, NULL, gui_thread, NULL) != 0) {
         LOG("Failed to start GUI thread\n");
     }
-    #endif
 
     while (1) {
         socklen_t addrlen = sizeof(address);
