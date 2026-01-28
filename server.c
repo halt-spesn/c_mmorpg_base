@@ -493,6 +493,27 @@ void init_db() {
     sqlite3_exec(db, "ALTER TABLE users ADD COLUMN SKILL_POINTS INTEGER DEFAULT 0;", 0, 0, 0);
     sqlite3_exec(db, "ALTER TABLE users ADD COLUMN PVP_ENABLED INTEGER DEFAULT 0;", 0, 0, 0);
     sqlite3_exec(db, "ALTER TABLE users ADD COLUMN PARTY_ID INTEGER DEFAULT -1;", 0, 0, 0);
+    sqlite3_exec(db, "ALTER TABLE users ADD COLUMN CLAN_ID INTEGER DEFAULT -1;", 0, 0, 0);
+    sqlite3_exec(db, "ALTER TABLE users ADD COLUMN CLAN_ROLE INTEGER DEFAULT 0;", 0, 0, 0);
+
+    // 13. Create Clan System Tables
+    char *sql_clans = 
+        "CREATE TABLE IF NOT EXISTS clans ("
+        "ID INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "NAME TEXT NOT NULL UNIQUE, "
+        "OWNER_ID INTEGER, "
+        "GOLD_STORAGE INTEGER DEFAULT 0, "
+        "CREATED_AT INTEGER);";
+    sqlite3_exec(db, sql_clans, 0, 0, 0);
+
+    char *sql_clan_storage = 
+        "CREATE TABLE IF NOT EXISTS clan_storage_items ("
+        "CLAN_ID INTEGER, "
+        "SLOT_INDEX INTEGER, "
+        "ITEM_ID INTEGER, "
+        "QUANTITY INTEGER DEFAULT 1, "
+        "PRIMARY KEY (CLAN_ID, SLOT_INDEX));";
+    sqlite3_exec(db, sql_clan_storage, 0, 0, 0);
 
     // Insert some default items if table is empty
     sqlite3_stmt *check_stmt;
@@ -651,9 +672,9 @@ AuthStatus register_user(const char *user, const char *pass) {
 }
 
 // Update signature to accept 'long *ban_expire' and currency/level
-int login_user(const char *username, const char *password, float *x, float *y, uint8_t *r, uint8_t *g, uint8_t *b, uint8_t *r2, uint8_t *g2, uint8_t *b2, int *role, long *ban_expire, char *map_name_out, int *gold, int *xp, int *level, int *str, int *agi, int *intel, int *skill_points, int *pvp_enabled, int *party_id) {
+int login_user(const char *username, const char *password, float *x, float *y, uint8_t *r, uint8_t *g, uint8_t *b, uint8_t *r2, uint8_t *g2, uint8_t *b2, int *role, long *ban_expire, char *map_name_out, int *gold, int *xp, int *level, int *str, int *agi, int *intel, int *skill_points, int *pvp_enabled, int *party_id, int *clan_id, int *clan_role) {
     sqlite3_stmt *stmt;
-    const char *sql = "SELECT X, Y, R, G, B, ROLE, BAN_EXPIRE, R2, G2, B2, MAP, GOLD, XP, LEVEL, STR, AGI, INT, SKILL_POINTS, PVP_ENABLED, PARTY_ID FROM users WHERE USERNAME=? AND PASSWORD=?;";
+    const char *sql = "SELECT X, Y, R, G, B, ROLE, BAN_EXPIRE, R2, G2, B2, MAP, GOLD, XP, LEVEL, STR, AGI, INT, SKILL_POINTS, PVP_ENABLED, PARTY_ID, CLAN_ID, CLAN_ROLE FROM users WHERE USERNAME=? AND PASSWORD=?;";
     
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, 0) != SQLITE_OK) return 0;
     
@@ -684,6 +705,8 @@ int login_user(const char *username, const char *password, float *x, float *y, u
         *skill_points = sqlite3_column_int(stmt, 17);
         *pvp_enabled = sqlite3_column_int(stmt, 18);
         *party_id = sqlite3_column_int(stmt, 19);
+        *clan_id = sqlite3_column_int(stmt, 20);
+        *clan_role = sqlite3_column_int(stmt, 21);
         success = 1;
     }
     sqlite3_finalize(stmt);
@@ -1250,6 +1273,8 @@ void send_player_stats(int index) {
     currency_pkt.intel = players[index].intel;
     currency_pkt.skill_points = players[index].skill_points;
     currency_pkt.pvp_enabled = players[index].pvp_enabled;
+    currency_pkt.clan_id = players[index].clan_id;
+    currency_pkt.clan_role = players[index].clan_role;
     send_all(client_sockets[index], &currency_pkt, sizeof(Packet), 0);
 }
 
@@ -1545,6 +1570,67 @@ void broadcast_party_update(int party_id) {
     // Broadcast to online members
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (players[i].active && players[i].party_id == party_id) {
+            send_all(client_sockets[i], &pkt, sizeof(Packet), 0);
+        }
+    }
+}
+
+void broadcast_clan_update(int clan_id) {
+    if (clan_id == -1) return;
+
+    Packet pkt;
+    memset(&pkt, 0, sizeof(Packet));
+    pkt.type = PACKET_CLAN_UPDATE;
+    pkt.clan_id = clan_id;
+    pkt.clan_member_count = 0;
+
+    sqlite3_stmt *stmt;
+    // 1. Get clan info
+    const char *sql_clan = "SELECT NAME, GOLD_STORAGE FROM clans WHERE ID = ?;";
+    if (sqlite3_prepare_v2(db, sql_clan, -1, &stmt, 0) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, clan_id);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            strncpy(pkt.clan_name, (const char*)sqlite3_column_text(stmt, 0), 31);
+            pkt.clan_gold = sqlite3_column_int(stmt, 1);
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    // 2. Get members
+    const char *sql_members = "SELECT ID, USERNAME FROM users WHERE CLAN_ID = ? LIMIT 50;";
+    if (sqlite3_prepare_v2(db, sql_members, -1, &stmt, 0) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, clan_id);
+        while (sqlite3_step(stmt) == SQLITE_ROW && pkt.clan_member_count < 50) {
+            pkt.clan_member_ids[pkt.clan_member_count] = sqlite3_column_int(stmt, 0);
+            strncpy(pkt.clan_member_names[pkt.clan_member_count], (const char*)sqlite3_column_text(stmt, 1), 31);
+            pkt.clan_member_count++;
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    // 3. Get storage items
+    const char *sql_storage = "SELECT csi.SLOT_INDEX, csi.ITEM_ID, i.NAME, i.TYPE, i.ICON, csi.QUANTITY "
+                              "FROM clan_storage_items csi JOIN items i ON csi.ITEM_ID = i.ITEM_ID "
+                              "WHERE csi.CLAN_ID = ? LIMIT 20;";
+    if (sqlite3_prepare_v2(db, sql_storage, -1, &stmt, 0) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, clan_id);
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            int slot = sqlite3_column_int(stmt, 0);
+            if (slot >= 0 && slot < 20) {
+                pkt.clan_storage_items[slot].item_id = sqlite3_column_int(stmt, 1);
+                strncpy(pkt.clan_storage_items[slot].name, (const char*)sqlite3_column_text(stmt, 2), 31);
+                pkt.clan_storage_items[slot].type = sqlite3_column_int(stmt, 3);
+                strncpy(pkt.clan_storage_items[slot].icon, (const char*)sqlite3_column_text(stmt, 4), 15);
+                pkt.clan_storage_items[slot].quantity = sqlite3_column_int(stmt, 5);
+            }
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    // 4. Broadcast to online members
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (players[i].active && players[i].clan_id == clan_id) {
+            pkt.clan_role = players[i].clan_role;
             send_all(client_sockets[i], &pkt, sizeof(Packet), 0);
         }
     }
@@ -1999,7 +2085,7 @@ void handle_client_message(int index, Packet *pkt) {
             int role;
             long ban_expire = 0;
             char db_map[32] = "map.jpg";
-            int gold, xp, level, p_str, p_agi, p_intel, p_skill_points, p_pvp_enabled, party_id;
+            int gold, xp, level, p_str, p_agi, p_intel, p_skill_points, p_pvp_enabled, party_id, clan_id, clan_role;
 
             // Pass &ban_expire and currency fields to the function
             if (pkt->username[0] == '\0' || pkt->password[0] == '\0') {
@@ -2007,7 +2093,7 @@ void handle_client_message(int index, Packet *pkt) {
                 strcpy(response.msg, "Username and password required.");
                 LOG("Login failed from client %d: %s\n", index, response.msg);
             }
-            else if (login_user(pkt->username, pkt->password, &x, &y, &r, &g, &b, &r2, &g2, &b2, &role, &ban_expire, db_map, &gold, &xp, &level, &p_str, &p_agi, &p_intel, &p_skill_points, &p_pvp_enabled, &party_id)) {
+            else if (login_user(pkt->username, pkt->password, &x, &y, &r, &g, &b, &r2, &g2, &b2, &role, &ban_expire, db_map, &gold, &xp, &level, &p_str, &p_agi, &p_intel, &p_skill_points, &p_pvp_enabled, &party_id, &clan_id, &clan_role)) {
                 
                 // 1. Check Ban Logic
                 if (time(NULL) < ban_expire) {
@@ -2073,12 +2159,14 @@ void handle_client_message(int index, Packet *pkt) {
                     players[index].hp = players[index].max_hp;  // Full HP on login
                     players[index].mana = players[index].max_mana;  // Full mana on login
                     players[index].party_id = party_id; 
+                    players[index].clan_id = clan_id;
+                    players[index].clan_role = clan_role;
                     
                     strncpy(players[index].username, pkt->username, 31);
                     strncpy(players[index].map_name, db_map, 31);
                     
-                    LOG("User '%s' (ID: %d) logged in successfully (Gold: %d, Level: %d, HP: %d/%d)\n", 
-                        pkt->username, players[index].id, gold, level, players[index].hp, players[index].max_hp);
+                    LOG("User '%s' (ID: %d) logged in successfully (Gold: %d, Level: %d, HP: %d/%d, Clan: %d)\n", 
+                        pkt->username, players[index].id, gold, level, players[index].hp, players[index].max_hp, clan_id);
                     
                     response.player_id = players[index].id;
                     response.gold = players[index].gold;
@@ -2093,6 +2181,8 @@ void handle_client_message(int index, Packet *pkt) {
                     response.intel = players[index].intel;
                     response.skill_points = players[index].skill_points;
                     response.pvp_enabled = players[index].pvp_enabled;
+                    response.clan_id = players[index].clan_id;
+                    response.clan_role = players[index].clan_role;
                     send_all(client_sockets[index], &response, sizeof(Packet), 0);
                     
                     // Load player's inventory
@@ -3877,6 +3967,363 @@ void handle_client_message(int index, Packet *pkt) {
             Packet leave_pkt; memset(&leave_pkt, 0, sizeof(Packet));
             leave_pkt.type = PACKET_PARTY_LEAVE;
             send_all(client_sockets[index], &leave_pkt, sizeof(Packet), 0);
+        }
+    }
+    // === CLAN SYSTEM ===
+    else if (pkt->type == PACKET_CLAN_CREATE_REQUEST) {
+        if (players[index].clan_id != -1) {
+            Packet err; memset(&err, 0, sizeof(Packet));
+            err.type = PACKET_CHAT; err.player_id = -1;
+            strcpy(err.msg, "You are already in a clan.");
+            send_all(client_sockets[index], &err, sizeof(Packet), 0);
+        } else if (players[index].gold < 5000) {
+            Packet err; memset(&err, 0, sizeof(Packet));
+            err.type = PACKET_CHAT; err.player_id = -1;
+            strcpy(err.msg, "You need 5000 gold to create a clan.");
+            send_all(client_sockets[index], &err, sizeof(Packet), 0);
+        } else {
+            // Check for unique name
+            sqlite3_stmt *stmt;
+            const char *sql_check = "SELECT COUNT(*) FROM clans WHERE NAME = ?;";
+            int exists = 0;
+            if (sqlite3_prepare_v2(db, sql_check, -1, &stmt, 0) == SQLITE_OK) {
+                sqlite3_bind_text(stmt, 1, pkt->clan_name, -1, SQLITE_STATIC);
+                if (sqlite3_step(stmt) == SQLITE_ROW) exists = sqlite3_column_int(stmt, 0);
+                sqlite3_finalize(stmt);
+            }
+
+            if (exists) {
+                Packet err; memset(&err, 0, sizeof(Packet));
+                err.type = PACKET_CHAT; err.player_id = -1;
+                strcpy(err.msg, "Clan name already exists.");
+                send_all(client_sockets[index], &err, sizeof(Packet), 0);
+            } else {
+                // Deduct gold
+                players[index].gold -= 5000;
+                send_player_stats(index);
+
+                // Create clan - Deposit the 5000 gold creation cost into storage!
+                char sql_create[512];
+                snprintf(sql_create, 512, "INSERT INTO clans (NAME, OWNER_ID, GOLD_STORAGE, CREATED_AT) VALUES ('%s', %d, 5000, %lld);",
+                         pkt->clan_name, players[index].id, (long long)time(NULL));
+                sqlite3_exec(db, sql_create, 0, 0, 0);
+                
+                int new_clan_id = (int)sqlite3_last_insert_rowid(db);
+                players[index].clan_id = new_clan_id;
+                players[index].clan_role = 1; // Owner
+
+                // Update player in DB
+                char u_sql[128];
+                snprintf(u_sql, 128, "UPDATE users SET CLAN_ID=%d, CLAN_ROLE=1, GOLD=%d WHERE ID=%d;", 
+                         new_clan_id, players[index].gold, players[index].id);
+                sqlite3_exec(db, u_sql, 0, 0, 0);
+
+                LOG("Clan '%s' created by %s (ID: %d)\n", pkt->clan_name, players[index].username, new_clan_id);
+                broadcast_clan_update(new_clan_id);
+            }
+        }
+    }
+    else if (pkt->type == PACKET_CLAN_INVITE) {
+        if (players[index].clan_role != 1) {
+            Packet err; memset(&err, 0, sizeof(Packet));
+            err.type = PACKET_CHAT; err.player_id = -1;
+            strcpy(err.msg, "Only clan owners can invite members.");
+            send_all(client_sockets[index], &err, sizeof(Packet), 0);
+            return;
+        }
+
+        int target_id = pkt->target_id;
+        int target_idx = -1;
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+            if (players[i].active && players[i].id == target_id) {
+                target_idx = i;
+                break;
+            }
+        }
+
+        if (target_idx != -1) {
+            if (players[target_idx].clan_id != -1) {
+                Packet err; memset(&err, 0, sizeof(Packet));
+                err.type = PACKET_CHAT; err.player_id = -1;
+                strcpy(err.msg, "Player is already in a clan.");
+                send_all(client_sockets[index], &err, sizeof(Packet), 0);
+            } else {
+                Packet inv; memset(&inv, 0, sizeof(Packet));
+                inv.type = PACKET_CLAN_INVITE;
+                inv.clan_id = players[index].clan_id;
+                // Fetch clan name
+                sqlite3_stmt *stmt;
+                const char *sql_n = "SELECT NAME FROM clans WHERE ID = ?;";
+                if (sqlite3_prepare_v2(db, sql_n, -1, &stmt, 0) == SQLITE_OK) {
+                    sqlite3_bind_int(stmt, 1, players[index].clan_id);
+                    if (sqlite3_step(stmt) == SQLITE_ROW) {
+                        strncpy(inv.clan_name, (const char*)sqlite3_column_text(stmt, 0), 31);
+                    }
+                    sqlite3_finalize(stmt);
+                }
+                inv.player_id = players[index].id;
+                strncpy(inv.username, players[index].username, 63);
+                send_all(client_sockets[target_idx], &inv, sizeof(Packet), 0);
+                LOG("Player %s invited %s to clan %s\n", players[index].username, players[target_idx].username, inv.clan_name);
+            }
+        }
+    }
+    else if (pkt->type == PACKET_CLAN_ACCEPT) {
+        if (players[index].gold < 500) {
+            Packet err; memset(&err, 0, sizeof(Packet));
+            err.type = PACKET_CHAT; err.player_id = -1;
+            strcpy(err.msg, "You need 500 gold to join a clan.");
+            send_all(client_sockets[index], &err, sizeof(Packet), 0);
+            return;
+        }
+
+        int clan_id = pkt->clan_id;
+        // Verify clan exists
+        sqlite3_stmt *stmt;
+        const char *sql_c = "SELECT ID FROM clans WHERE ID = ?;";
+        int exists = 0;
+        if (sqlite3_prepare_v2(db, sql_c, -1, &stmt, 0) == SQLITE_OK) {
+            sqlite3_bind_int(stmt, 1, clan_id);
+            if (sqlite3_step(stmt) == SQLITE_ROW) exists = 1;
+            sqlite3_finalize(stmt);
+        }
+
+        if (exists) {
+            players[index].gold -= 500;
+            players[index].clan_id = clan_id;
+            players[index].clan_role = 0; // Member
+
+            // Update user
+            char u_sql[128];
+            snprintf(u_sql, 128, "UPDATE users SET CLAN_ID=%d, CLAN_ROLE=0, GOLD=%d WHERE ID=%d;", clan_id, players[index].gold, players[index].id);
+            sqlite3_exec(db, u_sql, 0, 0, 0);
+
+            // Add join fee to clan storage
+            char s_sql[128];
+            snprintf(s_sql, 128, "UPDATE clans SET GOLD_STORAGE = GOLD_STORAGE + 500 WHERE ID=%d;", clan_id);
+            sqlite3_exec(db, s_sql, 0, 0, 0);
+
+            LOG("Player %s joined clan %d\n", players[index].username, clan_id);
+            send_player_stats(index);
+            broadcast_clan_update(clan_id);
+        }
+    }
+    else if (pkt->type == PACKET_CLAN_LEAVE) {
+        int cid = players[index].clan_id;
+        if (cid != -1) {
+            players[index].clan_id = -1;
+            players[index].clan_role = 0;
+            
+            char l_sql[128];
+            snprintf(l_sql, 128, "UPDATE users SET CLAN_ID=-1, CLAN_ROLE=0 WHERE ID=%d;", players[index].id);
+            sqlite3_exec(db, l_sql, 0, 0, 0);
+
+            LOG("Player %s left clan %d\n", players[index].username, cid);
+            
+            // Notify the client
+            Packet leave_pkt; memset(&leave_pkt, 0, sizeof(Packet));
+            leave_pkt.type = PACKET_CLAN_LEAVE;
+            send_all(client_sockets[index], &leave_pkt, sizeof(Packet), 0);
+
+            broadcast_clan_update(cid);
+        }
+    }
+    else if (pkt->type == PACKET_CLAN_STORAGE_UPDATE) {
+        // Handle Clan Storage Updates (Gold Withdraw or Item Withdraw)
+        if (players[index].clan_id == -1 || players[index].clan_role != 1) {
+            Packet err; memset(&err, 0, sizeof(Packet));
+            err.type = PACKET_CHAT; err.player_id = -1;
+            strcpy(err.msg, "Only clan owners can manage storage.");
+            send_all(client_sockets[index], &err, sizeof(Packet), 0);
+            return;
+        }
+
+        // 1. Gold Withdrawal
+        if (pkt->clan_gold < 0) {
+            int amount = -pkt->clan_gold;
+            int clan_id = players[index].clan_id;
+            sqlite3_stmt *stmt;
+            int current_gold = 0;
+            const char *sql_g = "SELECT GOLD_STORAGE FROM clans WHERE ID = ?;";
+            if (sqlite3_prepare_v2(db, sql_g, -1, &stmt, 0) == SQLITE_OK) {
+                sqlite3_bind_int(stmt, 1, clan_id);
+                if (sqlite3_step(stmt) == SQLITE_ROW) current_gold = sqlite3_column_int(stmt, 0);
+                sqlite3_finalize(stmt);
+            }
+
+            if (amount > current_gold) {
+                Packet err; memset(&err, 0, sizeof(Packet));
+                err.type = PACKET_CHAT; err.player_id = -1;
+                strcpy(err.msg, "Insufficient clan gold.");
+                send_all(client_sockets[index], &err, sizeof(Packet), 0);
+                return;
+            }
+
+            char s_sql[128];
+            snprintf(s_sql, 128, "UPDATE clans SET GOLD_STORAGE = GOLD_STORAGE - %d WHERE ID=%d;", amount, clan_id);
+            sqlite3_exec(db, s_sql, 0, 0, 0);
+
+            players[index].gold += amount;
+            snprintf(s_sql, 128, "UPDATE users SET GOLD = %d WHERE ID=%d;", players[index].gold, players[index].id);
+            sqlite3_exec(db, s_sql, 0, 0, 0);
+
+            LOG("Player %s withdrew %d gold from clan %d\n", players[index].username, amount, clan_id);
+            send_player_stats(index);
+            broadcast_clan_update(clan_id);
+        }
+        
+        // 2. Item Withdrawal
+        else if (pkt->item_data.quantity == -1) {
+             int item_id = pkt->item_data.item_id;
+             int clan_id = players[index].clan_id;
+             
+             // Find slot and quantity of this item in clan storage
+             sqlite3_stmt *stmt;
+             int slot_index = -1;
+             int stored_qty = 0;
+             const char *sql_find = "SELECT SLOT_INDEX, QUANTITY FROM clan_storage_items WHERE CLAN_ID=? AND ITEM_ID=?;";
+             if (sqlite3_prepare_v2(db, sql_find, -1, &stmt, 0) == SQLITE_OK) {
+                 sqlite3_bind_int(stmt, 1, clan_id);
+                 sqlite3_bind_int(stmt, 2, item_id);
+                 if (sqlite3_step(stmt) == SQLITE_ROW) {
+                     slot_index = sqlite3_column_int(stmt, 0);
+                     stored_qty = sqlite3_column_int(stmt, 1);
+                 }
+                 sqlite3_finalize(stmt);
+             }
+             
+             if (slot_index != -1 && stored_qty > 0) {
+                 if (give_item_to_player(index, item_id, stored_qty)) {
+                     char sql_del[128];
+                     snprintf(sql_del, 128, "DELETE FROM clan_storage_items WHERE CLAN_ID=%d AND SLOT_INDEX=%d;", clan_id, slot_index);
+                     sqlite3_exec(db, sql_del, 0, 0, 0);
+                     
+                     send_inventory_update(index);
+                     broadcast_clan_update(clan_id);
+                     LOG("Player %s withdrew item %d x%d from clan %d\n", players[index].username, item_id, stored_qty, clan_id);
+                 } else {
+                     Packet err; memset(&err, 0, sizeof(Packet));
+                     err.type = PACKET_CHAT; err.player_id = -1;
+                     strcpy(err.msg, "Inventory full.");
+                     send_all(client_sockets[index], &err, sizeof(Packet), 0);
+                 }
+             }
+        }
+    }
+    else if (pkt->type == PACKET_CLAN_ITEM_DEPOSIT) {
+        if (players[index].clan_id == -1) return;
+        int inv_slot = pkt->item_slot;
+        if (inv_slot < 0 || inv_slot >= MAX_INVENTORY_SLOTS) return; // Note: player might have less items than slots, but we check presence.
+        
+        Item *item = &players[index].inventory[inv_slot].item;
+        if (item->item_id <= 0) return;
+
+        int clan_id = players[index].clan_id;
+        int qty_to_deposit = item->quantity;
+        int item_id = item->item_id;
+
+        // 1. Find if item already exists in clan storage (to stack)
+        sqlite3_stmt *stmt;
+        int target_slot = -1;
+        int existing_qty = 0;
+        int max_stack = 999; // Default max stack for shared storage
+        
+        const char *sql_find = "SELECT SLOT_INDEX, QUANTITY FROM clan_storage_items WHERE CLAN_ID=? AND ITEM_ID=?;";
+        if (sqlite3_prepare_v2(db, sql_find, -1, &stmt, 0) == SQLITE_OK) {
+            sqlite3_bind_int(stmt, 1, clan_id);
+            sqlite3_bind_int(stmt, 2, item_id);
+            if (sqlite3_step(stmt) == SQLITE_ROW) {
+                target_slot = sqlite3_column_int(stmt, 0);
+                existing_qty = sqlite3_column_int(stmt, 1);
+            }
+            sqlite3_finalize(stmt);
+        }
+
+        if (target_slot != -1) {
+            // Update existing slot
+            char sql_upd[256];
+            snprintf(sql_upd, 256, "UPDATE clan_storage_items SET QUANTITY = QUANTITY + %d WHERE CLAN_ID=%d AND SLOT_INDEX=%d;",
+                     qty_to_deposit, clan_id, target_slot);
+            sqlite3_exec(db, sql_upd, 0, 0, 0);
+        } else {
+            // Find empty slot (0-19)
+            // Cheap way: get all slots, then find first missing
+            int taken[20] = {0};
+            const char *sql_slots = "SELECT SLOT_INDEX FROM clan_storage_items WHERE CLAN_ID=?;";
+            if (sqlite3_prepare_v2(db, sql_slots, -1, &stmt, 0) == SQLITE_OK) {
+                sqlite3_bind_int(stmt, 1, clan_id);
+                while (sqlite3_step(stmt) == SQLITE_ROW) {
+                    int s = sqlite3_column_int(stmt, 0);
+                    if (s >= 0 && s < 20) taken[s] = 1;
+                }
+                sqlite3_finalize(stmt);
+            }
+            
+            for (int i = 0; i < 20; i++) {
+                if (!taken[i]) {
+                    target_slot = i;
+                    break;
+                }
+            }
+            
+            if (target_slot == -1) {
+                Packet err; memset(&err, 0, sizeof(Packet));
+                err.type = PACKET_CHAT; err.player_id = -1;
+                strcpy(err.msg, "Clan storage is full.");
+                send_all(client_sockets[index], &err, sizeof(Packet), 0);
+                return;
+            }
+            
+            char sql_ins[256];
+            snprintf(sql_ins, 256, "INSERT INTO clan_storage_items (CLAN_ID, SLOT_INDEX, ITEM_ID, QUANTITY) VALUES (%d, %d, %d, %d);",
+                     clan_id, target_slot, item_id, qty_to_deposit);
+            sqlite3_exec(db, sql_ins, 0, 0, 0);
+        }
+
+        // Remove from player
+        remove_item_from_player(index, item_id, qty_to_deposit);
+        send_inventory_update(index);
+        broadcast_clan_update(clan_id);
+        LOG("Player %s deposited item %d x%d to clan %d\n", players[index].username, item_id, qty_to_deposit, clan_id);
+    }
+    else if (pkt->type == PACKET_CLAN_ITEM_WITHDRAW) {
+        if (players[index].clan_id == -1) return;
+        int storage_slot = pkt->item_slot;
+        if (storage_slot < 0 || storage_slot >= 20) return;
+
+        int clan_id = players[index].clan_id;
+        sqlite3_stmt *stmt;
+        int item_id = 0;
+        int quantity = 0;
+        
+        const char *sql_get = "SELECT ITEM_ID, QUANTITY FROM clan_storage_items WHERE CLAN_ID=? AND SLOT_INDEX=?;";
+        if (sqlite3_prepare_v2(db, sql_get, -1, &stmt, 0) == SQLITE_OK) {
+            sqlite3_bind_int(stmt, 1, clan_id);
+            sqlite3_bind_int(stmt, 2, storage_slot);
+            if (sqlite3_step(stmt) == SQLITE_ROW) {
+                item_id = sqlite3_column_int(stmt, 0);
+                quantity = sqlite3_column_int(stmt, 1);
+            }
+            sqlite3_finalize(stmt);
+        }
+
+        if (item_id <= 0) return;
+
+        // Give to player
+        if (give_item_to_player(index, item_id, quantity)) {
+            // Remove from clan storage
+            char sql_del[128];
+            snprintf(sql_del, 128, "DELETE FROM clan_storage_items WHERE CLAN_ID=%d AND SLOT_INDEX=%d;", clan_id, storage_slot);
+            sqlite3_exec(db, sql_del, 0, 0, 0);
+            
+            send_inventory_update(index);
+            broadcast_clan_update(clan_id);
+            LOG("Player %s withdrew item %d x%d from clan %d slot %d\n", players[index].username, item_id, quantity, clan_id, storage_slot);
+        } else {
+            Packet err; memset(&err, 0, sizeof(Packet));
+            err.type = PACKET_CHAT; err.player_id = -1;
+            strcpy(err.msg, "Inventory full.");
+            send_all(client_sockets[index], &err, sizeof(Packet), 0);
         }
     }
 }

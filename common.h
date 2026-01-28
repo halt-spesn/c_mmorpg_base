@@ -72,7 +72,9 @@ typedef enum {
     PACKET_TRADE_REQUEST, PACKET_TRADE_RESPONSE, PACKET_TRADE_OFFER, PACKET_TRADE_CONFIRM, PACKET_TRADE_CANCEL,
     PACKET_CURRENCY_UPDATE, PACKET_ENEMY_LIST, PACKET_ENEMY_ATTACK, PACKET_ATTACK, PACKET_DAMAGE,
     PACKET_ALLOCATE_STATS, PACKET_PVP_TOGGLE, PACKET_HANDSHAKE, PACKET_TIME_SYNC,
-    PACKET_PARTY_INVITE, PACKET_PARTY_ACCEPT, PACKET_PARTY_LEAVE, PACKET_PARTY_UPDATE
+    PACKET_PARTY_INVITE, PACKET_PARTY_ACCEPT, PACKET_PARTY_LEAVE, PACKET_PARTY_UPDATE,
+    PACKET_CLAN_CREATE_REQUEST, PACKET_CLAN_INVITE, PACKET_CLAN_ACCEPT, PACKET_CLAN_LEAVE, PACKET_CLAN_UPDATE, PACKET_CLAN_STORAGE_UPDATE,
+    PACKET_CLAN_STORAGE_GOLD_WITHDRAW, PACKET_CLAN_ITEM_DEPOSIT, PACKET_CLAN_ITEM_WITHDRAW
 } PacketType;
 
 typedef enum {
@@ -218,6 +220,8 @@ typedef struct {
     int32_t anim_state;       // 0=Idle, 1=Attack, 2=Damage
     uint32_t anim_start_time;
     int32_t party_id;         // -1 if no party, otherwise party leader ID or unique ID
+    int32_t clan_id;          // -1 if no clan
+    int32_t clan_role;        // 0=Member, 1=Owner
 } Player;
 
 typedef struct {
@@ -305,6 +309,16 @@ typedef struct {
     int32_t party_member_ids[5];
     char party_member_names[5][32];
     int32_t party_member_count;
+    // Clan fields
+    int32_t clan_id;
+    char clan_name[32];
+    int32_t clan_member_ids[50];
+    char clan_member_names[50][32];
+    int32_t clan_member_count;
+    int32_t clan_gold;
+    int32_t clan_role;
+    int32_t clan_withdraw_amount;
+    Item clan_storage_items[20];
 } Packet;
 
 #pragma pack(pop)

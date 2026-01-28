@@ -148,11 +148,39 @@ SDL_Rect btn_trade_request_rect;
 SDL_Rect btn_party_invite;
 SDL_Rect btn_party_toggle;
 SDL_Rect btn_party_close;
+
 SDL_Rect btn_party_leave;
 SDL_Rect btn_hide_player_dyn;
 SDL_Rect btn_sanction_open;
 SDL_Rect btn_popup_accept;
 SDL_Rect btn_popup_deny;
+
+// Clan system
+int my_clan_id = -1;
+char my_clan_name[32] = "";
+int my_clan_gold = 0;
+int my_clan_role = 0; // 0=Member, 1=Owner
+int clan_member_ids[50];
+char clan_member_names[50][32];
+int clan_member_count = 0;
+Item my_clan_storage_items[20];
+int show_clan_window = 0;
+int clan_window_tab = 0; // 0=Members, 1=Storage
+int clan_scroll = 0;
+SDL_Rect clan_window;
+SDL_Rect btn_clan_toggle;
+SDL_Rect btn_clan_create;
+SDL_Rect btn_clan_leave;
+SDL_Rect btn_clan_close;
+char clan_name_input[32] = "";
+int clan_name_input_active = 0;
+int pending_clan_invite_id = -1;
+char pending_clan_invite_name[64] = "";
+char pending_clan_invite_clan[32] = "";
+SDL_Rect btn_clan_invite;
+SDL_Rect btn_clan_invite_accept;
+SDL_Rect btn_clan_invite_deny;
+SDL_Rect clan_name_input_rect;
 
 SDL_Rect profile_win = {10, 10, 200, 130};
 SDL_Rect btn_add_friend = {20, 50, 180, 30};
@@ -2854,6 +2882,154 @@ void render_party_list(SDL_Renderer *renderer, int w, int h) {
     }
 }
 
+void render_clan_window(SDL_Renderer *renderer, int w, int h) {
+    if (!show_clan_window) return;
+
+    clan_window = (SDL_Rect){w/2 - 250, h/2 - 200, 500, 400};
+    SDL_SetRenderDrawColor(renderer, 40, 30, 20, 240);
+    SDL_RenderFillRect(renderer, &clan_window);
+    SDL_SetRenderDrawColor(renderer, 255, 150, 0, 255);
+    SDL_RenderDrawRect(renderer, &clan_window);
+
+    render_text(renderer, "Clan Management", clan_window.x + 250, clan_window.y + 15, col_yellow, 1);
+
+    btn_clan_close = (SDL_Rect){clan_window.x + clan_window.w - 40, clan_window.y + 5, 30, 30};
+    SDL_SetRenderDrawColor(renderer, 100, 50, 50, 255);
+    SDL_RenderFillRect(renderer, &btn_clan_close);
+    render_text(renderer, "X", btn_clan_close.x + 10, btn_clan_close.y + 5, col_white, 0);
+
+    if (my_clan_id == -1) {
+        // --- Create Clan Section ---
+        render_text(renderer, "You are not in a clan.", clan_window.x + 250, clan_window.y + 100, col_white, 1);
+        render_text(renderer, "Create a Clan (Cost: 5000 gold)", clan_window.x + 250, clan_window.y + 130, col_yellow, 1);
+        
+        clan_name_input_rect = (SDL_Rect){clan_window.x + 150, clan_window.y + 160, 200, 30};
+        render_input_with_cursor(renderer, clan_name_input_rect, clan_name_input, clan_name_input_active, 0);
+
+        btn_clan_create = (SDL_Rect){clan_window.x + 175, clan_window.y + 210, 150, 40};
+        SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255);
+        SDL_RenderFillRect(renderer, &btn_clan_create);
+        render_text(renderer, "Create Clan", btn_clan_create.x + 75, btn_clan_create.y + 10, col_white, 1);
+    } else {
+        // --- Clan Details ---
+        char info[128];
+        snprintf(info, 128, "Clan: %s (ID: %d)", my_clan_name, my_clan_id);
+        render_text(renderer, info, clan_window.x + 20, clan_window.y + 45, col_yellow, 0);
+        
+        snprintf(info, 128, "Storage: %d gold", my_clan_gold);
+        render_text(renderer, info, clan_window.x + 20, clan_window.y + 65, (SDL_Color){255, 215, 0, 255}, 0);
+
+        // Tabs
+        SDL_Rect tab_m = {clan_window.x + 20, clan_window.y + 90, 100, 30};
+        SDL_Rect tab_s = {clan_window.x + 125, clan_window.y + 90, 100, 30};
+        
+        SDL_SetRenderDrawColor(renderer, clan_window_tab == 0 ? 100 : 50, 70, 0, 255);
+        SDL_RenderFillRect(renderer, &tab_m);
+        render_text(renderer, "Members", tab_m.x + 50, tab_m.y + 5, col_white, 1);
+
+        SDL_SetRenderDrawColor(renderer, clan_window_tab == 1 ? 100 : 50, 70, 0, 255);
+        SDL_RenderFillRect(renderer, &tab_s);
+        render_text(renderer, "Storage", tab_s.x + 50, tab_s.y + 5, col_white, 1);
+
+        if (clan_window_tab == 0) {
+            // Members list
+            for (int i = 0; i < clan_member_count; i++) {
+                char member[128];
+                snprintf(member, 128, "%s (ID: %d)", clan_member_names[i], clan_member_ids[i]);
+                render_text(renderer, member, clan_window.x + 20, clan_window.y + 130 + (i * 25), col_white, 0);
+            }
+
+            btn_clan_leave = (SDL_Rect){clan_window.x + clan_window.w - 140, clan_window.y + clan_window.h - 50, 120, 35};
+            SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255);
+            SDL_RenderFillRect(renderer, &btn_clan_leave);
+            render_text(renderer, "Leave Clan", btn_clan_leave.x + 60, btn_clan_leave.y + 8, col_white, 1);
+        } else {
+            // Storage
+            render_text(renderer, "Click Inventory Item to Deposit", clan_window.x + 20, clan_window.y + 125, col_white, 0);
+            render_text(renderer, "Clan Gold Storage", clan_window.x + 20, clan_window.y + 140, col_yellow, 0);
+            
+            SDL_Rect btn_dep = {clan_window.x + 20, clan_window.y + 160, 150, 35};
+            SDL_SetRenderDrawColor(renderer, 0, 100, 150, 255);
+            SDL_RenderFillRect(renderer, &btn_dep);
+            render_text(renderer, "Deposit 500g", btn_dep.x + 75, btn_dep.y + 8, col_white, 1);
+            
+            if (my_clan_role == 1) { // ROLE_OWNER
+                SDL_Rect btn_with = {clan_window.x + 180, clan_window.y + 160, 150, 35};
+                SDL_SetRenderDrawColor(renderer, 0, 150, 100, 255);
+                SDL_RenderFillRect(renderer, &btn_with);
+                render_text(renderer, "Withdraw 500g", btn_with.x + 75, btn_with.y + 8, col_white, 1);
+            }
+
+            // Storage Items Grid (5x4)
+            int sx = clan_window.x + 20;
+            int sy = clan_window.y + 210;
+            int mx, my; SDL_GetMouseState(&mx, &my);
+            // Adjust mouse for UI scale (assuming ui_scale is global)
+            // Note: render_game applies scale to renderer, but GetMouseState returns raw window coords
+             mx = (int)(mx / ui_scale); my = (int)(my / ui_scale);
+
+            for(int i=0; i<20; i++) {
+                int row = i / 5;
+                int col = i % 5;
+                SDL_Rect slot = {sx + (col * 50), sy + (row * 50), 40, 40};
+
+                SDL_SetRenderDrawColor(renderer, 60, 60, 60, 255);
+                SDL_RenderFillRect(renderer, &slot);
+                SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255);
+                SDL_RenderDrawRect(renderer, &slot);
+
+                if (my_clan_storage_items[i].item_id != 0) {
+                     // Draw Item Placeholder (Yellow Square)
+                     SDL_SetRenderDrawColor(renderer, 200, 200, 50, 255); 
+                     SDL_Rect item_rect = {slot.x+4, slot.y+4, 32, 32};
+                     SDL_RenderFillRect(renderer, &item_rect);
+
+                     // Count
+                     if (my_clan_storage_items[i].quantity > 1) {
+                         char num[8]; snprintf(num, 8, "%d", my_clan_storage_items[i].quantity);
+                         render_text(renderer, num, slot.x+22, slot.y+22, col_black, 0); // Bottom-rightish
+                     }
+                     
+                     // Tooltip
+                     if(SDL_PointInRect(&(SDL_Point){mx, my}, &slot)) {
+                         show_tooltip = 1;
+                         strncpy(tooltip_text, my_clan_storage_items[i].name, 63);
+                         tooltip_x = mx; tooltip_y = my;
+                     }
+                }
+            }
+        }
+    }
+}
+
+void render_clan_invite_popup(SDL_Renderer *renderer, int w, int h) {
+    if (pending_clan_invite_id == -1) return;
+
+    SDL_Rect win = {w/2 - 150, h/2 - 75, 300, 150};
+    SDL_SetRenderDrawColor(renderer, 40, 30, 10, 240);
+    SDL_RenderFillRect(renderer, &win);
+    SDL_SetRenderDrawColor(renderer, 255, 215, 0, 255);
+    SDL_RenderDrawRect(renderer, &win);
+
+    char msg[128];
+    snprintf(msg, 128, "Clan invite from %s", pending_clan_invite_name);
+    render_text(renderer, msg, win.x + 150, win.y + 20, col_white, 1);
+    snprintf(msg, 128, "Join clan [%s]?", pending_clan_invite_clan);
+    render_text(renderer, msg, win.x + 150, win.y + 40, col_yellow, 1);
+    render_text(renderer, "(Cost: 500 gold)", win.x + 150, win.y + 60, (SDL_Color){255, 200, 0, 255}, 1);
+
+    btn_clan_invite_accept = (SDL_Rect){win.x + 20, win.y + 90, 120, 35};
+    btn_clan_invite_deny = (SDL_Rect){win.x + 160, win.y + 90, 120, 35};
+
+    SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255);
+    SDL_RenderFillRect(renderer, &btn_clan_invite_accept);
+    render_text(renderer, "Accept", btn_clan_invite_accept.x + 60, btn_clan_invite_accept.y + 8, col_white, 1);
+
+    SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255);
+    SDL_RenderFillRect(renderer, &btn_clan_invite_deny);
+    render_text(renderer, "Decline", btn_clan_invite_deny.x + 60, btn_clan_invite_deny.y + 8, col_white, 1);
+}
+
 void render_profile(SDL_Renderer *renderer) {
     if (selected_player_id == -1 || selected_player_id == local_player_id) return;
     
@@ -2936,9 +3112,19 @@ void render_profile(SDL_Renderer *renderer) {
     render_text(renderer, "Invite to Party", btn_party.x + (btn_w/2) - 55, btn_party.y + 5, col_white, 0);
     btn_party_invite = btn_party;
 
-    // --- NEW: Sanction Button (Admin Only) ---
+    // --- Clan Invite Button (Owner only) ---
+    if (my_clan_role == 1) {
+        btn_clan_invite = (SDL_Rect){profile_win.x + 20, start_y + 200, btn_w, 30};
+        SDL_SetRenderDrawColor(renderer, 255, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_clan_invite);
+        render_text(renderer, "Invite to Clan", btn_clan_invite.x + (btn_w/2) - 50, btn_clan_invite.y + 5, col_white, 0);
+    } else {
+        btn_clan_invite = (SDL_Rect){0, 0, 0, 0};
+    }
+
+    // --- Sanction Button (Admin Only) ---
     if (my_role >= ROLE_ADMIN) {
-        btn_sanction_open = (SDL_Rect){profile_win.x + 20, start_y + 200, btn_w, 30};
+        int sanction_y = (my_clan_role == 1) ? start_y + 240 : start_y + 200;
+        btn_sanction_open = (SDL_Rect){profile_win.x + 20, sanction_y, btn_w, 30};
         SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_sanction_open);
         render_text(renderer, get_string(STR_SANCTION), btn_sanction_open.x + (btn_w/2) - 35, btn_sanction_open.y + 5, col_white, 0);
     }
@@ -3837,6 +4023,8 @@ void render_game(SDL_Renderer *renderer) {
     render_quest_log(renderer, scaled_w, scaled_h);
     render_quest_offer(renderer, scaled_w, scaled_h);
     render_party_list(renderer, scaled_w, scaled_h);
+    render_clan_window(renderer, scaled_w, scaled_h);
+    render_clan_invite_popup(renderer, scaled_w, scaled_h);
     render_trade_request_popup(renderer, scaled_w, scaled_h);
     render_debug_overlay(renderer, scaled_w);
     render_hud(renderer, scaled_w, scaled_h);
@@ -3870,6 +4058,10 @@ void render_game(SDL_Renderer *renderer) {
     btn_party_toggle = (SDL_Rect){340, scaled_h-40, 100, 30};
     SDL_SetRenderDrawColor(renderer, 0, 150, 150, 255); SDL_RenderFillRect(renderer, &btn_party_toggle);
     render_text(renderer, "Party", btn_party_toggle.x+50, btn_party_toggle.y+5, col_white, 1);
+
+    btn_clan_toggle = (SDL_Rect){450, scaled_h-40, 100, 30};
+    SDL_SetRenderDrawColor(renderer, 150, 100, 0, 255); SDL_RenderFillRect(renderer, &btn_clan_toggle);
+    render_text(renderer, "Clan", btn_clan_toggle.x+50, btn_clan_toggle.y+5, col_white, 1);
 
  // 6. Draw Chat Overlay
     if(is_chat_open) {
@@ -4178,6 +4370,13 @@ void request_item_unequip(int equip_slot) {
 }
 
 void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
+    // Adjust for UI scale for HUD elements
+    int ui_mx = (int)(mx / ui_scale);
+    int ui_my = (int)(my / ui_scale);
+
+    if (show_clan_window || show_profile_list || selected_player_id != -1) {
+        printf("CLICK: Raw(%d,%d) Scaled(%d,%d) Scale(%.2f)\n", mx, my, ui_mx, ui_my, ui_scale);
+    }
     // ============================================================
     // LAYER -3: TRADE WINDOW (top priority)
     // ============================================================
@@ -4266,7 +4465,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
                 int col = i % inv_slots_per_row;
                 int row = i / inv_slots_per_row;
                 SDL_Rect slot_rect = {inv_pane.x + inv_grid_x + col * (inv_slot_size + spacing), inv_pane.y + 40 + row * (inv_slot_size + spacing), inv_slot_size, inv_slot_size};
-                if (SDL_PointInRect(&(SDL_Point){mx, my}, &slot_rect)) {
+                if (SDL_PointInRect(&(SDL_Point){ui_mx, ui_my}, &slot_rect)) {
                     if (my_trade_count < 10 && my_inventory[i].item.item_id > 0) {
                         int exists = -1;
                         for(int j=0; j<my_trade_count; j++) if(my_trade_offer[j].item_id == my_inventory[i].item.item_id) exists=j;
@@ -4620,6 +4819,15 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             push_chat_line(CHAT_CHANNEL_LOCAL, "Party invite sent.");
             return;
         }
+        if (SDL_PointInRect(&(SDL_Point){ui_mx, ui_my}, &btn_clan_invite)) {
+            printf("DEBUG: Clicked Clan Invite! ui_mx=%d ui_my=%d btn=%d,%d,%d,%d\n", ui_mx, ui_my, btn_clan_invite.x, btn_clan_invite.y, btn_clan_invite.w, btn_clan_invite.h);
+            Packet pkt; memset(&pkt, 0, sizeof(Packet));
+            pkt.type = PACKET_CLAN_INVITE;
+            pkt.player_id = selected_player_id;
+            send_packet(&pkt);
+            push_chat_line(CHAT_CHANNEL_LOCAL, "Clan invitation sent.");
+            return;
+        }
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_sanction_open)) {
             int my_role = 0;
             for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) my_role = local_players[i].role;
@@ -4670,6 +4878,158 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             pending_party_req_id = -1;
             return;
         }
+    }
+
+    // Clan Window Button Handlers
+    if (show_clan_window) {
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_clan_close)) {
+            show_clan_window = 0;
+            return;
+        }
+
+        if (my_clan_id == -1) {
+            // Clan Name Input
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &clan_name_input_rect)) {
+                clan_name_input_active = 1;
+                active_field = FIELD_CLAN_NAME; // Need to define this or use a number
+                active_input_rect = clan_name_input_rect;
+                SDL_StartTextInput();
+                cursor_pos = strlen(clan_name_input);
+                selection_start = 0; selection_len = 0;
+                return;
+            } else if (clan_name_input_active) {
+                clan_name_input_active = 0;
+                active_field = -1;
+                SDL_StopTextInput();
+            }
+
+            // Create Clan button
+            // Create Clan button
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_clan_create)) {
+                if (strlen(clan_name_input) == 0) {
+                     push_chat_line(CHAT_CHANNEL_LOCAL, "Please enter a clan name.");
+                } else if (my_gold < 5000) {
+                     push_chat_line(CHAT_CHANNEL_LOCAL, "You need 5000 gold to create a clan.");
+                } else {
+                    Packet pkt; memset(&pkt, 0, sizeof(Packet));
+                    pkt.type = PACKET_CLAN_CREATE_REQUEST;
+                    strncpy(pkt.clan_name, clan_name_input, 31);
+                    send_packet(&pkt);
+                    printf("Creating clan: %s\n", clan_name_input);
+                    // Clear input to prevent double clicks
+                    clan_name_input[0] = '\0';
+                    clan_name_input_active = 0;
+                }
+                return;
+            }
+        } else {
+            // Tabs
+            SDL_Rect tab_m = {clan_window.x + 20, clan_window.y + 90, 100, 30};
+            SDL_Rect tab_s = {clan_window.x + 125, clan_window.y + 90, 100, 30};
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &tab_m)) { clan_window_tab = 0; return; }
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &tab_s)) { 
+                clan_window_tab = 1; 
+                show_inventory = 1; // Auto-open inventory for deposits
+                return; 
+            }
+
+            if (clan_window_tab == 0) {
+                if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_clan_leave)) {
+                    Packet pkt; memset(&pkt, 0, sizeof(Packet));
+                    pkt.type = PACKET_CLAN_LEAVE;
+                    send_packet(&pkt);
+                    return;
+                }
+            } else {
+                // Storage actions
+                SDL_Rect btn_dep = {clan_window.x + 20, clan_window.y + 160, 150, 35};
+                if (SDL_PointInRect(&(SDL_Point){ui_mx, ui_my}, &btn_dep)) {
+                    if (my_gold >= 500) {
+                        Packet pkt; memset(&pkt, 0, sizeof(Packet));
+                        pkt.type = PACKET_CLAN_STORAGE_UPDATE;
+                        pkt.clan_gold = 500; // Deposit 500
+                        send_packet(&pkt);
+                        push_chat_line(CHAT_CHANNEL_LOCAL, "Deposited 500 gold.");
+                    } else {
+                        push_chat_line(CHAT_CHANNEL_LOCAL, "Not enough gold to deposit 500.");
+                    }
+                    return;
+                }
+                
+                if (my_clan_role == 1) { // ROLE_OWNER
+                    SDL_Rect btn_with = {clan_window.x + 180, clan_window.y + 160, 150, 35};
+                    if (SDL_PointInRect(&(SDL_Point){ui_mx, ui_my}, &btn_with)) {
+                        if (my_clan_gold >= 500) {
+                            Packet pkt; memset(&pkt, 0, sizeof(Packet));
+                            pkt.type = PACKET_CLAN_STORAGE_UPDATE;
+                            pkt.clan_gold = -500; // Withdraw 500
+                            send_packet(&pkt);
+                            push_chat_line(CHAT_CHANNEL_LOCAL, "Withdrawn 500 gold.");
+                        } else {
+                            push_chat_line(CHAT_CHANNEL_LOCAL, "Not enough gold in clan storage to withdraw 500.");
+                        }
+                        return;
+                    }
+                }
+                
+                // Item Withdraw Interaction
+                int sx = clan_window.x + 20;
+                int sy = clan_window.y + 210;
+                for(int i=0; i<20; i++) {
+                    int row = i / 5;
+                    int col = i % 5;
+                    SDL_Rect slot = {sx + (col * 50), sy + (row * 50), 40, 40};
+                    if (SDL_PointInRect(&(SDL_Point){ui_mx, ui_my}, &slot)) {
+                         if (my_clan_storage_items[i].item_id != 0) {
+                             if (my_clan_role == 1) { // Owner only
+                                 Packet pkt; memset(&pkt, 0, sizeof(Packet));
+                                 pkt.type = PACKET_CLAN_STORAGE_UPDATE;
+                                 pkt.item_data.item_id = my_clan_storage_items[i].item_id; 
+                                 pkt.item_data.quantity = -1; // flag for withdrawal
+                                 send_packet(&pkt);
+                                 printf("Requesting withdraw of item %d\n", pkt.item_data.item_id);
+                             } else {
+                                 push_chat_line(CHAT_CHANNEL_LOCAL, "Only the clan owner can withdraw items.");
+                             }
+                         }
+                         return;
+                    }
+                }
+            }
+        }
+        
+        // Consume clicks inside clan window
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &clan_window)) {
+            return;
+        }
+    }
+
+    // Clan Invite Popup Handlers
+    if (pending_clan_invite_id != -1) {
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_clan_invite_accept)) {
+            Packet pkt; memset(&pkt, 0, sizeof(Packet));
+            pkt.type = PACKET_CLAN_ACCEPT;
+            pkt.player_id = pending_clan_invite_id;
+            send_packet(&pkt);
+            pending_clan_invite_id = -1;
+            return;
+        }
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_clan_invite_deny)) {
+            pending_clan_invite_id = -1;
+            return;
+        }
+    }
+
+    // Clan Toggle Button (HUD)
+    if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_clan_toggle)) {
+        show_clan_window = !show_clan_window;
+        if (show_clan_window) {
+
+            is_settings_open = 0; show_friend_list = 0; is_inbox_open = 0; show_quest_log = 0; show_party_window = 0;
+            // Auto-open inventory if storage tab is active
+            if (clan_window_tab == 1) show_inventory = 1;
+        }
+        return;
     }
 
     // --- CHAT INPUT ---
@@ -4771,7 +5131,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
                 equip_slot_w,
                 equip_slot_h
             };
-            if (SDL_PointInRect(&(SDL_Point){mx, my}, &equip_rect)) {
+            if (SDL_PointInRect(&(SDL_Point){ui_mx, ui_my}, &equip_rect)) {
                 // Clicked on equipment slot - unequip if item present
                 if (my_equipment[i].item_id > 0) {
                     request_item_unequip(i);
@@ -4800,7 +5160,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
                 slot_size
             };
             
-            if (SDL_PointInRect(&(SDL_Point){mx, my}, &slot_rect)) {
+            if (SDL_PointInRect(&(SDL_Point){ui_mx, ui_my}, &slot_rect)) {
                 selected_inv_slot = i;
                 
                 if (show_trade && my_trade_count < 10 && my_inventory[i].item.item_id > 0) {
@@ -4822,6 +5182,17 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
                     memcpy(pkt.trade_offer_items, my_trade_offer, sizeof(Item) * my_trade_count);
                     send_packet(&pkt);
                     my_trade_confirmed = 0;
+                }
+                
+                // Clan Storage Deposit
+                if (show_clan_window && clan_window_tab == 1 && my_inventory[i].item.item_id > 0) {
+                     Packet pkt; memset(&pkt, 0, sizeof(Packet));
+                     pkt.type = PACKET_CLAN_ITEM_DEPOSIT;
+                     pkt.item_slot = i;
+                     send_packet(&pkt);
+                     printf("Depositing item from slot %d to clan storage\n", i);
+                     push_chat_line(CHAT_CHANNEL_LOCAL, "Depositing item...");
+                     return;
                 }
                 
                 printf("Selected inventory slot %d\n", i);
@@ -7357,12 +7728,15 @@ int main(int argc, char *argv[]) {
                     else if(active_field == 12) target = nick_pass;
                     if (target) handle_text_edit(target, 31, &event);
                 }
-                else if (is_settings_open && show_password_popup) {
+            else if (is_settings_open && show_password_popup) {
                     char *target = NULL;
                     if(active_field == 20) target = password_current;
                     else if(active_field == 21) target = password_new;
                     else if(active_field == 22) target = password_confirm;
                     if (target) handle_text_edit(target, 63, &event);
+                }
+                else if (my_clan_id == -1 && show_clan_window && active_field == FIELD_CLAN_NAME) {
+                    handle_text_edit(clan_name_input, 31, &event);
                 }
                 else if (show_add_friend_popup) {
                     if (active_field == 25) handle_text_edit(input_friend_id, 8, &event);
@@ -7426,10 +7800,15 @@ int main(int argc, char *argv[]) {
                 // --- FIXED MOVEMENT LOGIC START ---
                 float dx = 0, dy = 0;
                 const Uint8 *state = SDL_GetKeyboardState(NULL);
-                if (key_up || state[SDL_SCANCODE_W] || state[SDL_SCANCODE_UP]) dy = -1;
-                if (key_down || state[SDL_SCANCODE_S] || state[SDL_SCANCODE_DOWN]) dy = 1;
-                if (key_left || state[SDL_SCANCODE_A] || state[SDL_SCANCODE_LEFT]) dx = -1;
-                if (key_right || state[SDL_SCANCODE_D] || state[SDL_SCANCODE_RIGHT]) dx = 1;
+                
+                // Only allow movement if text input is NOT active
+                if (!SDL_IsTextInputActive()) {
+                    if (key_up || state[SDL_SCANCODE_W] || state[SDL_SCANCODE_UP]) dy = -1;
+                    if (key_down || state[SDL_SCANCODE_S] || state[SDL_SCANCODE_DOWN]) dy = 1;
+                    if (key_left || state[SDL_SCANCODE_A] || state[SDL_SCANCODE_LEFT]) dx = -1;
+                    if (key_right || state[SDL_SCANCODE_D] || state[SDL_SCANCODE_RIGHT]) dx = 1;
+                }
+                
                 if (vjoy_dx > 0.2f) dx = 1; else if (vjoy_dx < -0.2f) dx = -1;
                 if (vjoy_dy > 0.2f) dy = 1; else if (vjoy_dy < -0.2f) dy = -1;
                 
@@ -7530,6 +7909,11 @@ int main(int argc, char *argv[]) {
                             my_mana = pkt.mana;
                             my_max_mana = pkt.max_mana;
                             my_skill_points = pkt.skill_points;
+                            
+                            // SYNC CLAN STATE
+                            my_clan_id = pkt.clan_id;
+                            my_clan_role = pkt.clan_role;
+                            printf("Logged in with Clan ID: %d, Role: %d\n", my_clan_id, my_clan_role);
 
                             Packet cpkt; cpkt.type = PACKET_COLOR_CHANGE; 
                             cpkt.r = saved_r; cpkt.g = saved_g; cpkt.b = saved_b; 
@@ -7708,6 +8092,29 @@ int main(int argc, char *argv[]) {
                         my_party_id = -1;
                         party_member_count = 0;
                         push_chat_line(CHAT_CHANNEL_WHISPER, "You have left the party.");
+                    }
+                    if (pkt.type == PACKET_CLAN_UPDATE) {
+                        my_clan_id = pkt.clan_id;
+                        strncpy(my_clan_name, pkt.clan_name, 31);
+                        my_clan_gold = pkt.clan_gold;
+                        my_clan_role = pkt.clan_role;
+                        clan_member_count = pkt.clan_member_count;
+                        memcpy(clan_member_ids, pkt.clan_member_ids, sizeof(int) * 50);
+                        memcpy(clan_member_names, pkt.clan_member_names, 50 * 32);
+                        memcpy(my_clan_storage_items, pkt.clan_storage_items, sizeof(Item) * 20);
+                        printf("Clan updated: %s (ID: %d, Members: %d)\n", my_clan_name, my_clan_id, clan_member_count);
+                    }
+                    if (pkt.type == PACKET_CLAN_INVITE) {
+                        pending_clan_invite_id = pkt.player_id;
+                        strncpy(pending_clan_invite_name, pkt.username, 63);
+                        strncpy(pending_clan_invite_clan, pkt.clan_name, 31);
+                        push_chat_line(CHAT_CHANNEL_WHISPER, "Received clan invitation. Open profile or use /acceptclan.");
+                    }
+                    if (pkt.type == PACKET_CLAN_LEAVE) {
+                        my_clan_id = -1;
+                        my_clan_name[0] = '\0';
+                        clan_member_count = 0;
+                        push_chat_line(CHAT_CHANNEL_WHISPER, "You have left the clan.");
                     }
                     if (pkt.type == PACKET_TRADE_CANCEL) {
                         show_trade = 0;

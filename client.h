@@ -107,6 +107,7 @@ typedef enum { STATE_AUTH, STATE_GAME } ClientState;
 #define FIELD_SANCTION_REASON 30
 #define FIELD_BAN_TIME 31
 #define FIELD_TRADE_GOLD 40
+#define FIELD_CLAN_NAME 45
 
 // --- Server List ---
 typedef struct { char name[32]; char ip[64]; int port; } ServerEntry;
