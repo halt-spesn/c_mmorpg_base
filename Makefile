@@ -18,8 +18,9 @@ endif
 # --- SERVER CONFIG ---
 SERVER_SRC = server.c
 SERVER_OUT = server
-# Link everything dynamically(later static): sqlite3, math, threads
-SERVER_LDFLAGS = -lsqlite3 -lm -lpthread -ferror-limit=0
+# Link everything dynamically(later static): sqlite3, math, threads, sdl2
+SERVER_CFLAGS = $(shell pkg-config --cflags sdl2 SDL2_ttf)
+SERVER_LDFLAGS = -lsqlite3 -lm -lpthread $(shell pkg-config --libs sdl2 SDL2_ttf) -ferror-limit=0
 
 # --- CLIENT CONFIG ---
 CLIENT_SRC = client_sdl.c client_network.c client_config.c client_audio.c client_utils.c client_input.c localization.c $(VULKAN_SRC)
@@ -35,7 +36,7 @@ all: server client
 
 server: $(SERVER_SRC) common.h
 	@echo "Building Server..."
-	$(CC) $(CFLAGS) $(SERVER_SRC) -o $(SERVER_OUT) $(SERVER_LDFLAGS)
+	$(CC) $(CFLAGS) $(SERVER_CFLAGS) $(SERVER_SRC) -o $(SERVER_OUT) $(SERVER_LDFLAGS)
 
 client: $(CLIENT_SRC) common.h client.h
 	@echo "Building Client..."
