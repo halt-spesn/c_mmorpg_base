@@ -39,6 +39,8 @@ char server_ip[16] = "127.0.0.1";
 TTF_Font *font = NULL;
 SDL_Texture *tex_map = NULL;
 SDL_Texture *tex_player = NULL;
+SDL_Texture *tex_player_attack = NULL;
+SDL_Texture *tex_enemy_attack = NULL;
 SDL_Renderer *global_renderer = NULL;
 int map_w = MAP_WIDTH, map_h = MAP_HEIGHT;
 
@@ -3431,11 +3433,38 @@ void render_game(SDL_Renderer *renderer) {
             SDL_Color c1 = {local_players[i].r, local_players[i].g, local_players[i].b, 255};
             SDL_Color c2 = {local_players[i].r2, local_players[i].g2, local_players[i].b2, 255};
             
-            if (tex_player) SDL_RenderCopy(renderer, tex_player, NULL, &dst);
+            // Animation Reset Logic
+            if (local_players[i].anim_state != 0 && now - local_players[i].anim_start_time > 250) {
+                local_players[i].anim_state = 0;
+            }
+
+            if (tex_player) {
+                if (local_players[i].anim_state == 2) SDL_SetTextureColorMod(tex_player, 255, 100, 100); // Red flash
+                else SDL_SetTextureColorMod(tex_player, 255, 255, 255);
+
+                if (local_players[i].anim_state == 1 && tex_player_attack) {
+                    SDL_RenderCopy(renderer, tex_player_attack, NULL, &dst);
+                } else {
+                    SDL_RenderCopy(renderer, tex_player, NULL, &dst);
+                }
+                SDL_SetTextureColorMod(tex_player, 255, 255, 255); // Reset
+            }
             else {
-                if(local_players[i].id == local_player_id) SDL_SetRenderDrawColor(renderer, 0, 255, 255, 255);
-                else SDL_SetRenderDrawColor(renderer, 255, 50, 50, 255);
+                if(local_players[i].id == local_player_id) {
+                    if (local_players[i].anim_state == 2) SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
+                    else SDL_SetRenderDrawColor(renderer, 0, 255, 255, 255);
+                }
+                else {
+                    if (local_players[i].anim_state == 2) SDL_SetRenderDrawColor(renderer, 255, 150, 150, 255);
+                    else SDL_SetRenderDrawColor(renderer, 255, 50, 50, 255);
+                }
                 SDL_RenderFillRect(renderer, &dst);
+                
+                if (local_players[i].anim_state == 1) {
+                    SDL_Rect attack_r = {dst.x + 8, dst.y - 8, 16, 16};
+                    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 200);
+                    SDL_RenderFillRect(renderer, &attack_r);
+                }
             }
             if (local_players[i].id == selected_player_id) { 
                 SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); SDL_RenderDrawRect(renderer, &dst); 
@@ -3653,8 +3682,26 @@ void render_game(SDL_Renderer *renderer) {
          
          // Simple Red Rectangle for enemy
          SDL_Rect r = {draw_x, draw_y, 32, 32};
-         SDL_SetRenderDrawColor(renderer, 200, 50, 50, 255);
-         SDL_RenderFillRect(renderer, &r);
+         
+         // Animation Reset Logic
+         if (client_enemies[i].anim_state != 0 && now - client_enemies[i].anim_start_time > 250) {
+             client_enemies[i].anim_state = 0;
+         }
+
+         if (client_enemies[i].anim_state == 2) { // Damage flash
+             SDL_SetRenderDrawColor(renderer, 255, 100, 100, 255);
+         } else if (client_enemies[i].anim_state == 1) { // Attack lunge
+             SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+             r.y -= 4; // Slight lunge effect
+         } else {
+             SDL_SetRenderDrawColor(renderer, 200, 50, 50, 255);
+         }
+         
+         if (client_enemies[i].anim_state == 1 && tex_enemy_attack) {
+             SDL_RenderCopy(renderer, tex_enemy_attack, NULL, &r);
+         } else {
+             SDL_RenderFillRect(renderer, &r);
+         }
          
          // Name
          render_text(renderer, client_enemies[i].name, draw_x + 16, draw_y - 20, col_red, 1);
@@ -5586,6 +5633,16 @@ int main(int argc, char *argv[]) {
         tex_player = SDL_CreateTextureFromSurface(renderer, temp); 
         SDL_FreeSurface(temp); 
     }
+    temp = IMG_Load("assets/player_attack.png");
+    if (temp) {
+        tex_player_attack = SDL_CreateTextureFromSurface(renderer, temp);
+        SDL_FreeSurface(temp);
+    }
+    temp = IMG_Load("assets/enemy_attack.png");
+    if (temp) {
+        tex_enemy_attack = SDL_CreateTextureFromSurface(renderer, temp);
+        SDL_FreeSurface(temp);
+    }
     ensure_save_file("servers.txt", "servers.txt");
     ensure_save_file("profiles.txt", "profiles.txt");
     ensure_save_file("config.txt", "config.txt");
@@ -7455,6 +7512,55 @@ int main(int argc, char *argv[]) {
                             floating_damages[slot].timestamp = SDL_GetTicks();
                             floating_damages[slot].color = (SDL_Color){255, 50, 50, 255}; // Default red
                         }
+                        
+                        // Set animation state for damaged entity
+                        // If it's the local player
+                        if (pkt.player_id == local_player_id) {
+                            for(int i=0; i<MAX_CLIENTS; i++) {
+                                if(local_players[i].active && local_players[i].id == local_player_id) {
+                                    local_players[i].anim_state = 2; // DAMAGE
+                                    local_players[i].anim_start_time = SDL_GetTicks();
+                                    break;
+                                }
+                            }
+                        } else {
+                            // Check other players
+                            for(int i=0; i<MAX_CLIENTS; i++) {
+                                if(local_players[i].active && local_players[i].id == pkt.player_id) {
+                                    local_players[i].anim_state = 2; // DAMAGE
+                                    local_players[i].anim_start_time = SDL_GetTicks();
+                                    break;
+                                }
+                            }
+                            // Check enemies
+                            for(int i=0; i<client_enemy_count; i++) {
+                                if(client_enemies[i].enemy_id == pkt.enemy_id) {
+                                    client_enemies[i].anim_state = 2; // DAMAGE
+                                    client_enemies[i].anim_start_time = SDL_GetTicks();
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if (pkt.type == PACKET_ATTACK) {
+                        // Attacker is pkt.player_id
+                        for(int i=0; i<MAX_CLIENTS; i++) {
+                            if(local_players[i].active && local_players[i].id == pkt.player_id) {
+                                local_players[i].anim_state = 1; // ATTACK
+                                local_players[i].anim_start_time = SDL_GetTicks();
+                                break;
+                            }
+                        }
+                    }
+                    if (pkt.type == PACKET_ENEMY_ATTACK) {
+                        // Attacker is pkt.enemy_id
+                        for(int i=0; i<client_enemy_count; i++) {
+                            if(client_enemies[i].enemy_id == pkt.enemy_id) {
+                                client_enemies[i].anim_state = 1; // ATTACK
+                                client_enemies[i].anim_start_time = SDL_GetTicks();
+                                break;
+                            }
+                        }
                     }
                     if (pkt.type == PACKET_KICK) {
                         printf("Kicked: %s\n", pkt.msg);
@@ -7570,7 +7676,10 @@ int main(int argc, char *argv[]) {
         SDL_Delay(1);
     }
     
-    if(tex_map) SDL_DestroyTexture(tex_map); if(tex_player) SDL_DestroyTexture(tex_player);
+    if(tex_map) SDL_DestroyTexture(tex_map); 
+    if(tex_player) SDL_DestroyTexture(tex_player);
+    if(tex_player_attack) SDL_DestroyTexture(tex_player_attack);
+    if(tex_enemy_attack) SDL_DestroyTexture(tex_enemy_attack);
     if(cached_contributors_tex) SDL_DestroyTexture(cached_contributors_tex);
     if(cached_documentation_tex) SDL_DestroyTexture(cached_documentation_tex);
     if(cached_role_list_tex) SDL_DestroyTexture(cached_role_list_tex);

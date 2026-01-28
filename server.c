@@ -3261,17 +3261,27 @@ void handle_client_message(int index, Packet *pkt) {
             LOG("Player %s hit %s for %d damage (HP: %d/%d)\n", 
                 players[index].username, enemy->name, dmg, enemy->hp, enemy->max_hp);
 
-            // Send damage notification
+            // Broadcast damage
             Packet dmg_pkt;
             memset(&dmg_pkt, 0, sizeof(Packet));
             dmg_pkt.type = PACKET_DAMAGE;
             dmg_pkt.damage = dmg;
             dmg_pkt.dx = enemy->x;
             dmg_pkt.dy = enemy->y;
-            // Broadcast so everyone sees the damage number
+            dmg_pkt.player_id = players[index].id;
+            dmg_pkt.enemy_id = enemy->enemy_id;
+            
+            // Broadcast attack animation trigger
+            Packet atk_pkt;
+            memset(&atk_pkt, 0, sizeof(Packet));
+            atk_pkt.type = PACKET_ENEMY_ATTACK;
+            atk_pkt.player_id = players[index].id;
+            atk_pkt.enemy_id = enemy->enemy_id;
+
             for (int i = 0; i < MAX_CLIENTS; i++) {
                 if (SOCKET_IS_VALID(client_sockets[i]) && players[i].active) {
                     send_all(client_sockets[i], &dmg_pkt, sizeof(Packet), 0);
+                    send_all(client_sockets[i], &atk_pkt, sizeof(Packet), 0);
                 }
             }
 
@@ -3440,8 +3450,19 @@ void handle_client_message(int index, Packet *pkt) {
                     dmg_pkt.damage = dmg;
                     dmg_pkt.dx = players[target_idx].x;
                     dmg_pkt.dy = players[target_idx].y;
+                    dmg_pkt.player_id = players[target_idx].id; // Target
+                    
+                    // Broadcast attack animation trigger
+                    Packet atk_pkt; memset(&atk_pkt, 0, sizeof(Packet));
+                    atk_pkt.type = PACKET_ATTACK;
+                    atk_pkt.player_id = players[index].id; // Attacker
+                    atk_pkt.target_id = target_id; // Victim
+                    
                     for (int i = 0; i < MAX_CLIENTS; i++) {
-                        if (players[i].active) send_all(client_sockets[i], &dmg_pkt, sizeof(Packet), 0);
+                        if (players[i].active) {
+                            send_all(client_sockets[i], &dmg_pkt, sizeof(Packet), 0);
+                            send_all(client_sockets[i], &atk_pkt, sizeof(Packet), 0);
+                        }
                     }
                     
                     send_player_stats(target_idx); // Sync HP to target and others

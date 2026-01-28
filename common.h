@@ -184,6 +184,8 @@ typedef struct {
     int32_t attack_power;
     int32_t defense;
     uint32_t last_attack_time;
+    int32_t anim_state;      // 0=Idle, 1=Attack, 2=Damage
+    uint32_t anim_start_time;
 } Enemy;
 
 typedef struct {
@@ -211,6 +213,8 @@ typedef struct {
     int32_t skill_points;     // Unallocated points
     uint32_t last_attack_time; // Server-side cooldown tracking
     int32_t pvp_enabled;      // 1 if enabled, 0 otherwise
+    int32_t anim_state;       // 0=Idle, 1=Attack, 2=Damage
+    uint32_t anim_start_time;
 } Player;
 
 typedef struct {
