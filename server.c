@@ -492,6 +492,7 @@ void init_db() {
     sqlite3_exec(db, "ALTER TABLE users ADD COLUMN INT INTEGER DEFAULT 10;", 0, 0, 0);
     sqlite3_exec(db, "ALTER TABLE users ADD COLUMN SKILL_POINTS INTEGER DEFAULT 0;", 0, 0, 0);
     sqlite3_exec(db, "ALTER TABLE users ADD COLUMN PVP_ENABLED INTEGER DEFAULT 0;", 0, 0, 0);
+    sqlite3_exec(db, "ALTER TABLE users ADD COLUMN PARTY_ID INTEGER DEFAULT -1;", 0, 0, 0);
 
     // Insert some default items if table is empty
     sqlite3_stmt *check_stmt;
@@ -650,9 +651,9 @@ AuthStatus register_user(const char *user, const char *pass) {
 }
 
 // Update signature to accept 'long *ban_expire' and currency/level
-int login_user(const char *username, const char *password, float *x, float *y, uint8_t *r, uint8_t *g, uint8_t *b, uint8_t *r2, uint8_t *g2, uint8_t *b2, int *role, long *ban_expire, char *map_name_out, int *gold, int *xp, int *level, int *str, int *agi, int *intel, int *skill_points, int *pvp_enabled) {
+int login_user(const char *username, const char *password, float *x, float *y, uint8_t *r, uint8_t *g, uint8_t *b, uint8_t *r2, uint8_t *g2, uint8_t *b2, int *role, long *ban_expire, char *map_name_out, int *gold, int *xp, int *level, int *str, int *agi, int *intel, int *skill_points, int *pvp_enabled, int *party_id) {
     sqlite3_stmt *stmt;
-    const char *sql = "SELECT X, Y, R, G, B, ROLE, BAN_EXPIRE, R2, G2, B2, MAP, GOLD, XP, LEVEL, STR, AGI, INT, SKILL_POINTS, PVP_ENABLED FROM users WHERE USERNAME=? AND PASSWORD=?;";
+    const char *sql = "SELECT X, Y, R, G, B, ROLE, BAN_EXPIRE, R2, G2, B2, MAP, GOLD, XP, LEVEL, STR, AGI, INT, SKILL_POINTS, PVP_ENABLED, PARTY_ID FROM users WHERE USERNAME=? AND PASSWORD=?;";
     
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, 0) != SQLITE_OK) return 0;
     
@@ -682,6 +683,7 @@ int login_user(const char *username, const char *password, float *x, float *y, u
         *intel = sqlite3_column_int(stmt, 16);
         *skill_points = sqlite3_column_int(stmt, 17);
         *pvp_enabled = sqlite3_column_int(stmt, 18);
+        *party_id = sqlite3_column_int(stmt, 19);
         success = 1;
     }
     sqlite3_finalize(stmt);
@@ -1453,10 +1455,43 @@ void init_game() {
 }
 
 void broadcast_state() {
-    Packet pkt; pkt.type = PACKET_UPDATE;
-    memcpy(pkt.players, players, sizeof(players));
     for (int i = 0; i < MAX_CLIENTS; i++) {
-        if (SOCKET_IS_VALID(client_sockets[i]) && players[i].id != -1) send_all(client_sockets[i], &pkt, sizeof(Packet), 0);
+        if (!SOCKET_IS_VALID(client_sockets[i]) || !players[i].active) continue;
+
+        Packet pkt; 
+        memset(&pkt, 0, sizeof(Packet));
+        pkt.type = PACKET_UPDATE;
+        
+        // Filter players for this client
+        int count = 0;
+        for (int j = 0; j < MAX_CLIENTS; j++) {
+            if (!players[j].active) continue;
+
+            // Instancing logic:
+            // 1. Same map.
+            // 2. If it's an instanced map (dungeon.map), must be in same party.
+            int same_map = (strcmp(players[i].map_name, players[j].map_name) == 0);
+            int instanced = (strcmp(players[i].map_name, "dungeon_solo.png") == 0);
+            
+            if (same_map) {
+                if (instanced) {
+                    // Isolation: Only see self or party members
+                    int my_party = players[i].party_id;
+                    int their_party = players[j].party_id;
+
+                    if (i == j) {
+                        pkt.players[count++] = players[j];
+                    } else if (my_party != -1 && my_party == their_party) {
+                        pkt.players[count++] = players[j];
+                    }
+                    // Else: isolating them
+                } else {
+                    // Open map
+                    pkt.players[count++] = players[j];
+                }
+            }
+        }
+        send_all(client_sockets[i], &pkt, sizeof(Packet), 0);
     }
 }
 
@@ -1484,6 +1519,36 @@ void send_friend_list(int client_index) {
     send_all(client_sockets[client_index], &pkt, sizeof(Packet), 0);
 }
 
+
+void broadcast_party_update(int party_id) {
+    if (party_id == -1) return;
+
+    Packet pkt;
+    memset(&pkt, 0, sizeof(Packet));
+    pkt.type = PACKET_PARTY_UPDATE;
+    pkt.party_member_count = 0;
+
+    // Find all members from database (includes offline members)
+    sqlite3_stmt *stmt;
+    const char *sql = "SELECT ID, USERNAME FROM users WHERE PARTY_ID = ? LIMIT 5;";
+    
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, 0) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, party_id);
+        while (sqlite3_step(stmt) == SQLITE_ROW && pkt.party_member_count < 5) {
+            pkt.party_member_ids[pkt.party_member_count] = sqlite3_column_int(stmt, 0);
+            strncpy(pkt.party_member_names[pkt.party_member_count], (const char*)sqlite3_column_text(stmt, 1), 31);
+            pkt.party_member_count++;
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    // Broadcast to online members
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (players[i].active && players[i].party_id == party_id) {
+            send_all(client_sockets[i], &pkt, sizeof(Packet), 0);
+        }
+    }
+}
 
 void broadcast_friend_update() {
     for (int i = 0; i < MAX_CLIENTS; i++) {
@@ -1934,7 +1999,7 @@ void handle_client_message(int index, Packet *pkt) {
             int role;
             long ban_expire = 0;
             char db_map[32] = "map.jpg";
-            int gold, xp, level, p_str, p_agi, p_intel, p_skill_points, p_pvp_enabled;
+            int gold, xp, level, p_str, p_agi, p_intel, p_skill_points, p_pvp_enabled, party_id;
 
             // Pass &ban_expire and currency fields to the function
             if (pkt->username[0] == '\0' || pkt->password[0] == '\0') {
@@ -1942,7 +2007,7 @@ void handle_client_message(int index, Packet *pkt) {
                 strcpy(response.msg, "Username and password required.");
                 LOG("Login failed from client %d: %s\n", index, response.msg);
             }
-            else if (login_user(pkt->username, pkt->password, &x, &y, &r, &g, &b, &r2, &g2, &b2, &role, &ban_expire, db_map, &gold, &xp, &level, &p_str, &p_agi, &p_intel, &p_skill_points, &p_pvp_enabled)) {
+            else if (login_user(pkt->username, pkt->password, &x, &y, &r, &g, &b, &r2, &g2, &b2, &role, &ban_expire, db_map, &gold, &xp, &level, &p_str, &p_agi, &p_intel, &p_skill_points, &p_pvp_enabled, &party_id)) {
                 
                 // 1. Check Ban Logic
                 if (time(NULL) < ban_expire) {
@@ -2007,6 +2072,7 @@ void handle_client_message(int index, Packet *pkt) {
                     players[index].max_mana = base_mana + (level - 1) * 5;  // +5 mana per level
                     players[index].hp = players[index].max_hp;  // Full HP on login
                     players[index].mana = players[index].max_mana;  // Full mana on login
+                    players[index].party_id = party_id; 
                     
                     strncpy(players[index].username, pkt->username, 31);
                     strncpy(players[index].map_name, db_map, 31);
@@ -2052,6 +2118,11 @@ void handle_client_message(int index, Packet *pkt) {
                     
                     broadcast_friend_update(); 
                     send_pending_requests(index); 
+                    
+                    if (players[index].party_id != -1) {
+                        broadcast_party_update(players[index].party_id);
+                    }
+                    
                     broadcast_state(); 
                     return;
                 }
@@ -3729,6 +3800,83 @@ void handle_client_message(int index, Packet *pkt) {
             }
             
             LOG("Trade cancelled by %s\n", players[index].username);
+        }
+    }
+    // === PARTY SYSTEM ===
+    else if (pkt->type == PACKET_PARTY_INVITE) {
+        int target_id = pkt->invitee_id;
+        int target_idx = -1;
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+            if (players[i].active && players[i].id == target_id) {
+                target_idx = i;
+                break;
+            }
+        }
+
+        if (target_idx != -1 && target_idx != index) {
+            if (players[target_idx].party_id != -1) {
+                Packet err; memset(&err, 0, sizeof(Packet));
+                err.type = PACKET_CHAT; err.player_id = -1;
+                strcpy(err.msg, "Player is already in a party.");
+                send_all(client_sockets[index], &err, sizeof(Packet), 0);
+            } else {
+                Packet inv; memset(&inv, 0, sizeof(Packet));
+                inv.type = PACKET_PARTY_INVITE;
+                inv.player_id = players[index].id;
+                strncpy(inv.username, players[index].username, 63);
+                send_all(client_sockets[target_idx], &inv, sizeof(Packet), 0);
+                LOG("Player %s invited %s to party\n", players[index].username, players[target_idx].username);
+            }
+        }
+    }
+    else if (pkt->type == PACKET_PARTY_ACCEPT) {
+        int leader_id = pkt->player_id;
+        int leader_idx = -1;
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+            if (players[i].active && players[i].id == leader_id) {
+                leader_idx = i;
+                break;
+            }
+        }
+
+        if (leader_idx != -1) {
+            // If leader is not in a party, create one with themselves as leader
+            if (players[leader_idx].party_id == -1) {
+                players[leader_idx].party_id = leader_id;
+            }
+            
+            // Join the party
+            players[index].party_id = players[leader_idx].party_id;
+            LOG("Player %s joined %s's party\n", players[index].username, players[leader_idx].username);
+            
+            // Save party status to DB for both
+            char p_sql[128];
+            snprintf(p_sql, 128, "UPDATE users SET PARTY_ID=%d WHERE ID=%d;", players[leader_idx].party_id, players[leader_idx].id);
+            sqlite3_exec(db, p_sql, 0, 0, 0);
+            snprintf(p_sql, 128, "UPDATE users SET PARTY_ID=%d WHERE ID=%d;", players[index].party_id, players[index].id);
+            sqlite3_exec(db, p_sql, 0, 0, 0);
+
+            // Sync party state to all members
+            broadcast_party_update(players[index].party_id);
+        }
+    }
+    else if (pkt->type == PACKET_PARTY_LEAVE) {
+        int pid = players[index].party_id;
+        if (pid != -1) {
+            players[index].party_id = -1;
+            LOG("Player %s left party %d\n", players[index].username, pid);
+            
+            // Save to DB
+            char l_sql[128];
+            snprintf(l_sql, 128, "UPDATE users SET PARTY_ID=-1 WHERE ID=%d;", players[index].id);
+            sqlite3_exec(db, l_sql, 0, 0, 0);
+
+            broadcast_party_update(pid);
+            
+            // Notify the client themselves they left
+            Packet leave_pkt; memset(&leave_pkt, 0, sizeof(Packet));
+            leave_pkt.type = PACKET_PARTY_LEAVE;
+            send_all(client_sockets[index], &leave_pkt, sizeof(Packet), 0);
         }
     }
 }

@@ -1,2 +1,4 @@
 map.jpg 1950 300 50 100 dungeon.png 80 300
 dungeon.png 10 300 50 100 map.jpg 1900 300
+map.jpg 1950 500 50 100 dungeon_solo.png 80 300
+dungeon_solo.png 10 300 50 100 map.jpg 1900 500

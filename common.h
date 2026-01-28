@@ -11,6 +11,7 @@
 #define MAX_AVATAR_SIZE 16384
 #define MAX_INVENTORY_SLOTS 20
 #define MAX_GROUND_ITEMS 100 
+#define MAX_PARTY_MEMBERS 5
 
 // Keep Enums for code readability, but don't use them in the struct directly
 typedef enum {
@@ -70,7 +71,8 @@ typedef enum {
     PACKET_SHOP_OPEN, PACKET_SHOP_BUY, PACKET_SHOP_SELL,
     PACKET_TRADE_REQUEST, PACKET_TRADE_RESPONSE, PACKET_TRADE_OFFER, PACKET_TRADE_CONFIRM, PACKET_TRADE_CANCEL,
     PACKET_CURRENCY_UPDATE, PACKET_ENEMY_LIST, PACKET_ENEMY_ATTACK, PACKET_ATTACK, PACKET_DAMAGE,
-    PACKET_ALLOCATE_STATS, PACKET_PVP_TOGGLE, PACKET_HANDSHAKE
+    PACKET_ALLOCATE_STATS, PACKET_PVP_TOGGLE, PACKET_HANDSHAKE, PACKET_TIME_SYNC,
+    PACKET_PARTY_INVITE, PACKET_PARTY_ACCEPT, PACKET_PARTY_LEAVE, PACKET_PARTY_UPDATE
 } PacketType;
 
 typedef enum {
@@ -215,6 +217,7 @@ typedef struct {
     int32_t pvp_enabled;      // 1 if enabled, 0 otherwise
     int32_t anim_state;       // 0=Idle, 1=Attack, 2=Damage
     uint32_t anim_start_time;
+    int32_t party_id;         // -1 if no party, otherwise party leader ID or unique ID
 } Player;
 
 typedef struct {
@@ -297,6 +300,11 @@ typedef struct {
     int32_t damage;
     int32_t pvp_enabled;
     int32_t protocol_version; // For connection validation
+    float world_time;         // For day/night cycle (0.0 - 1.0)
+    int32_t invitee_id;       // Target for party invitation
+    int32_t party_member_ids[5];
+    char party_member_names[5][32];
+    int32_t party_member_count;
 } Packet;
 
 #pragma pack(pop)

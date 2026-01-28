@@ -72,6 +72,11 @@ int my_max_hp = 100;
 int my_mana = 50;
 int my_max_mana = 50;
 int my_skill_points = 0;
+int my_party_id = -1;
+int party_member_ids[MAX_PARTY_MEMBERS];
+char party_member_names[MAX_PARTY_MEMBERS][32];
+int party_member_count = 0;
+int show_party_window = 0;
 
 int blocked_ids[50];
 int blocked_count = 0;
@@ -93,6 +98,8 @@ int selected_player_id = -1;
 int selected_npc_id = -1;
 int pending_friend_req_id = -1;
 char pending_friend_name[32] = "";
+int pending_party_req_id = -1;
+char pending_party_name[64] = "";
 
 // Dialogue system
 int show_dialogue = 0;
@@ -138,6 +145,14 @@ int trade_gold_input_active = 0;
 char trade_gold_buffer[16] = "";
 int pending_trade_req = 0;
 SDL_Rect btn_trade_request_rect;
+SDL_Rect btn_party_invite;
+SDL_Rect btn_party_toggle;
+SDL_Rect btn_party_close;
+SDL_Rect btn_party_leave;
+SDL_Rect btn_hide_player_dyn;
+SDL_Rect btn_sanction_open;
+SDL_Rect btn_popup_accept;
+SDL_Rect btn_popup_deny;
 
 SDL_Rect profile_win = {10, 10, 200, 130};
 SDL_Rect btn_add_friend = {20, 50, 180, 30};
@@ -2763,17 +2778,80 @@ void render_friend_list(SDL_Renderer *renderer, int w, int h) {
 }
 
 void render_popup(SDL_Renderer *renderer, int w, int h) {
-    if (pending_friend_req_id == -1) return;
-    popup_win = (SDL_Rect){w/2-150, h/2-60, 300, 120};
-    SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255); SDL_RenderFillRect(renderer, &popup_win);
-    SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255); SDL_RenderDrawRect(renderer, &popup_win);
-    char msg[64]; snprintf(msg, 64, get_string(STR_FRIEND_REQUEST_FROM), pending_friend_name);
-    render_text(renderer, msg, popup_win.x + 150, popup_win.y + 20, col_yellow, 1);
-    SDL_Rect btn_accept = {popup_win.x + 20, popup_win.y + 70, 120, 30}; SDL_Rect btn_deny = {popup_win.x + 160, popup_win.y + 70, 120, 30};
-    SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_accept);
-    render_text(renderer, get_string(STR_ACCEPT), btn_accept.x + 60, btn_accept.y + 5, col_white, 1);
-    SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_deny);
-    render_text(renderer, get_string(STR_DENY), btn_deny.x + 60, btn_deny.y + 5, col_white, 1);
+    // Friend Request Popup
+    if (pending_friend_req_id != -1) {
+        popup_win = (SDL_Rect){w/2-150, h/2-60, 300, 120};
+        SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255); SDL_RenderFillRect(renderer, &popup_win);
+        SDL_SetRenderDrawColor(renderer, 200, 200, 200, 255); SDL_RenderDrawRect(renderer, &popup_win);
+        char msg[64]; snprintf(msg, 64, get_string(STR_FRIEND_REQUEST_FROM), pending_friend_name);
+        render_text(renderer, msg, popup_win.x + 150, popup_win.y + 20, col_yellow, 1);
+        SDL_Rect btn_accept = {popup_win.x + 20, popup_win.y + 70, 120, 30}; SDL_Rect btn_deny = {popup_win.x + 160, popup_win.y + 70, 120, 30};
+        SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_accept);
+        render_text(renderer, get_string(STR_ACCEPT), btn_accept.x + 60, btn_accept.y + 5, col_white, 1);
+        SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_deny);
+        render_text(renderer, get_string(STR_DENY), btn_deny.x + 60, btn_deny.y + 5, col_white, 1);
+        
+        btn_popup_accept = btn_accept;
+        btn_popup_deny = btn_deny;
+    }
+    
+    // Party Invite Popup
+    if (pending_party_req_id != -1) {
+        popup_win = (SDL_Rect){w/2-150, h/2-60, 300, 120};
+        SDL_SetRenderDrawColor(renderer, 40, 40, 60, 255); SDL_RenderFillRect(renderer, &popup_win);
+        SDL_SetRenderDrawColor(renderer, 200, 200, 255, 255); SDL_RenderDrawRect(renderer, &popup_win);
+        char msg[64]; snprintf(msg, 64, "Party invite from %s", pending_party_name);
+        render_text(renderer, msg, popup_win.x + 150, popup_win.y + 20, col_cyan, 1);
+        SDL_Rect btn_accept = {popup_win.x + 20, popup_win.y + 70, 120, 30}; SDL_Rect btn_deny = {popup_win.x + 160, popup_win.y + 70, 120, 30};
+        SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_accept);
+        render_text(renderer, "Accept", btn_accept.x + 60, btn_accept.y + 5, col_white, 1);
+        SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_deny);
+        render_text(renderer, "Decline", btn_deny.x + 60, btn_deny.y + 5, col_white, 1);
+        
+        // Use generic button rects for click handling
+        btn_popup_accept = btn_accept;
+        btn_popup_deny = btn_deny;
+    }
+}
+
+void render_party_list(SDL_Renderer *renderer, int w, int h) {
+    if (!show_party_window) return;
+
+    int win_w = 300;
+    int win_h = 250;
+    SDL_Rect party_win = {w - win_w - 20, 60, win_w, win_h};
+    
+    SDL_SetRenderDrawColor(renderer, 30, 30, 40, 240);
+    SDL_RenderFillRect(renderer, &party_win);
+    SDL_SetRenderDrawColor(renderer, 0, 200, 255, 255);
+    SDL_RenderDrawRect(renderer, &party_win);
+    
+    render_text(renderer, "Party Members", party_win.x + 150, party_win.y + 10, col_cyan, 1);
+    
+    btn_party_close = (SDL_Rect){party_win.x + win_w - 35, party_win.y + 5, 30, 30};
+    SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255);
+    SDL_RenderFillRect(renderer, &btn_party_close);
+    render_text(renderer, "X", btn_party_close.x + 10, btn_party_close.y + 5, col_white, 0);
+
+    if (party_member_count == 0) {
+        render_text(renderer, "No party", party_win.x + 150, party_win.y + 100, (SDL_Color){150,150,150,255}, 1);
+    } else {
+        for (int i = 0; i < party_member_count; i++) {
+            int id = party_member_ids[i];
+            const char *name = party_member_names[i];
+            SDL_Color name_col = col_white;
+            if (id == local_player_id) name_col = col_yellow;
+            
+            char buffer[64];
+            snprintf(buffer, 64, "%s (ID: %d)", name, id);
+            render_text(renderer, buffer, party_win.x + 20, party_win.y + 50 + (i * 30), name_col, 0);
+        }
+        
+        btn_party_leave = (SDL_Rect){party_win.x + 20, party_win.y + win_h - 45, 120, 30};
+        SDL_SetRenderDrawColor(renderer, 150, 50, 0, 255);
+        SDL_RenderFillRect(renderer, &btn_party_leave);
+        render_text(renderer, "Leave Party", btn_party_leave.x + 10, btn_party_leave.y + 5, col_white, 0);
+    }
 }
 
 void render_profile(SDL_Renderer *renderer) {
@@ -2796,8 +2874,8 @@ void render_profile(SDL_Renderer *renderer) {
     // Check My Role to adjust height for Admin Button
     int my_role = 0; 
     for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) my_role = local_players[i].role;
-    if (my_role >= ROLE_ADMIN) profile_win.h = 370; // Taller for admin
-    else profile_win.h = 320; // 280 + button height + margin
+    if (my_role >= ROLE_ADMIN) profile_win.h = 410; // Taller for admin
+    else profile_win.h = 360; // 320 + button height + margin
 
     SDL_SetRenderDrawColor(renderer, 30, 30, 50, 230); SDL_RenderFillRect(renderer, &profile_win);
     SDL_SetRenderDrawColor(renderer, 200, 200, 255, 255); SDL_RenderDrawRect(renderer, &profile_win);
@@ -2853,9 +2931,14 @@ void render_profile(SDL_Renderer *renderer) {
     render_text(renderer, "Trade", btn_trade.x + (btn_w/2) - 20, btn_trade.y + 5, col_white, 0);
     btn_trade_request_rect = btn_trade;
 
+    SDL_Rect btn_party = {profile_win.x + 20, start_y + 160, btn_w, 30};
+    SDL_SetRenderDrawColor(renderer, 0, 150, 150, 255); SDL_RenderFillRect(renderer, &btn_party);
+    render_text(renderer, "Invite to Party", btn_party.x + (btn_w/2) - 55, btn_party.y + 5, col_white, 0);
+    btn_party_invite = btn_party;
+
     // --- NEW: Sanction Button (Admin Only) ---
     if (my_role >= ROLE_ADMIN) {
-        btn_sanction_open = (SDL_Rect){profile_win.x + 20, start_y + 160, btn_w, 30};
+        btn_sanction_open = (SDL_Rect){profile_win.x + 20, start_y + 200, btn_w, 30};
         SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_sanction_open);
         render_text(renderer, get_string(STR_SANCTION), btn_sanction_open.x + (btn_w/2) - 35, btn_sanction_open.y + 5, col_white, 0);
     }
@@ -3753,6 +3836,7 @@ void render_game(SDL_Renderer *renderer) {
     render_trade_window(renderer, scaled_w, scaled_h);
     render_quest_log(renderer, scaled_w, scaled_h);
     render_quest_offer(renderer, scaled_w, scaled_h);
+    render_party_list(renderer, scaled_w, scaled_h);
     render_trade_request_popup(renderer, scaled_w, scaled_h);
     render_debug_overlay(renderer, scaled_w);
     render_hud(renderer, scaled_w, scaled_h);
@@ -3782,6 +3866,10 @@ void render_game(SDL_Renderer *renderer) {
     btn_settings_toggle = (SDL_Rect){230, scaled_h-40, 100, 30};
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255); SDL_RenderFillRect(renderer, &btn_settings_toggle);
     render_text(renderer, get_string(STR_SETTINGS), btn_settings_toggle.x+50, btn_settings_toggle.y+5, col_white, 1);
+
+    btn_party_toggle = (SDL_Rect){340, scaled_h-40, 100, 30};
+    SDL_SetRenderDrawColor(renderer, 0, 150, 150, 255); SDL_RenderFillRect(renderer, &btn_party_toggle);
+    render_text(renderer, "Party", btn_party_toggle.x+50, btn_party_toggle.y+5, col_white, 1);
 
  // 6. Draw Chat Overlay
     if(is_chat_open) {
@@ -4472,6 +4560,116 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             send_packet(&pkt);
         }
         return;
+    }
+
+    // Party Toggle
+    if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_party_toggle)) {
+        show_party_window = !show_party_window;
+        return;
+    }
+
+    // Profile Buttons
+    if (selected_player_id != -1 && selected_player_id != local_player_id) {
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_add_friend)) {
+            Packet pkt; memset(&pkt, 0, sizeof(Packet));
+            int is_friend = 0;
+            for(int i=0; i<friend_count; i++) if(my_friends[i].id == selected_player_id) is_friend = 1;
+
+            if (!is_friend) {
+                pkt.type = PACKET_FRIEND_REQUEST;
+                pkt.target_id = selected_player_id;
+                send_packet(&pkt);
+                push_chat_line(CHAT_CHANNEL_LOCAL, "Friend request sent.");
+            } else {
+                pkt.type = PACKET_FRIEND_REMOVE;
+                pkt.target_id = selected_player_id;
+                send_packet(&pkt);
+                push_chat_line(CHAT_CHANNEL_LOCAL, "Friend removed.");
+            }
+            return;
+        }
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_send_pm)) {
+            chat_target_id = selected_player_id;
+            is_chat_open = 1;
+            chat_input_active = 1;
+            SDL_StartTextInput();
+            return;
+        }
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_hide_player_dyn)) {
+            toggle_block(selected_player_id);
+            if (is_blocked(selected_player_id)) {
+                push_chat_line(CHAT_CHANNEL_LOCAL, "Player hidden.");
+            } else {
+                push_chat_line(CHAT_CHANNEL_LOCAL, "Player unhidden.");
+            }
+            return;
+        }
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_trade_request_rect)) {
+            Packet pkt; memset(&pkt, 0, sizeof(Packet));
+            pkt.type = PACKET_TRADE_REQUEST;
+            pkt.trade_partner_id = selected_player_id; // FIX: use correct server field
+            send_packet(&pkt);
+            push_chat_line(CHAT_CHANNEL_LOCAL, "Trade request sent.");
+            return;
+        }
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_party_invite)) {
+            Packet pkt; memset(&pkt, 0, sizeof(Packet));
+            pkt.type = PACKET_PARTY_INVITE;
+            pkt.invitee_id = selected_player_id;
+            send_packet(&pkt);
+            push_chat_line(CHAT_CHANNEL_LOCAL, "Party invite sent.");
+            return;
+        }
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_sanction_open)) {
+            int my_role = 0;
+            for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) my_role = local_players[i].role;
+            if (my_role >= ROLE_ADMIN) {
+                sanction_target_id = selected_player_id;
+                show_sanction_popup = 1;
+            }
+            return;
+        }
+    }
+
+    // Party Window Buttons
+    if (show_party_window) {
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_party_close)) {
+            show_party_window = 0;
+            return;
+        }
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_party_leave)) {
+            Packet pkt; memset(&pkt, 0, sizeof(Packet));
+            pkt.type = PACKET_PARTY_LEAVE;
+            send_packet(&pkt);
+            return;
+        }
+    }
+
+    // Popup Buttons (Generic handling for friend/party)
+    if (pending_friend_req_id != -1 || pending_party_req_id != -1) {
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_popup_accept)) {
+            if (pending_party_req_id != -1) {
+                Packet pkt; memset(&pkt, 0, sizeof(Packet));
+                pkt.type = PACKET_PARTY_ACCEPT;
+                pkt.player_id = pending_party_req_id;
+                send_packet(&pkt);
+                pending_party_req_id = -1;
+            } else {
+                // Friend accept logic
+                Packet pkt; memset(&pkt, 0, sizeof(Packet));
+                pkt.type = PACKET_FRIEND_RESPONSE;
+                pkt.target_id = pending_friend_req_id;
+                pkt.response_accepted = 1;
+                send_packet(&pkt);
+                pending_friend_req_id = -1;
+            }
+            return;
+        }
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_popup_deny)) {
+            pending_friend_req_id = -1;
+            pending_party_req_id = -1;
+            return;
+        }
     }
 
     // --- CHAT INPUT ---
@@ -7494,6 +7692,22 @@ int main(int argc, char *argv[]) {
                     }
                     if (pkt.type == PACKET_TRADE_CONFIRM) {
                         partner_trade_confirmed = pkt.trade_confirmed;
+                    }
+                    if (pkt.type == PACKET_PARTY_INVITE) {
+                        pending_party_req_id = pkt.player_id;
+                        strncpy(pending_party_name, pkt.username, 63);
+                        push_chat_line(CHAT_CHANNEL_WHISPER, "Received party invitation. Open friend info to accept.");
+                    }
+                    if (pkt.type == PACKET_PARTY_UPDATE) {
+                        my_party_id = 1; // Any non -1 value to indicate we are in a party
+                        party_member_count = pkt.party_member_count;
+                        memcpy(party_member_ids, pkt.party_member_ids, sizeof(int) * 5);
+                        memcpy(party_member_names, pkt.party_member_names, 5 * 32);
+                    }
+                    if (pkt.type == PACKET_PARTY_LEAVE) {
+                        my_party_id = -1;
+                        party_member_count = 0;
+                        push_chat_line(CHAT_CHANNEL_WHISPER, "You have left the party.");
                     }
                     if (pkt.type == PACKET_TRADE_CANCEL) {
                         show_trade = 0;
