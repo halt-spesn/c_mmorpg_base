@@ -1509,7 +1509,26 @@ void broadcast_state() {
                     } else if (my_party != -1 && my_party == their_party) {
                         pkt.players[count++] = players[j];
                     }
-                    // Else: isolating them
+                } else if (strcmp(players[i].map_name, "clan_map") == 0 || strcmp(players[i].map_name, "house_clan") == 0) {
+                     // Clan Map & Clan House: Only see self or clan members
+                     int my_clan = players[i].clan_id;
+                     int their_clan = players[j].clan_id;
+                     
+                     if (i == j) {
+                         pkt.players[count++] = players[j];
+                     } else if (my_clan != -1 && my_clan == their_clan) {
+                         pkt.players[count++] = players[j];
+                     }
+                } else if (instanced || strcmp(players[i].map_name, "house_solo") == 0) {
+                     // Solo/Party Dungeon & Solo House: Only see self or party members
+                     int my_party = players[i].party_id;
+                     int their_party = players[j].party_id;
+
+                     if (i == j) {
+                         pkt.players[count++] = players[j];
+                     } else if (my_party != -1 && my_party == their_party) {
+                         pkt.players[count++] = players[j];
+                     }
                 } else {
                     // Open map
                     pkt.players[count++] = players[j];
@@ -2227,6 +2246,30 @@ void handle_client_message(int index, Packet *pkt) {
         }
         send_all(client_sockets[index], &response, sizeof(Packet), 0); 
         return;
+    }
+
+    if (pkt->type == PACKET_MAP_CHANGE) {
+        // Enforce Clan Map restrictions
+        if (strcmp(pkt->target_map, "clan_map") == 0 || strcmp(pkt->target_map, "house_clan") == 0) {
+           if (players[index].clan_id == -1) {
+               Packet err; memset(&err, 0, sizeof(Packet));
+               err.type = PACKET_CHAT; err.player_id = -1;
+               strcpy(err.msg, "Only clan members can enter the Clan Hall.");
+               send_all(client_sockets[index], &err, sizeof(Packet), 0);
+               return;
+           }
+        }
+        
+        // Allow change
+        strncpy(players[index].map_name, pkt->target_map, 31);
+        players[index].x = pkt->dx;
+        players[index].y = pkt->dy;
+        broadcast_state(); // Notify others (so they disappear/appear)
+        
+        // Send ground items for new map
+        send_ground_items_to_client(index);
+        // Send NPCs for new map (if we had map-specific NPCs)
+        // send_npc_list(index); 
     }
 
     if (pkt->type == PACKET_MOVE) {

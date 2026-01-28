@@ -7820,11 +7820,19 @@ int main(int argc, char *argv[]) {
                 if (vjoy_dx > 0.2f) dx = 1; else if (vjoy_dx < -0.2f) dx = -1;
                 if (vjoy_dy > 0.2f) dy = 1; else if (vjoy_dy < -0.2f) dy = -1;
                 
-                float my_x=0, my_y=0; 
-                for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) { my_x=local_players[i].x; my_y=local_players[i].y; }
+                float my_x=0, my_y=0;
+                int my_clan_id = -1; 
+                for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) { 
+                    my_x=local_players[i].x; 
+                    my_y=local_players[i].y; 
+                    my_clan_id = local_players[i].clan_id;
+                }
                 SDL_Rect player_box = {(int)my_x, (int)my_y, PLAYER_WIDTH, PLAYER_HEIGHT};
                 for(int t=0; t<trigger_count; t++) {
                    if (strcmp(triggers[t].src_map, current_map_file) == 0) {
+                       // Clan Map refinement: Ignore if not in clan
+                       if (strcmp(triggers[t].target_map, "clan_map") == 0 && my_clan_id == -1) continue;
+
                        if (SDL_HasIntersection(&player_box, &triggers[t].rect)) {
                            switch_map(triggers[t].target_map, triggers[t].spawn_x, triggers[t].spawn_y);
                            break; 
