@@ -177,6 +177,7 @@ int clan_name_input_active = 0;
 int pending_clan_invite_id = -1;
 char pending_clan_invite_name[64] = "";
 char pending_clan_invite_clan[32] = "";
+int pending_clan_invite_clan_id = -1;
 SDL_Rect btn_clan_invite;
 SDL_Rect btn_clan_invite_accept;
 SDL_Rect btn_clan_invite_deny;
@@ -4819,11 +4820,11 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             push_chat_line(CHAT_CHANNEL_LOCAL, "Party invite sent.");
             return;
         }
-        if (SDL_PointInRect(&(SDL_Point){ui_mx, ui_my}, &btn_clan_invite)) {
+            if (SDL_PointInRect(&(SDL_Point){ui_mx, ui_my}, &btn_clan_invite)) {
             printf("DEBUG: Clicked Clan Invite! ui_mx=%d ui_my=%d btn=%d,%d,%d,%d\n", ui_mx, ui_my, btn_clan_invite.x, btn_clan_invite.y, btn_clan_invite.w, btn_clan_invite.h);
             Packet pkt; memset(&pkt, 0, sizeof(Packet));
             pkt.type = PACKET_CLAN_INVITE;
-            pkt.player_id = selected_player_id;
+            pkt.target_id = selected_player_id; // FIX: Use target_id, not player_id
             send_packet(&pkt);
             push_chat_line(CHAT_CHANNEL_LOCAL, "Clan invitation sent.");
             return;
@@ -5015,8 +5016,10 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             Packet pkt; memset(&pkt, 0, sizeof(Packet));
             pkt.type = PACKET_CLAN_ACCEPT;
             pkt.player_id = pending_clan_invite_id;
+            pkt.clan_id = pending_clan_invite_clan_id; // Send back the correct clan ID
             send_packet(&pkt);
             pending_clan_invite_id = -1;
+            pending_clan_invite_clan_id = -1;
             return;
         }
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_clan_invite_deny)) {
@@ -8081,6 +8084,14 @@ int main(int argc, char *argv[]) {
                     }
                     if (pkt.type == PACKET_TRADE_CONFIRM) {
                         partner_trade_confirmed = pkt.trade_confirmed;
+                    }
+                    if (pkt.type == PACKET_CLAN_INVITE) {
+                        pending_clan_invite_id = pkt.player_id; // Store inviter's ID
+                        pending_clan_invite_clan_id = pkt.clan_id; // Store Clan ID
+                        strncpy(pending_clan_invite_name, pkt.username, 63);
+                        strncpy(pending_clan_invite_clan, pkt.clan_name, 31);
+                        printf("Received clan invite from %s (Clan: %s, ID: %d)\n", pkt.username, pkt.clan_name, pkt.clan_id);
+                        push_chat_line(CHAT_CHANNEL_LOCAL, "You have received a clan invitation.");
                     }
                     if (pkt.type == PACKET_PARTY_INVITE) {
                         pending_party_req_id = pkt.player_id;
