@@ -5,6 +5,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#include <psapi.h>
 #include <direct.h>
 #include <io.h>
 #include <sys/stat.h>
@@ -24,6 +25,8 @@
 #include <pthread.h> // Requires winpthreads on Windows (provided by MinGW)
 #include <sqlite3.h>
 #include <math.h>
+#include <SDL2/SDL.h>
+#include <SDL2/SDL_ttf.h>
 #include "common.h"
 #include <time.h>
 #include <stdarg.h>
@@ -31,6 +34,39 @@
 // File logging
 FILE *log_file = NULL;
 pthread_mutex_t log_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+// --- Server GUI State ---
+#define GUI_LOG_LINES 20
+#define GUI_LOG_MAX_LEN 128
+#define MEMORY_HISTORY_COUNT 60
+char gui_log_buffer[GUI_LOG_LINES][GUI_LOG_MAX_LEN];
+int gui_log_head = 0;
+float memory_history[MEMORY_HISTORY_COUNT];
+int memory_history_head = 0;
+time_t server_start_time;
+pthread_t gui_thread_handle;
+int gui_running = 1;
+
+// Cross-platform memory usage helper (Returns MB)
+float get_memory_usage() {
+#ifdef _WIN32
+    PROCESS_MEMORY_COUNTERS pmc;
+    if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))) {
+        return pmc.WorkingSetSize / (1024.0f * 1024.0f);
+    }
+#else
+    FILE* fp = fopen("/proc/self/statm", "r");
+    if (fp) {
+        long pages;
+        if (fscanf(fp, "%*s %ld", &pages) == 1) {
+            fclose(fp);
+            return (pages * sysconf(_SC_PAGESIZE)) / (1024.0f * 1024.0f);
+        }
+        fclose(fp);
+    }
+#endif
+    return 0.0f;
+}
 
 // Get current timestamp string
 void get_timestamp(char *buffer, size_t size) {
@@ -44,26 +80,28 @@ void log_message(const char *format, ...) {
     char timestamp[32];
     get_timestamp(timestamp, sizeof(timestamp));
     
+    char formatted_msg[256];
     va_list args;
     va_start(args, format);
-    
+    vsnprintf(formatted_msg, sizeof(formatted_msg), format, args);
+    va_end(args);
+
     // Console output
-    printf("%s ", timestamp);
-    vprintf(format, args);
+    printf("%s %s", timestamp, formatted_msg);
+    
+    // GUI Buffer output
+    pthread_mutex_lock(&log_mutex);
+    snprintf(gui_log_buffer[gui_log_head], GUI_LOG_MAX_LEN, "%s", formatted_msg);
+    gui_log_head = (gui_log_head + 1) % GUI_LOG_LINES;
+    pthread_mutex_unlock(&log_mutex);
     
     // File output
     if (log_file) {
         pthread_mutex_lock(&log_mutex);
-        fprintf(log_file, "%s ", timestamp);
-        va_list args_copy;
-        va_copy(args_copy, args);
-        vfprintf(log_file, format, args_copy);
+        fprintf(log_file, "%s %s", timestamp, formatted_msg);
         fflush(log_file);
-        va_end(args_copy);
         pthread_mutex_unlock(&log_mutex);
     }
-    
-    va_end(args);
 }
 
 #define LOG(...) log_message(__VA_ARGS__)
@@ -106,7 +144,162 @@ Enemy server_enemies[50];
 int server_enemy_count = 0;
 int next_enemy_id = 1;
 
+// Trade state per player
+typedef struct {
+    int partner_id;           // ID of trade partner (-1 if not trading)
+    Item offered_items[10];   // Items offered
+    int offered_count;        // Number of items offered
+    int offered_gold;         // Gold offered
+    int confirmed;            // 1 if player confirmed trade
+} TradeState;
+TradeState player_trades[MAX_CLIENTS];
+
 pthread_mutex_t state_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+// --- Server GUI Core (SDL2) ---
+void render_server_text(SDL_Renderer *renderer, TTF_Font *font, const char *text, int x, int y, SDL_Color color) {
+    if (!text || text[0] == '\0') return;
+    SDL_Surface *surf = TTF_RenderText_Blended(font, text, color);
+    if (!surf) return;
+    SDL_Texture *tex = SDL_CreateTextureFromSurface(renderer, surf);
+    SDL_Rect dst = {x, y, surf->w, surf->h};
+    SDL_RenderCopy(renderer, tex, NULL, &dst);
+    SDL_DestroyTexture(tex);
+    SDL_FreeSurface(surf);
+}
+
+void* gui_thread(void* arg) {
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) < 0) {
+        LOG("SDL_Init Error: %s\n", SDL_GetError());
+        return NULL;
+    }
+    if (TTF_Init() < 0) {
+        LOG("TTF_Init Error: %s\n", TTF_GetError());
+        return NULL;
+    }
+
+    SDL_Window *window = SDL_CreateWindow("MMORPG Server Monitor", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 800, 600, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+    if (!window) {
+        LOG("SDL_CreateWindow Error: %s\n", SDL_GetError());
+        return NULL;
+    }
+
+    SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    TTF_Font *font = TTF_OpenFont("DejaVuSans.ttf", 14);
+    if (!font) {
+        LOG("Warning: Could not load DejaVuSans.ttf for Server GUI\n");
+    }
+
+    SDL_Color col_white = {255, 255, 255, 255};
+    SDL_Color col_green = {0, 255, 0, 255};
+    SDL_Color col_gray = {150, 150, 150, 255};
+    SDL_Color col_yellow = {255, 255, 0, 255};
+
+    Uint32 last_update = 0;
+
+    SDL_Event e;
+    while (gui_running) {
+        while (SDL_PollEvent(&e)) {
+            if (e.type == SDL_QUIT) {
+                gui_running = 0;
+            }
+        }
+
+        Uint32 now_ms = SDL_GetTicks();
+        if (now_ms - last_update >= 1000) {
+            float mb = get_memory_usage();
+            memory_history[memory_history_head] = mb;
+            memory_history_head = (memory_history_head + 1) % MEMORY_HISTORY_COUNT;
+            last_update = now_ms;
+        }
+
+        SDL_SetRenderDrawColor(renderer, 20, 20, 20, 255);
+        SDL_RenderClear(renderer);
+
+        int w, h;
+        SDL_GetWindowSize(window, &w, &h);
+
+        // 1. Header (Uptime)
+        char info[256];
+        time_t now_time = time(NULL);
+        int uptime = (int)difftime(now_time, server_start_time);
+        int active_players = 0;
+        pthread_mutex_lock(&state_mutex);
+        for(int i=0; i<MAX_CLIENTS; i++) if(players[i].active) active_players++;
+        snprintf(info, sizeof(info), "Uptime: %02d:%02d:%02d | Active Players: %d | Memory: %.1f MB", uptime/3600, (uptime%3600)/60, uptime%60, active_players, memory_history[(memory_history_head + MEMORY_HISTORY_COUNT - 1) % MEMORY_HISTORY_COUNT]);
+        if (font) render_server_text(renderer, font, info, 10, 10, col_white);
+        
+        // Boundaries
+        int mid_x = w / 2;
+        int mid_y = h / 2;
+        int header_h = 40;
+
+        // 2. Memory Graph (Top Left)
+        SDL_Rect rect_graph = {10, header_h, mid_x - 15, mid_y - header_h - 10};
+        SDL_SetRenderDrawColor(renderer, 50, 50, 50, 255);
+        SDL_RenderDrawRect(renderer, &rect_graph);
+        if (font) render_server_text(renderer, font, "Memory History (60s)", 15, header_h + 5, col_gray);
+        
+        SDL_SetRenderDrawColor(renderer, 0, 200, 0, 255);
+        float max_mem = 100.0f; // Default scale max
+        for(int i=0; i<MEMORY_HISTORY_COUNT; i++) if(memory_history[i] > max_mem) max_mem = memory_history[i];
+        
+        for(int i=0; i<MEMORY_HISTORY_COUNT-1; i++) {
+            int idx1 = (memory_history_head + i) % MEMORY_HISTORY_COUNT;
+            int idx2 = (memory_history_head + i + 1) % MEMORY_HISTORY_COUNT;
+            int x1 = rect_graph.x + (i * rect_graph.w / (MEMORY_HISTORY_COUNT-1));
+            int x2 = rect_graph.x + ((i+1) * rect_graph.w / (MEMORY_HISTORY_COUNT-1));
+            int y1 = rect_graph.y + rect_graph.h - (int)(memory_history[idx1] / max_mem * (rect_graph.h - 20)) - 10;
+            int y2 = rect_graph.y + rect_graph.h - (int)(memory_history[idx2] / max_mem * (rect_graph.h - 20)) - 10;
+            SDL_RenderDrawLine(renderer, x1, y1, x2, y2);
+        }
+
+        // 3. Player List (Top Right)
+        SDL_Rect rect_players = {mid_x + 5, header_h, w - mid_x - 15, mid_y - header_h - 10};
+        SDL_SetRenderDrawColor(renderer, 50, 50, 50, 255);
+        SDL_RenderDrawRect(renderer, &rect_players);
+        if (font) render_server_text(renderer, font, "Connected Players:", mid_x + 10, header_h + 5, col_gray);
+        int py = header_h + 25;
+        for(int i=0; i<MAX_CLIENTS; i++) {
+            if(players[i].active) {
+                char pinfo[64]; snprintf(pinfo, 64, "- %s (ID: %d)", players[i].username, players[i].id);
+                if (font) render_server_text(renderer, font, pinfo, mid_x + 15, py, col_white);
+                py += 18;
+                if (py > rect_players.y + rect_players.h - 20) break;
+            }
+        }
+        pthread_mutex_unlock(&state_mutex);
+
+        // 4. Logs (Bottom Full Width)
+        SDL_Rect rect_logs = {10, mid_y, w - 20, h - mid_y - 10};
+        SDL_SetRenderDrawColor(renderer, 50, 50, 50, 255);
+        SDL_RenderDrawRect(renderer, &rect_logs);
+        if (font) render_server_text(renderer, font, "Recent Logs:", 15, mid_y + 5, col_yellow);
+        int ly = mid_y + 25;
+        pthread_mutex_lock(&log_mutex);
+        for(int i=0; i<GUI_LOG_LINES; i++) {
+            int idx = (gui_log_head + i) % GUI_LOG_LINES;
+            if(gui_log_buffer[idx][0] != '\0') {
+                if (font) render_server_text(renderer, font, gui_log_buffer[idx], 15, ly, col_white);
+                ly += 16;
+                if (ly > rect_logs.y + rect_logs.h - 20) break;
+            }
+        }
+        pthread_mutex_unlock(&log_mutex);
+
+        SDL_RenderPresent(renderer);
+        SDL_Delay(16); // ~60fps
+    }
+
+    if (font) TTF_CloseFont(font);
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
+    TTF_Quit();
+    SDL_Quit();
+    LOG("Server GUI closed, shutting down...\n");
+    exit(0);
+    return NULL;
+}
 
 // --- Prototypes ---
 void broadcast_state();
@@ -294,6 +487,11 @@ void init_db() {
     sqlite3_exec(db, "ALTER TABLE users ADD COLUMN GOLD INTEGER DEFAULT 100;", 0, 0, 0);
     sqlite3_exec(db, "ALTER TABLE users ADD COLUMN XP INTEGER DEFAULT 0;", 0, 0, 0);
     sqlite3_exec(db, "ALTER TABLE users ADD COLUMN LEVEL INTEGER DEFAULT 1;", 0, 0, 0);
+    sqlite3_exec(db, "ALTER TABLE users ADD COLUMN STR INTEGER DEFAULT 10;", 0, 0, 0);
+    sqlite3_exec(db, "ALTER TABLE users ADD COLUMN AGI INTEGER DEFAULT 10;", 0, 0, 0);
+    sqlite3_exec(db, "ALTER TABLE users ADD COLUMN INT INTEGER DEFAULT 10;", 0, 0, 0);
+    sqlite3_exec(db, "ALTER TABLE users ADD COLUMN SKILL_POINTS INTEGER DEFAULT 0;", 0, 0, 0);
+    sqlite3_exec(db, "ALTER TABLE users ADD COLUMN PVP_ENABLED INTEGER DEFAULT 0;", 0, 0, 0);
 
     // Insert some default items if table is empty
     sqlite3_stmt *check_stmt;
@@ -452,9 +650,9 @@ AuthStatus register_user(const char *user, const char *pass) {
 }
 
 // Update signature to accept 'long *ban_expire' and currency/level
-int login_user(const char *username, const char *password, float *x, float *y, uint8_t *r, uint8_t *g, uint8_t *b, uint8_t *r2, uint8_t *g2, uint8_t *b2, int *role, long *ban_expire, char *map_name_out, int *gold, int *xp, int *level) {
+int login_user(const char *username, const char *password, float *x, float *y, uint8_t *r, uint8_t *g, uint8_t *b, uint8_t *r2, uint8_t *g2, uint8_t *b2, int *role, long *ban_expire, char *map_name_out, int *gold, int *xp, int *level, int *str, int *agi, int *intel, int *skill_points, int *pvp_enabled) {
     sqlite3_stmt *stmt;
-    const char *sql = "SELECT X, Y, R, G, B, ROLE, BAN_EXPIRE, R2, G2, B2, MAP, GOLD, XP, LEVEL FROM users WHERE USERNAME=? AND PASSWORD=?;";
+    const char *sql = "SELECT X, Y, R, G, B, ROLE, BAN_EXPIRE, R2, G2, B2, MAP, GOLD, XP, LEVEL, STR, AGI, INT, SKILL_POINTS, PVP_ENABLED FROM users WHERE USERNAME=? AND PASSWORD=?;";
     
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, 0) != SQLITE_OK) return 0;
     
@@ -479,6 +677,11 @@ int login_user(const char *username, const char *password, float *x, float *y, u
         *gold = sqlite3_column_int(stmt, 11);
         *xp = sqlite3_column_int(stmt, 12);
         *level = sqlite3_column_int(stmt, 13);
+        *str = sqlite3_column_int(stmt, 14);
+        *agi = sqlite3_column_int(stmt, 15);
+        *intel = sqlite3_column_int(stmt, 16);
+        *skill_points = sqlite3_column_int(stmt, 17);
+        *pvp_enabled = sqlite3_column_int(stmt, 18);
         success = 1;
     }
     sqlite3_finalize(stmt);
@@ -576,6 +779,7 @@ void save_player_inventory(int player_index) {
 
 int give_item_to_player(int player_index, int item_id, int quantity) {
     Player *p = &players[player_index];
+    int original_quantity = quantity;  // Track original amount for quest progress
     
     // Get item info from database
     sqlite3_stmt *stmt;
@@ -615,13 +819,14 @@ int give_item_to_player(int player_index, int item_id, int quantity) {
             quantity -= to_add;
             if (quantity == 0) {
                 save_player_inventory(player_index);
+                // Update quest progress for stacked items
+                update_collect_quest_progress(player_index, item_id, original_quantity);
                 return 1;
             }
         }
     }
     
     // Add to new slots
-    int quantity_added = quantity;  // Track how much we actually added for quest tracking
     while (quantity > 0 && p->inventory_count < MAX_INVENTORY_SLOTS) {
         int to_add = (quantity < max_stack) ? quantity : max_stack;
         p->inventory[p->inventory_count].item.item_id = item_id;
@@ -637,8 +842,8 @@ int give_item_to_player(int player_index, int item_id, int quantity) {
     
     save_player_inventory(player_index);
     
-    // Update collect quest progress
-    int actually_added = quantity_added - quantity;  // How much actually got into inventory
+    // Update collect quest progress - use what was actually added
+    int actually_added = original_quantity - quantity;
     if (actually_added > 0) {
         update_collect_quest_progress(player_index, item_id, actually_added);
     }
@@ -995,6 +1200,8 @@ void spawn_enemies() {
         rat->max_hp = 10;
         rat->active = 1;
         strcpy(rat->map_name, "map.jpg");
+        rat->attack_power = 2;
+        rat->defense = 1;
         server_enemy_count++;
     }
     
@@ -1025,6 +1232,25 @@ void broadcast_enemy_list() {
         }
     }
 }
+void send_player_stats(int index) {
+    Packet currency_pkt;
+    memset(&currency_pkt, 0, sizeof(Packet));
+    currency_pkt.type = PACKET_CURRENCY_UPDATE;
+    currency_pkt.gold = players[index].gold;
+    currency_pkt.xp = players[index].xp;
+    currency_pkt.level = players[index].level;
+    currency_pkt.hp = players[index].hp;
+    currency_pkt.max_hp = players[index].max_hp;
+    currency_pkt.mana = players[index].mana;
+    currency_pkt.max_mana = players[index].max_mana;
+    currency_pkt.str = players[index].str;
+    currency_pkt.agi = players[index].agi;
+    currency_pkt.intel = players[index].intel;
+    currency_pkt.skill_points = players[index].skill_points;
+    currency_pkt.pvp_enabled = players[index].pvp_enabled;
+    send_all(client_sockets[index], &currency_pkt, sizeof(Packet), 0);
+}
+
 
 void load_triggers() {
     FILE *fp = fopen("triggers.txt", "r");
@@ -1222,6 +1448,7 @@ void init_game() {
         players[i].id = -1; 
         players[i].is_typing = 0;
         player_quest_counts[i] = 0;  // Initialize quest counts
+        player_trades[i].partner_id = -1; // Initialize trade state
     }
 }
 
@@ -1707,7 +1934,7 @@ void handle_client_message(int index, Packet *pkt) {
             int role;
             long ban_expire = 0;
             char db_map[32] = "map.jpg";
-            int gold, xp, level;
+            int gold, xp, level, p_str, p_agi, p_intel, p_skill_points, p_pvp_enabled;
 
             // Pass &ban_expire and currency fields to the function
             if (pkt->username[0] == '\0' || pkt->password[0] == '\0') {
@@ -1715,7 +1942,7 @@ void handle_client_message(int index, Packet *pkt) {
                 strcpy(response.msg, "Username and password required.");
                 LOG("Login failed from client %d: %s\n", index, response.msg);
             }
-            else if (login_user(pkt->username, pkt->password, &x, &y, &r, &g, &b, &r2, &g2, &b2, &role, &ban_expire, db_map, &gold, &xp, &level)) {
+            else if (login_user(pkt->username, pkt->password, &x, &y, &r, &g, &b, &r2, &g2, &b2, &role, &ban_expire, db_map, &gold, &xp, &level, &p_str, &p_agi, &p_intel, &p_skill_points, &p_pvp_enabled)) {
                 
                 // 1. Check Ban Logic
                 if (time(NULL) < ban_expire) {
@@ -1762,13 +1989,44 @@ void handle_client_message(int index, Packet *pkt) {
                     players[index].gold = gold;
                     players[index].xp = xp;
                     players[index].level = level;
+                    players[index].skill_points = p_skill_points;
+                    players[index].str = p_str;
+                    players[index].agi = p_agi;
+                    players[index].intel = p_intel;
+                    players[index].skill_points = p_skill_points;
+                    players[index].hp = 100;
+                    players[index].max_hp = 100;
+                    players[index].mana = 50;
+                    players[index].max_mana = 50;
+                    players[index].last_attack_time = 0;
+                    
+                    // Initialize HP/Mana based on level
+                    int base_hp = 100;
+                    int base_mana = 50;
+                    players[index].max_hp = base_hp + (level - 1) * 10;  // +10 HP per level
+                    players[index].max_mana = base_mana + (level - 1) * 5;  // +5 mana per level
+                    players[index].hp = players[index].max_hp;  // Full HP on login
+                    players[index].mana = players[index].max_mana;  // Full mana on login
+                    
                     strncpy(players[index].username, pkt->username, 31);
                     strncpy(players[index].map_name, db_map, 31);
                     
-                    LOG("User '%s' (ID: %d) logged in successfully (Gold: %d, Level: %d)\n", 
-                        pkt->username, players[index].id, gold, level);
+                    LOG("User '%s' (ID: %d) logged in successfully (Gold: %d, Level: %d, HP: %d/%d)\n", 
+                        pkt->username, players[index].id, gold, level, players[index].hp, players[index].max_hp);
                     
                     response.player_id = players[index].id;
+                    response.gold = players[index].gold;
+                    response.xp = players[index].xp;
+                    response.level = players[index].level;
+                    response.hp = players[index].hp;
+                    response.max_hp = players[index].max_hp;
+                    response.mana = players[index].mana;
+                    response.max_mana = players[index].max_mana;
+                    response.str = players[index].str;
+                    response.agi = players[index].agi;
+                    response.intel = players[index].intel;
+                    response.skill_points = players[index].skill_points;
+                    response.pvp_enabled = players[index].pvp_enabled;
                     send_all(client_sockets[index], &response, sizeof(Packet), 0);
                     
                     // Load player's inventory
@@ -1820,15 +2078,39 @@ void handle_client_message(int index, Packet *pkt) {
     else if (pkt->type == PACKET_CHAT) {
         // --- ADMIN COMMANDS ---
         if (pkt->msg[0] == '/') {
-            // 1. Security Check
+            // Trim leading/trailing whitespace if needed (simplified here with strncmp logic)
+            
+            // 1. General Player Commands (No role required)
+            if (strncmp(pkt->msg, "/pvp", 4) == 0 && (pkt->msg[4] == '\0' || pkt->msg[4] == ' ')) {
+                players[index].pvp_enabled = !players[index].pvp_enabled;
+                char sql[256];
+                snprintf(sql, 256, "UPDATE users SET PVP_ENABLED=%d WHERE ID=%d;", players[index].pvp_enabled, players[index].id);
+                sqlite3_exec(db, sql, 0, 0, 0);
+                
+                Packet resp; memset(&resp, 0, sizeof(Packet));
+                resp.type = PACKET_CHAT; resp.player_id = -1;
+                snprintf(resp.msg, 127, "PvP %s", players[index].pvp_enabled ? "ENABLED" : "DISABLED");
+                send_all(client_sockets[index], &resp, sizeof(Packet), 0);
+                
+                Packet pvp_pkt; memset(&pvp_pkt, 0, sizeof(Packet));
+                pvp_pkt.type = PACKET_PVP_TOGGLE;
+                pvp_pkt.pvp_enabled = players[index].pvp_enabled;
+                send_all(client_sockets[index], &pvp_pkt, sizeof(Packet), 0);
+                
+                LOG("Player %s toggled PvP to %d\n", players[index].username, players[index].pvp_enabled);
+                return;
+            }
+
+            // 2. Admin Commands check
             if (players[index].role < ROLE_ADMIN) {
-                Packet err; err.type = PACKET_CHAT; err.player_id = -1;
-                strcpy(err.msg, "Unknown command.");
+                Packet err; memset(&err, 0, sizeof(Packet));
+                err.type = PACKET_CHAT; err.player_id = -1;
+                snprintf(err.msg, 127, "Unknown command: %s", pkt->msg); // Echo for debugging
                 send_all(client_sockets[index], &err, sizeof(Packet), 0);
                 return;
             }
 
-            // 2. /unban <ID>
+            // 3. Admin Command Logic
             if (strncmp(pkt->msg, "/unban ", 7) == 0) {
                 int target_id = atoi(pkt->msg + 7);
                 if (target_id > 0) {
@@ -1918,14 +2200,7 @@ void handle_client_message(int index, Packet *pkt) {
                         snprintf(sql, 256, "UPDATE users SET GOLD=%d WHERE ID=%d;", amount, target_id);
                         sqlite3_exec(db, sql, 0, 0, 0);
                         
-                        // Send currency update to target player
-                        Packet currency_pkt;
-                        memset(&currency_pkt, 0, sizeof(Packet));
-                        currency_pkt.type = PACKET_CURRENCY_UPDATE;
-                        currency_pkt.gold = players[target_index].gold;
-                        currency_pkt.xp = players[target_index].xp;
-                        currency_pkt.level = players[target_index].level;
-                        send_all(client_sockets[target_index], &currency_pkt, sizeof(Packet), 0);
+                        send_player_stats(target_index);
                         
                         Packet resp; resp.type = PACKET_CHAT; resp.player_id = -1;
                         snprintf(resp.msg, 127, "Set gold to %d for player ID %d (%s)", 
@@ -2004,6 +2279,29 @@ void handle_client_message(int index, Packet *pkt) {
                     send_all(client_sockets[index], &resp, sizeof(Packet), 0);
                 }
             }
+            // /setsp <player_id> <amount>
+            else if (strncmp(pkt->msg, "/setsp ", 7) == 0) {
+                int target_id, amount;
+                if (sscanf(pkt->msg + 7, "%d %d", &target_id, &amount) == 2) {
+                    int target_index = -1;
+                    for (int i = 0; i < MAX_CLIENTS; i++) {
+                        if (players[i].active && players[i].id == target_id) {
+                            target_index = i;
+                            break;
+                        }
+                    }
+                    if (target_index >= 0) {
+                        players[target_index].skill_points = amount;
+                        char sql[256];
+                        snprintf(sql, 256, "UPDATE users SET SKILL_POINTS=%d WHERE ID=%d;", amount, target_id);
+                        sqlite3_exec(db, sql, 0, 0, 0);
+                        send_player_stats(target_index);
+                        Packet resp; resp.type = PACKET_CHAT; resp.player_id = -1;
+                        snprintf(resp.msg, 127, "Set skill points to %d for ID %d", amount, target_id);
+                        send_all(client_sockets[index], &resp, sizeof(Packet), 0);
+                    }
+                }
+            }
             else {
                 Packet err; err.type = PACKET_CHAT; err.player_id = -1;
                 strcpy(err.msg, "Invalid command.");
@@ -2017,6 +2315,11 @@ void handle_client_message(int index, Packet *pkt) {
         pkt->player_id = players[index].id;
         for (int i = 0; i < MAX_CLIENTS; i++) {
             if (SOCKET_IS_VALID(client_sockets[i]) && players[i].active) {
+                // Local channel: only send to players on the same map
+                if (pkt->chat_channel == CHAT_CHANNEL_LOCAL) {
+                    if (strcmp(players[i].map_name, players[index].map_name) != 0) continue;
+                }
+                // Global, Trade, etc. are seen by everyone
                 send_all(client_sockets[i], pkt, sizeof(Packet), 0);
             }
         }
@@ -2338,12 +2641,44 @@ void handle_client_message(int index, Packet *pkt) {
         if (slot >= 0 && slot < players[index].inventory_count) {
             int item_id = players[index].inventory[slot].item.item_id;
             
-            // For now, just remove one quantity
-            remove_item_from_player(index, item_id, 1);
-            send_inventory_update(index);
-            
-            // TODO: Implement item effects (healing, buffs, etc.)
-            LOG("Player %s used item %d\n", players[index].username, item_id);
+            if (item_id == 1) { // Health Potion
+                int heal_amount = 25;
+                if (players[index].hp < players[index].max_hp) {
+                    players[index].hp += heal_amount;
+                    if (players[index].hp > players[index].max_hp) {
+                        players[index].hp = players[index].max_hp;
+                    }
+                    
+                    // Consume one quantity
+                    remove_item_from_player(index, item_id, 1);
+                    send_inventory_update(index);
+                    
+                    // Sync stats to client
+                    send_player_stats(index);
+                    
+                    // Notify player
+                    Packet chat_pkt;
+                    memset(&chat_pkt, 0, sizeof(Packet));
+                    chat_pkt.type = PACKET_CHAT;
+                    chat_pkt.player_id = -1;
+                    snprintf(chat_pkt.msg, 64, "You used a Health Potion and restored %d HP!", heal_amount);
+                    send_all(client_sockets[index], &chat_pkt, sizeof(Packet), 0);
+                    
+                    LOG("Player %s used Health Potion (ID 1), restored HP to %d/%d\n", 
+                        players[index].username, players[index].hp, players[index].max_hp);
+                } else {
+                    // Already at max HP
+                    Packet chat_pkt;
+                    memset(&chat_pkt, 0, sizeof(Packet));
+                    chat_pkt.type = PACKET_CHAT;
+                    chat_pkt.player_id = -1;
+                    strcpy(chat_pkt.msg, "You are already at full health!");
+                    send_all(client_sockets[index], &chat_pkt, sizeof(Packet), 0);
+                }
+            } else {
+                // For other items, just log for now
+                LOG("Player %s tried to use unhandled item %d\n", players[index].username, item_id);
+            }
         }
     }
     else if (pkt->type == PACKET_ITEM_EQUIP) {
@@ -2628,13 +2963,7 @@ void handle_client_message(int index, Packet *pkt) {
             send_inventory_update(index);
             
             // Send currency update
-            Packet currency_pkt;
-            memset(&currency_pkt, 0, sizeof(Packet));
-            currency_pkt.type = PACKET_CURRENCY_UPDATE;
-            currency_pkt.gold = players[index].gold;
-            currency_pkt.xp = players[index].xp;
-            currency_pkt.level = players[index].level;
-            send_all(client_sockets[index], &currency_pkt, sizeof(Packet), 0);
+            send_player_stats(index);
             
             LOG("Player %s bought item %d for %d gold (remaining: %d)\n", 
                 players[index].username, item_id, price, players[index].gold);
@@ -2703,13 +3032,7 @@ void handle_client_message(int index, Packet *pkt) {
             send_inventory_update(index);
             
             // Send currency update
-            Packet currency_pkt;
-            memset(&currency_pkt, 0, sizeof(Packet));
-            currency_pkt.type = PACKET_CURRENCY_UPDATE;
-            currency_pkt.gold = players[index].gold;
-            currency_pkt.xp = players[index].xp;
-            currency_pkt.level = players[index].level;
-            send_all(client_sockets[index], &currency_pkt, sizeof(Packet), 0);
+            send_player_stats(index);
             
             LOG("Player %s sold item %d for %d gold (total: %d)\n", 
                 players[index].username, item_id, price, players[index].gold);
@@ -2855,13 +3178,7 @@ void handle_client_message(int index, Packet *pkt) {
                 // Send updates
                 send_quest_list(index);
                 
-                Packet currency_pkt;
-                memset(&currency_pkt, 0, sizeof(Packet));
-                currency_pkt.type = PACKET_CURRENCY_UPDATE;
-                currency_pkt.gold = players[index].gold;
-                currency_pkt.xp = players[index].xp;
-                currency_pkt.level = players[index].level;
-                send_all(client_sockets[index], &currency_pkt, sizeof(Packet), 0);
+                send_player_stats(index);
                 
                 Packet chat_pkt;
                 memset(&chat_pkt, 0, sizeof(Packet));
@@ -2925,9 +3242,39 @@ void handle_client_message(int index, Packet *pkt) {
         }
         
         if (enemy) {
-            // Deal damage (simple: 5 damage per hit)
-            enemy->hp -= 5;
+            // Attack speed check (1 second cooldown = 1000ms)
+            uint32_t now = (uint32_t)time(NULL);
+            if (now - players[index].last_attack_time < 1) {
+                // Too fast (using simple 1s cooldown for now)
+                return;
+            }
+            players[index].last_attack_time = now;
+
+            // Damage calculation: (Str / 2) + random(1-5)
+            int dmg = (players[index].str / 2) + (rand() % 5) + 1;
+            dmg -= enemy->defense;
+            if (dmg < 1) dmg = 1;
+
+            enemy->hp -= dmg;
             
+            // Log attack
+            LOG("Player %s hit %s for %d damage (HP: %d/%d)\n", 
+                players[index].username, enemy->name, dmg, enemy->hp, enemy->max_hp);
+
+            // Send damage notification
+            Packet dmg_pkt;
+            memset(&dmg_pkt, 0, sizeof(Packet));
+            dmg_pkt.type = PACKET_DAMAGE;
+            dmg_pkt.damage = dmg;
+            dmg_pkt.dx = enemy->x;
+            dmg_pkt.dy = enemy->y;
+            // Broadcast so everyone sees the damage number
+            for (int i = 0; i < MAX_CLIENTS; i++) {
+                if (SOCKET_IS_VALID(client_sockets[i]) && players[i].active) {
+                    send_all(client_sockets[i], &dmg_pkt, sizeof(Packet), 0);
+                }
+            }
+
             if (enemy->hp <= 0) {
                 // Enemy killed
                 enemy->active = 0;
@@ -2942,34 +3289,425 @@ void handle_client_message(int index, Packet *pkt) {
                 if (new_level > players[index].level) {
                     players[index].level = new_level;
                     
+                    // Stat increases on level up
+                    players[index].str += 2;
+                    players[index].agi += 2;
+                    players[index].intel += 2;
+                    
+                    // Update HP/Mana based on new level
+                    int base_hp = 100;
+                    int base_mana = 50;
+                    players[index].max_hp = base_hp + (new_level - 1) * 10;
+                    players[index].max_mana = base_mana + (new_level - 1) * 5;
+                    players[index].hp = players[index].max_hp;  // Heal on level up
+                    players[index].skill_points += 5;
+                    
                     Packet chat_pkt;
                     memset(&chat_pkt, 0, sizeof(Packet));
                     chat_pkt.type = PACKET_CHAT;
                     chat_pkt.player_id = -1;
-                    snprintf(chat_pkt.msg, 64, "Level up! You are now level %d!", players[index].level);
+                    snprintf(chat_pkt.msg, 64, "Level UP! Level %d. +5 Skill Points!", players[index].level);
                     send_all(client_sockets[index], &chat_pkt, sizeof(Packet), 0);
+                    send_player_stats(index);
                 }
                 
                 // Update database
-                char sql[256];
-                snprintf(sql, 256, "UPDATE users SET XP=%d, LEVEL=%d WHERE ID=%d;",
-                        players[index].xp, players[index].level, players[index].id);
+                char sql[512];
+                snprintf(sql, 512, "UPDATE users SET XP=%d, LEVEL=%d, STR=%d, AGI=%d, INT=%d, SKILL_POINTS=%d WHERE ID=%d;",
+                        players[index].xp, players[index].level, players[index].str, players[index].agi, players[index].intel, players[index].skill_points, players[index].id);
                 sqlite3_exec(db, sql, 0, 0, 0);
                 
-                // Send currency update
-                Packet currency_pkt;
-                memset(&currency_pkt, 0, sizeof(Packet));
-                currency_pkt.type = PACKET_CURRENCY_UPDATE;
-                currency_pkt.gold = players[index].gold;
-                currency_pkt.xp = players[index].xp;
-                currency_pkt.level = players[index].level;
-                send_all(client_sockets[index], &currency_pkt, sizeof(Packet), 0);
+                send_player_stats(index);
                 
                 LOG("Player %s killed %s (enemy %d)\n", players[index].username, enemy->name, enemy_id);
+                
+                // Drop loot (random chance for item drop)
+                if ((rand() % 100) < 30) {  // 30% chance to drop loot
+                    if (ground_item_count < MAX_GROUND_ITEMS) {
+                        int loot_item_id = 7 + (rand() % 3);  // Random material item (7-9)
+                        ground_items[ground_item_count].item_id = loot_item_id;
+                        ground_items[ground_item_count].x = enemy->x;
+                        ground_items[ground_item_count].y = enemy->y;
+                        ground_items[ground_item_count].quantity = 1 + (rand() % 2);  // 1-2 items
+                        strcpy(ground_items[ground_item_count].map_name, enemy->map_name);
+                        ground_items[ground_item_count].spawn_time = time(NULL);
+                        
+                        // Get item name from database
+                        char item_sql[256];
+                        snprintf(item_sql, 256, "SELECT NAME FROM items WHERE ITEM_ID=%d;", loot_item_id);
+                        sqlite3_stmt *item_stmt;
+                        if (sqlite3_prepare_v2(db, item_sql, -1, &item_stmt, NULL) == SQLITE_OK) {
+                            if (sqlite3_step(item_stmt) == SQLITE_ROW) {
+                                strncpy(ground_items[ground_item_count].name, (const char*)sqlite3_column_text(item_stmt, 0), 31);
+                                ground_items[ground_item_count].name[31] = '\0';
+                            } else {
+                                strcpy(ground_items[ground_item_count].name, "Loot");
+                            }
+                            sqlite3_finalize(item_stmt);
+                        } else {
+                            strcpy(ground_items[ground_item_count].name, "Loot");
+                        }
+                        
+                        ground_item_count++;
+                        broadcast_ground_items();
+                        
+                        LOG("Enemy %s dropped item %d at (%.1f, %.1f)\n", 
+                            enemy->name, loot_item_id, enemy->x, enemy->y);
+                    }
+                }
             }
             
             // Broadcast updated enemy list to all players
             broadcast_enemy_list();
+        }
+    }
+    else if (pkt->type == PACKET_PVP_TOGGLE) {
+        players[index].pvp_enabled = pkt->pvp_enabled;
+        char sql[256];
+        snprintf(sql, 256, "UPDATE users SET PVP_ENABLED=%d WHERE ID=%d;", players[index].pvp_enabled, players[index].id);
+        sqlite3_exec(db, sql, 0, 0, 0);
+        
+        Packet resp; resp.type = PACKET_CHAT; resp.player_id = -1;
+        snprintf(resp.msg, 127, "PvP %s", players[index].pvp_enabled ? "ENABLED" : "DISABLED");
+        send_all(client_sockets[index], &resp, sizeof(Packet), 0);
+        
+        LOG("Player %s (Packet) toggled PvP to %d\n", players[index].username, players[index].pvp_enabled);
+    }
+    else if (pkt->type == PACKET_ALLOCATE_STATS) {
+        if (players[index].skill_points > 0) {
+            int stat = pkt->stat_type;
+            if (stat == 0) players[index].str++;
+            else if (stat == 1) players[index].agi++;
+            else if (stat == 2) players[index].intel++;
+            
+            players[index].skill_points--;
+            
+            // Re-calculate HP/Mana caps based on new level if level increases (handled in combat)
+            // Primary stat updates sync here.
+            
+            // Update database
+            char sql[256];
+            snprintf(sql, 256, "UPDATE users SET STR=%d, AGI=%d, INT=%d, SKILL_POINTS=%d WHERE ID=%d;",
+                players[index].str, players[index].agi, players[index].intel, players[index].skill_points, players[index].id);
+            sqlite3_exec(db, sql, 0, 0, 0);
+            
+            // Sync to client
+            send_player_stats(index);
+            
+            LOG("Player %s allocated skill point to %s (Points left: %d)\n",
+                players[index].username, (stat==0?"STR":(stat==1?"AGI":"INT")), players[index].skill_points);
+        }
+    }
+    else if (pkt->type == PACKET_ATTACK) {
+        // Player attacking another player
+        int target_id = pkt->target_id;
+        int target_idx = -1;
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+            if (players[i].active && players[i].id == target_id) {
+                target_idx = i;
+                break;
+            }
+        }
+
+        if (target_idx != -1 && target_idx != index) {
+            // PVP CHECK
+            if (!players[index].pvp_enabled) {
+                Packet chat_pkt; memset(&chat_pkt, 0, sizeof(Packet));
+                chat_pkt.type = PACKET_CHAT; chat_pkt.player_id = -1;
+                strcpy(chat_pkt.msg, "You must enable PvP to attack other players (/pvp).");
+                send_all(client_sockets[index], &chat_pkt, sizeof(Packet), 0);
+            } else if (!players[target_idx].pvp_enabled) {
+                Packet chat_pkt; memset(&chat_pkt, 0, sizeof(Packet));
+                chat_pkt.type = PACKET_CHAT; chat_pkt.player_id = -1;
+                snprintf(chat_pkt.msg, 127, "Target %s has PvP disabled.", players[target_idx].username);
+                send_all(client_sockets[index], &chat_pkt, sizeof(Packet), 0);
+            } else {
+                // Both have PvP enabled
+                uint32_t now = time(NULL);
+                if (now - players[index].last_attack_time >= 1) { // 1s cooldown
+                    players[index].last_attack_time = now;
+                    
+                    int dmg = 5 + (players[index].str / 3) + (rand() % 5);
+                    players[target_idx].hp -= dmg;
+                    if (players[target_idx].hp < 0) players[target_idx].hp = 0;
+                    
+                    LOG("PvP: %s hit %s for %d damage (HP: %d/%d)\n",
+                        players[index].username, players[target_idx].username, dmg, players[target_idx].hp, players[target_idx].max_hp);
+                    
+                    // Broadcast damage
+                    Packet dmg_pkt; memset(&dmg_pkt, 0, sizeof(Packet));
+                    dmg_pkt.type = PACKET_DAMAGE;
+                    dmg_pkt.damage = dmg;
+                    dmg_pkt.dx = players[target_idx].x;
+                    dmg_pkt.dy = players[target_idx].y;
+                    for (int i = 0; i < MAX_CLIENTS; i++) {
+                        if (players[i].active) send_all(client_sockets[i], &dmg_pkt, sizeof(Packet), 0);
+                    }
+                    
+                    send_player_stats(target_idx); // Sync HP to target and others
+                    
+                    if (players[target_idx].hp == 0) {
+                        Packet chat_pkt; memset(&chat_pkt, 0, sizeof(Packet));
+                        chat_pkt.type = PACKET_CHAT; chat_pkt.player_id = -1;
+                        snprintf(chat_pkt.msg, 127, "Player %s was killed by %s!", players[target_idx].username, players[index].username);
+                        for (int i = 0; i < MAX_CLIENTS; i++) {
+                            if (players[i].active) send_all(client_sockets[i], &chat_pkt, sizeof(Packet), 0);
+                        }
+                        
+                        // Respawn logic (simplified)
+                        players[target_idx].hp = players[target_idx].max_hp / 2;
+                        players[target_idx].x = 400; players[target_idx].y = 300; // Generic spawn
+                        send_player_stats(target_idx);
+                    }
+                }
+            }
+        }
+    }
+    // === PLAYER TRADING ===
+    else if (pkt->type == PACKET_TRADE_REQUEST) {
+        // Player wants to trade with another player
+        int target_id = pkt->trade_partner_id;
+        
+        // Find target player index
+        int target_idx = -1;
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+            if (players[i].active && players[i].id == target_id) {
+                target_idx = i;
+                break;
+            }
+        }
+        
+        if (target_idx >= 0 && player_trades[target_idx].partner_id == -1 && 
+            player_trades[index].partner_id == -1) {
+            // Send trade request to target
+            Packet req_pkt;
+            memset(&req_pkt, 0, sizeof(Packet));
+            req_pkt.type = PACKET_TRADE_REQUEST;
+            req_pkt.player_id = players[index].id;
+            strncpy(req_pkt.username, players[index].username, 63);
+            send_all(client_sockets[target_idx], &req_pkt, sizeof(Packet), 0);
+            
+            LOG("Player %s sent trade request to %s\n", players[index].username, players[target_idx].username);
+        } else {
+            // Target busy or invalid
+            Packet chat_pkt;
+            memset(&chat_pkt, 0, sizeof(Packet));
+            chat_pkt.type = PACKET_CHAT;
+            chat_pkt.player_id = -1;
+            strcpy(chat_pkt.msg, "Player is busy or unavailable for trading.");
+            send_all(client_sockets[index], &chat_pkt, sizeof(Packet), 0);
+        }
+    }
+    else if (pkt->type == PACKET_TRADE_RESPONSE) {
+        // Player accepts or rejects trade request
+        int requester_id = pkt->trade_partner_id;
+        int accepted = pkt->response_accepted;
+        
+        // Find requester
+        int requester_idx = -1;
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+            if (players[i].active && players[i].id == requester_id) {
+                requester_idx = i;
+                break;
+            }
+        }
+        
+        if (requester_idx >= 0) {
+            if (accepted) {
+                // Start trade session
+                player_trades[index].partner_id = requester_id;
+                player_trades[index].offered_count = 0;
+                player_trades[index].offered_gold = 0;
+                player_trades[index].confirmed = 0;
+                memset(player_trades[index].offered_items, 0, sizeof(player_trades[index].offered_items));
+                
+                player_trades[requester_idx].partner_id = players[index].id;
+                player_trades[requester_idx].offered_count = 0;
+                player_trades[requester_idx].offered_gold = 0;
+                player_trades[requester_idx].confirmed = 0;
+                memset(player_trades[requester_idx].offered_items, 0, sizeof(player_trades[requester_idx].offered_items));
+                
+                // Notify both players
+                Packet start_pkt;
+                memset(&start_pkt, 0, sizeof(Packet));
+                start_pkt.type = PACKET_TRADE_RESPONSE;
+                start_pkt.response_accepted = 1;
+                start_pkt.trade_partner_id = players[index].id;
+                strncpy(start_pkt.username, players[index].username, 63);
+                send_all(client_sockets[requester_idx], &start_pkt, sizeof(Packet), 0);
+                
+                start_pkt.trade_partner_id = requester_id;
+                strncpy(start_pkt.username, players[requester_idx].username, 63);
+                send_all(client_sockets[index], &start_pkt, sizeof(Packet), 0);
+                
+                LOG("Trade started between %s and %s\n", players[index].username, players[requester_idx].username);
+            } else {
+                // Reject trade
+                Packet reject_pkt;
+                memset(&reject_pkt, 0, sizeof(Packet));
+                reject_pkt.type = PACKET_TRADE_RESPONSE;
+                reject_pkt.response_accepted = 0;
+                send_all(client_sockets[requester_idx], &reject_pkt, sizeof(Packet), 0);
+                
+                LOG("Player %s rejected trade from %s\n", players[index].username, players[requester_idx].username);
+            }
+        }
+    }
+    else if (pkt->type == PACKET_TRADE_OFFER) {
+        // Player updates their trade offer
+        if (player_trades[index].partner_id != -1) {
+            // Find partner
+            int partner_idx = -1;
+            for (int i = 0; i < MAX_CLIENTS; i++) {
+                if (players[i].active && players[i].id == player_trades[index].partner_id) {
+                    partner_idx = i;
+                    break;
+                }
+            }
+            
+            // Update offer
+            int offered_gold = pkt->trade_offer_gold;
+            if (offered_gold > players[index].gold) offered_gold = players[index].gold;
+            if (offered_gold < 0) offered_gold = 0;
+            
+            player_trades[index].offered_count = pkt->trade_offer_count;
+            player_trades[index].offered_gold = offered_gold;
+            for (int i = 0; i < pkt->trade_offer_count && i < 10; i++) {
+                player_trades[index].offered_items[i] = pkt->trade_offer_items[i];
+            }
+            
+            // Reset confirmations when offer changes
+            player_trades[index].confirmed = 0;
+            if (partner_idx >= 0) player_trades[partner_idx].confirmed = 0;
+            
+            // Send update to partner
+            if (partner_idx >= 0) {
+                Packet offer_pkt;
+                memset(&offer_pkt, 0, sizeof(Packet));
+                offer_pkt.type = PACKET_TRADE_OFFER;
+                offer_pkt.trade_offer_count = player_trades[index].offered_count;
+                offer_pkt.trade_offer_gold = player_trades[index].offered_gold;
+                for (int i = 0; i < player_trades[index].offered_count && i < 10; i++) {
+                    offer_pkt.trade_offer_items[i] = player_trades[index].offered_items[i];
+                }
+                send_all(client_sockets[partner_idx], &offer_pkt, sizeof(Packet), 0);
+            }
+        }
+    }
+    else if (pkt->type == PACKET_TRADE_CONFIRM) {
+        // Player confirms trade
+        if (player_trades[index].partner_id != -1) {
+            player_trades[index].confirmed = 1;
+            
+            // Find partner
+            int partner_idx = -1;
+            for (int i = 0; i < MAX_CLIENTS; i++) {
+                if (players[i].active && players[i].id == player_trades[index].partner_id) {
+                    partner_idx = i;
+                    break;
+                }
+            }
+            
+            // Notify partner of confirmation
+            if (partner_idx >= 0) {
+                Packet confirm_pkt;
+                memset(&confirm_pkt, 0, sizeof(Packet));
+                confirm_pkt.type = PACKET_TRADE_CONFIRM;
+                confirm_pkt.trade_confirmed = 1;
+                send_all(client_sockets[partner_idx], &confirm_pkt, sizeof(Packet), 0);
+                
+                // Check if both confirmed - execute trade!
+                if (player_trades[partner_idx].confirmed) {
+                    // Final gold verification
+                    if (players[index].gold < player_trades[index].offered_gold || 
+                        players[partner_idx].gold < player_trades[partner_idx].offered_gold) {
+                        
+                        LOG("Trade failed: Insufficient gold at execution time for %s or %s\n", 
+                            players[index].username, players[partner_idx].username);
+                        
+                        // Cancel trade due to invalid state
+                        player_trades[index].partner_id = -1;
+                        player_trades[partner_idx].partner_id = -1;
+                        
+                        Packet cancel_pkt;
+                        memset(&cancel_pkt, 0, sizeof(Packet));
+                        cancel_pkt.type = PACKET_TRADE_CANCEL;
+                        cancel_pkt.response_accepted = 0;
+                        send_all(client_sockets[index], &cancel_pkt, sizeof(Packet), 0);
+                        send_all(client_sockets[partner_idx], &cancel_pkt, sizeof(Packet), 0);
+                        return;
+                    }
+                    
+                    // Transfer items
+                    for (int i = 0; i < player_trades[index].offered_count; i++) {
+                        Item *item = &player_trades[index].offered_items[i];
+                        if (item->item_id > 0) {
+                            remove_item_from_player(index, item->item_id, item->quantity);
+                            give_item_to_player(partner_idx, item->item_id, item->quantity);
+                        }
+                    }
+                    for (int i = 0; i < player_trades[partner_idx].offered_count; i++) {
+                        Item *item = &player_trades[partner_idx].offered_items[i];
+                        if (item->item_id > 0) {
+                            remove_item_from_player(partner_idx, item->item_id, item->quantity);
+                            give_item_to_player(index, item->item_id, item->quantity);
+                        }
+                    }
+                    
+                    // Transfer gold
+                    players[index].gold -= player_trades[index].offered_gold;
+                    players[partner_idx].gold += player_trades[index].offered_gold;
+                    players[partner_idx].gold -= player_trades[partner_idx].offered_gold;
+                    players[index].gold += player_trades[partner_idx].offered_gold;
+                    
+                    // Reset trade state
+                    player_trades[index].partner_id = -1;
+                    player_trades[partner_idx].partner_id = -1;
+                    
+                    // Send updates
+                    send_inventory_update(index);
+                    send_inventory_update(partner_idx);
+                    
+                    send_player_stats(index);
+                    send_player_stats(partner_idx);
+                    
+                    
+                    // Notify trade complete
+                    Packet complete_pkt;
+                    memset(&complete_pkt, 0, sizeof(Packet));
+                    complete_pkt.type = PACKET_TRADE_CANCEL;  // Reuse to close window
+                    complete_pkt.response_accepted = 1;  // 1 = success, 0 = cancelled
+                    send_all(client_sockets[index], &complete_pkt, sizeof(Packet), 0);
+                    send_all(client_sockets[partner_idx], &complete_pkt, sizeof(Packet), 0);
+                    
+                    LOG("Trade completed between %s and %s\n", players[index].username, players[partner_idx].username);
+                }
+            }
+        }
+    }
+    else if (pkt->type == PACKET_TRADE_CANCEL) {
+        // Cancel trade
+        if (player_trades[index].partner_id != -1) {
+            int partner_idx = -1;
+            for (int i = 0; i < MAX_CLIENTS; i++) {
+                if (players[i].active && players[i].id == player_trades[index].partner_id) {
+                    partner_idx = i;
+                    break;
+                }
+            }
+            
+            player_trades[index].partner_id = -1;
+            if (partner_idx >= 0) {
+                player_trades[partner_idx].partner_id = -1;
+                
+                Packet cancel_pkt;
+                memset(&cancel_pkt, 0, sizeof(Packet));
+                cancel_pkt.type = PACKET_TRADE_CANCEL;
+                cancel_pkt.response_accepted = 0;  // 0 = cancelled
+                send_all(client_sockets[partner_idx], &cancel_pkt, sizeof(Packet), 0);
+            }
+            
+            LOG("Trade cancelled by %s\n", players[index].username);
         }
     }
 }
@@ -3037,10 +3775,97 @@ void signal_handler(int signum) {
 
 // --- NEW TICK THREAD ---
 void *tick_thread(void *arg) {
+    int respawn_counter = 0;
     while (1) {
         usleep(50000); // 50ms (20 updates/sec)
         pthread_mutex_lock(&state_mutex);
         broadcast_state();
+        
+        // Enemy respawn check every 10 seconds (200 ticks * 50ms = 10s)
+        respawn_counter++;
+        if (respawn_counter >= 200) {
+            respawn_counter = 0;
+            
+            // Check for dead enemies and respawn them after some time
+            for (int i = 0; i < server_enemy_count; i++) {
+                if (!server_enemies[i].active) {
+                    // Respawn this enemy
+                    server_enemies[i].hp = server_enemies[i].max_hp;
+                    server_enemies[i].active = 1;
+                    // Randomize position slightly
+                    server_enemies[i].x = 300.0f + (rand() % 800);
+                    server_enemies[i].y = 300.0f + (rand() % 600);
+                    
+                    LOG("Enemy %s respawned at (%.1f, %.1f)\\n", 
+                        server_enemies[i].name, server_enemies[i].x, server_enemies[i].y);
+                }
+            }
+            
+            // Broadcast updated enemy list if any respawned
+            broadcast_enemy_list();
+        }
+
+        // Enemy retaliation & Player logic (Every 20 ticks = 1 second)
+        static int retaliate_timer = 0;
+        retaliate_timer++;
+        if (retaliate_timer >= 20) {
+            retaliate_timer = 0;
+            uint32_t now = (uint32_t)time(NULL);
+
+            for (int e = 0; e < server_enemy_count; e++) {
+                if (!server_enemies[e].active) continue;
+
+                for (int p = 0; p < MAX_CLIENTS; p++) {
+                    if (players[p].active && players[p].hp > 0 && strcmp(players[p].map_name, server_enemies[e].map_name) == 0) {
+                        float dx = players[p].x - server_enemies[e].x;
+                        float dy = players[p].y - server_enemies[e].y;
+                        float dist = sqrt(dx*dx + dy*dy);
+
+                        if (dist < 64.0f) { // Attack range
+                            int dmg = server_enemies[e].attack_power + (rand() % 3);
+                            players[p].hp -= dmg;
+                            if (players[p].hp < 0) players[p].hp = 0;
+
+                            LOG("Enemy %s hit player %s for %d damage (HP: %d/%d)\n",
+                                server_enemies[e].name, players[p].username, dmg, players[p].hp, players[p].max_hp);
+
+                            // Send damage notification
+                            Packet dmg_pkt;
+                            memset(&dmg_pkt, 0, sizeof(Packet));
+                            dmg_pkt.type = PACKET_DAMAGE;
+                            dmg_pkt.damage = dmg;
+                            dmg_pkt.dx = players[p].x;
+                            dmg_pkt.dy = players[p].y;
+                            // Broadcast
+                            for (int i = 0; i < MAX_CLIENTS; i++) {
+                                if (SOCKET_IS_VALID(client_sockets[i]) && players[i].active) {
+                                    send_all(client_sockets[i], &dmg_pkt, sizeof(Packet), 0);
+                                }
+                            }
+                            send_player_stats(p);
+
+                            if (players[p].hp == 0) {
+                                LOG("Player %s died!\n", players[p].username);
+                                // Death logic: Reset to spawn, lose 10% XP
+                                players[p].hp = players[p].max_hp;
+                                players[p].x = 100.0f;
+                                players[p].y = 100.0f;
+                                players[p].xp -= players[p].xp / 10;
+                                
+                                Packet chat_pkt;
+                                memset(&chat_pkt, 0, sizeof(Packet));
+                                chat_pkt.type = PACKET_CHAT;
+                                chat_pkt.player_id = -1;
+                                strcpy(chat_pkt.msg, "You died! Respawned at home.");
+                                send_all(client_sockets[p], &chat_pkt, sizeof(Packet), 0);
+                                send_player_stats(p);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
         pthread_mutex_unlock(&state_mutex);
     }
     return NULL;
@@ -3048,6 +3873,15 @@ void *tick_thread(void *arg) {
 
 void *client_handler(void *arg) {
     int index = *(int*)arg; free(arg); socket_t sd = client_sockets[index]; Packet pkt;
+
+    // Send Handshake
+    Packet handshake;
+    memset(&handshake, 0, sizeof(Packet));
+    handshake.type = PACKET_HANDSHAKE;
+    handshake.protocol_version = 1001;
+    strcpy(handshake.msg, "MMORPG_VALID");
+    send_all(sd, &handshake, sizeof(Packet), 0);
+
     while (1) {
         int valread = recv_full(sd, &pkt, sizeof(Packet));
         if (valread <= 0) {
@@ -3058,6 +3892,27 @@ void *client_handler(void *arg) {
                 char sql[256]; snprintf(sql, 256, "UPDATE users SET LAST_LOGIN=datetime('now', 'localtime') WHERE ID=%d;", players[index].id);
                 sqlite3_exec(db, sql, 0, 0, 0);
             }
+            
+            // Cancel any active trade
+            if (player_trades[index].partner_id != -1) {
+                int partner_idx = -1;
+                for (int i = 0; i < MAX_CLIENTS; i++) {
+                    if (players[i].active && players[i].id == player_trades[index].partner_id) {
+                        partner_idx = i;
+                        break;
+                    }
+                }
+                if (partner_idx >= 0) {
+                    player_trades[partner_idx].partner_id = -1;
+                    Packet cancel_pkt;
+                    memset(&cancel_pkt, 0, sizeof(Packet));
+                    cancel_pkt.type = PACKET_TRADE_CANCEL;
+                    cancel_pkt.response_accepted = 0;
+                    send_all(client_sockets[partner_idx], &cancel_pkt, sizeof(Packet), 0);
+                }
+                player_trades[index].partner_id = -1;
+            }
+            
             players[index].active = 0; broadcast_state(); broadcast_friend_update();
             pthread_mutex_unlock(&state_mutex);
             break;
@@ -3212,7 +4067,7 @@ int main(int argc, char *argv[]) {
             }
             
             if (found_good_ip) {
-                LOG("Server running on %s:%d\\n", ip_address, current_port);
+                LOG("Server running on %s:%d\n", ip_address, current_port);
             } else {
                 LOG("Server running on port %d (could not determine IP)\\n", current_port);
             }
@@ -3230,6 +4085,14 @@ int main(int argc, char *argv[]) {
         return 1; 
     }
 
+    // Start GUI Thread (Windows Only)
+    #ifdef _WIN32
+    server_start_time = time(NULL);
+    if (pthread_create(&gui_thread_handle, NULL, gui_thread, NULL) != 0) {
+        LOG("Failed to start GUI thread\n");
+    }
+    #endif
+
     while (1) {
         socklen_t addrlen = sizeof(address);
         new_socket = accept(server_fd, (struct sockaddr *)&address, &addrlen);
@@ -3244,6 +4107,8 @@ int main(int argc, char *argv[]) {
         if (!SOCKET_IS_VALID(client_sockets[i])) { 
             client_sockets[i] = new_socket; 
             players[i].id = -1; 
+            players[i].active = 0;
+            player_trades[i].partner_id = -1; // Reset trade state for new connection
             slot = i; 
                 break; 
             } 

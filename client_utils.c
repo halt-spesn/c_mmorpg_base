@@ -13,10 +13,11 @@ void reset_avatar_cache(void) {
     }
 }
 
-void push_chat_line(const char *text) {
-    for(int i=0; i<CHAT_HISTORY-1; i++) strcpy(chat_log[i], chat_log[i+1]);
-    strncpy(chat_log[CHAT_HISTORY-1], text, 63);
-    chat_scroll = 0;
+void push_chat_line(int channel, const char *text) {
+    if (channel < 0 || channel >= 5) return;
+    for(int i=0; i<CHAT_HISTORY-1; i++) strcpy(chat_logs[channel][i], chat_logs[channel][i+1]);
+    strncpy(chat_logs[channel][CHAT_HISTORY-1], text, 63);
+    chat_scrolls[channel] = 0;
 }
 
 void toggle_block(int id) {

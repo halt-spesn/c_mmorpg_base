@@ -69,6 +69,32 @@ int try_connect(void) {
         return 0;
     }
 
+    // Handshake Validation
+    fd_set readfds;
+    struct timeval tv;
+    FD_ZERO(&readfds);
+    FD_SET(sock, &readfds);
+    tv.tv_sec = 2; // 2 second timeout
+    tv.tv_usec = 0;
+
+    int activity = select((int)sock + 1, &readfds, NULL, NULL, &tv);
+    if (activity <= 0) {
+        strcpy(auth_message, "Handshake Timeout (Not a Game Server)");
+        close(sock);
+        return 0;
+    }
+
+    Packet handshake_pkt;
+    int n = recv_total(sock, &handshake_pkt, sizeof(Packet));
+    if (n <= 0 || handshake_pkt.type != PACKET_HANDSHAKE || 
+        handshake_pkt.protocol_version != 1001 || 
+        strcmp(handshake_pkt.msg, "MMORPG_VALID") != 0) 
+    {
+        strcpy(auth_message, "Handshake Failed (Invalid Server/Version)");
+        close(sock);
+        return 0;
+    }
+
     strcpy(server_ip, input_ip); 
 
     is_connected = 1;

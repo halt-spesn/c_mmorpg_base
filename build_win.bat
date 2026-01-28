@@ -31,7 +31,7 @@ gcc client_sdl.c client_network.c client_config.c client_audio.c client_utils.c 
     -L%TTF_PATH%\lib ^
     -L%MIX_PATH%\lib ^
     -lmingw32 -lSDL2main -lSDL2 -lSDL2_image -lSDL2_ttf -lSDL2_mixer ^
-    -lws2_32 -lcomdlg32 -lopengl32 -lvulkan-1 -static-libgcc -static-libstdc++
+    -lws2_32 -lcomdlg32 -lopengl32 -lvulkan-1 -static-libgcc -static-libstdc++ -mwindows
 
 if errorlevel 1 (
     echo ERROR: Client compilation failed!
@@ -43,7 +43,13 @@ echo Client compiled successfully!
 REM 3. Compile Server
 echo.
 echo Compiling game server...
-gcc server.c -o windows_release\server.exe -lws2_32 -lsqlite3 -lm -lpthread
+gcc server.c -o windows_release\server.exe ^
+    -I%SDL2_PATH%\include\SDL2 ^
+    -I%TTF_PATH%\include ^
+    -L%SDL2_PATH%\lib ^
+    -L%TTF_PATH%\lib ^
+    -lmingw32 -lSDL2main -lSDL2 -lSDL2_ttf ^
+    -lws2_32 -lsqlite3 -lm -lpthread -lpsapi -lgdi32
 
 if errorlevel 1 (
     echo ERROR: Server compilation failed!

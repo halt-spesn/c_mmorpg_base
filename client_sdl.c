@@ -52,10 +52,24 @@ NPC client_npcs[50];
 int client_npc_count = 0;
 #define NPC_INTERACTION_RADIUS 64  // Interaction range in pixels
 
+// Enemies
+Enemy client_enemies[50];
+int client_enemy_count = 0;
+
+
+
 // Player stats
-int my_gold = 100;
+int my_gold = 0;
 int my_xp = 0;
 int my_level = 1;
+int my_str = 10;
+int my_agi = 10;
+int my_intel = 10;
+int my_hp = 100;
+int my_max_hp = 100;
+int my_mana = 50;
+int my_max_mana = 50;
+int my_skill_points = 0;
 
 int blocked_ids[50];
 int blocked_count = 0;
@@ -69,6 +83,9 @@ SDL_Rect btn_close_blocked;
 SDL_Rect btn_hide_player_dyn;
 SDL_Rect btn_change_avatar;
 SDL_Rect btn_change_password;
+SDL_Rect btn_stat_str;
+SDL_Rect btn_stat_agi;
+SDL_Rect btn_stat_int;
 
 int selected_player_id = -1;
 int selected_npc_id = -1;
@@ -100,6 +117,26 @@ int quest_offer_scroll = 0;
 SDL_Rect quest_window;
 SDL_Rect btn_toggle_quest_log;
 
+// Trading system
+int show_trade = 0;
+int trade_partner_id = -1;
+char trade_partner_name[64] = "";
+Item my_trade_offer[10];
+int my_trade_count = 0;
+int my_trade_gold = 0;
+Item partner_trade_offer[10];
+int partner_trade_count = 0;
+int partner_trade_gold = 0;
+int my_trade_confirmed = 0;
+int partner_trade_confirmed = 0;
+SDL_Rect trade_window;
+SDL_Rect btn_trade_confirm;
+SDL_Rect btn_trade_cancel;
+int trade_gold_input_active = 0;
+char trade_gold_buffer[16] = "";
+int pending_trade_req = 0;
+SDL_Rect btn_trade_request_rect;
+
 SDL_Rect profile_win = {10, 10, 200, 130};
 SDL_Rect btn_add_friend = {20, 50, 180, 30};
 SDL_Rect btn_send_pm = {20, 90, 180, 30};
@@ -123,13 +160,16 @@ SDL_Rect btn_toggle_fps;
 SDL_Rect btn_toggle_coords;
 
 FloatingText floating_texts[MAX_CLIENTS];
-char chat_log[CHAT_HISTORY][64];
+char chat_logs[5][CHAT_HISTORY][64];
 int chat_log_count = 0;
-int chat_scroll = 0;
+int chat_scrolls[5] = {0, 0, 0, 0, 0};
+FloatingDamage floating_damages[50];
+int floating_damage_count = 0;
 int is_chat_open = 0;
 int chat_target_id = -1;
 int chat_input_active = 0;
 char input_buffer[64] = "";
+int current_chat_channel = CHAT_CHANNEL_GLOBAL;
 int is_typing = 0;  // Local typing status
 Uint32 last_typing_update = 0;  // Last time we sent typing status
 
@@ -384,6 +424,15 @@ SDL_Rect btn_equip_legs = {0, 0, 0, 0};
 SDL_Rect btn_equip_boots = {0, 0, 0, 0};
 SDL_Rect btn_equip_accessory = {0, 0, 0, 0};
 
+// Stat buttons
+SDL_Rect btn_stat_str = {0, 0, 0, 0};
+SDL_Rect btn_stat_agi = {0, 0, 0, 0};
+SDL_Rect btn_stat_int = {0, 0, 0, 0};
+
+// PvP toggle
+int my_pvp_enabled = 0;
+SDL_Rect btn_pvp_toggle = {0, 0, 0, 0};
+
 // Tooltip for items
 char tooltip_text[64] = "";
 int tooltip_x = 0;
@@ -526,9 +575,18 @@ void add_chat_message(Packet *pkt) {
     } else {
         char *name = "System";
         if (pkt->player_id != -1) {
-            name = "Unknown"; for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == pkt->player_id) name = local_players[i].username;
+            name = "Unknown";
+            for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == pkt->player_id) name = local_players[i].username;
         }
-        snprintf(entry, 128, "[%s]: %s", name, pkt->msg);
+        
+        // Add Channel Tag
+        if (pkt->chat_channel == CHAT_CHANNEL_LOCAL) {
+            snprintf(entry, 128, "[Local] [%s]: %s", name, pkt->msg);
+        } else if (pkt->chat_channel == CHAT_CHANNEL_TRADE) {
+            snprintf(entry, 128, "[Trade] [%s]: %s", name, pkt->msg);
+        } else {
+            snprintf(entry, 128, "[Global] [%s]: %s", name, pkt->msg);
+        }
     }
 
     // 3. Floating Text Logic (Always show full message above head)
@@ -541,32 +599,46 @@ void add_chat_message(Packet *pkt) {
         }
     }
 
-    // 4. Width Check & Splitting
+    // 4. Width Check & Splitting & Pushing to Correct Channel
     int w, h;
     TTF_SizeText(font, entry, &w, &h);
     
+    // Determine destination channel index
+    int dest_channel = CHAT_CHANNEL_GLOBAL;
+    if (pkt->type == PACKET_PRIVATE_MESSAGE) {
+        dest_channel = CHAT_CHANNEL_WHISPER;
+    } else if (pkt->player_id == -1) {
+        // System message: Push to ALL channels
+        for(int c=0; c<5; c++) {
+            // Re-check width for each channel if needed, but here we just push
+            push_chat_line(c, entry);
+        }
+        return;
+    } else {
+        dest_channel = pkt->chat_channel;
+    }
+    
+    // Ensure channel is valid
+    if (dest_channel < 0 || dest_channel >= 5) dest_channel = CHAT_CHANNEL_GLOBAL;
+
     // Chat window is 300px wide. Text starts at x+15. Safe width ~270.
     if (w > 270) {
-        // Find a safe split point (35 chars is roughly 270px at size 14)
         int split_idx = 35;
         if (strlen(entry) < 35) split_idx = strlen(entry);
 
         char line1[64], line2[64];
-        
-        // Copy first part
         strncpy(line1, entry, split_idx);
         line1[split_idx] = '\0'; 
-        
-        // Copy second part (with indent)
         snprintf(line2, 64, "  %s", entry + split_idx);
 
-        push_chat_line(line1);
-        push_chat_line(line2);
+        push_chat_line(dest_channel, line1);
+        push_chat_line(dest_channel, line2);
     } else {
-        // Fits on one line
-        push_chat_line(entry);
+        push_chat_line(dest_channel, entry);
     }
 }
+
+
 
 void render_hud(SDL_Renderer *renderer, int screen_w, int screen_h) {
     int y = 10; char buf[64];
@@ -607,6 +679,93 @@ void render_hud(SDL_Renderer *renderer, int screen_w, int screen_h) {
     SDL_SetRenderDrawColor(renderer, 20, 40, 20, 200); SDL_RenderFillRect(renderer, &xp_bg);
     SDL_SetRenderDrawColor(renderer, 100, 255, 100, 255); SDL_RenderDrawRect(renderer, &xp_bg);
     render_text(renderer, buf, 14, y+2, (SDL_Color){100, 255, 100, 255}, 0);
+    y += h + 10;
+    
+    // HP BAR - Red/Dark Red
+    snprintf(buf, 64, "HP: %d/%d", my_hp, my_max_hp);
+    int bar_width = 150;
+    int bar_height = 18;
+    SDL_Rect hp_bar_bg = {10, y, bar_width, bar_height};
+    SDL_SetRenderDrawColor(renderer, 40, 10, 10, 220); SDL_RenderFillRect(renderer, &hp_bar_bg);
+    
+    // HP fill
+    float hp_pct = (my_max_hp > 0) ? (float)my_hp / my_max_hp : 0;
+    if (hp_pct > 1.0f) hp_pct = 1.0f;
+    int hp_fill_width = (int)(bar_width * hp_pct);
+    SDL_Rect hp_bar_fg = {10, y, hp_fill_width, bar_height};
+    SDL_SetRenderDrawColor(renderer, 200, 50, 50, 255); SDL_RenderFillRect(renderer, &hp_bar_fg);
+    SDL_SetRenderDrawColor(renderer, 255, 100, 100, 255); SDL_RenderDrawRect(renderer, &hp_bar_bg);
+    render_text(renderer, buf, 14, y+2, col_white, 0);
+    y += bar_height + 4;
+    
+    // MANA BAR - Blue/Dark Blue
+    // MANA BAR - Blue/Dark Blue
+    snprintf(buf, 64, "MP: %d/%d", my_mana, my_max_mana);
+    SDL_Rect mana_bar_bg = {10, y, bar_width, bar_height};
+    SDL_SetRenderDrawColor(renderer, 10, 10, 40, 220); SDL_RenderFillRect(renderer, &mana_bar_bg);
+    
+    // Mana fill
+    float mana_pct = (my_max_mana > 0) ? (float)my_mana / my_max_mana : 0;
+    if (mana_pct > 1.0f) mana_pct = 1.0f;
+    int mana_fill_width = (int)(bar_width * mana_pct);
+    SDL_Rect mana_bar_fg = {10, y, mana_fill_width, bar_height};
+    SDL_SetRenderDrawColor(renderer, 50, 50, 200, 255); SDL_RenderFillRect(renderer, &mana_bar_fg);
+    SDL_SetRenderDrawColor(renderer, 100, 100, 255, 255); SDL_RenderDrawRect(renderer, &mana_bar_bg);
+    render_text(renderer, buf, 14, y+2, col_white, 0);
+    y += bar_height + 10;
+
+    // STATS (Str, Agi, Int)
+    if (my_skill_points > 0) {
+        snprintf(buf, 64, "Points: %d", my_skill_points);
+        render_text(renderer, buf, 14, y, (SDL_Color){100, 255, 100, 255}, 0);
+        y += 20;
+    }
+    
+    // STR
+    snprintf(buf, 64, "STR: %d", my_str);
+    render_text(renderer, buf, 14, y, (SDL_Color){255, 200, 100, 255}, 0);
+    if (my_skill_points > 0) {
+        btn_stat_str = (SDL_Rect){14 + 100, y, 20, 20};
+        SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_stat_str);
+        render_text(renderer, "+", btn_stat_str.x + 5, btn_stat_str.y + 2, col_white, 0);
+    } else {
+        btn_stat_str = (SDL_Rect){0, 0, 0, 0};
+    }
+    y += 22;
+    
+    // AGI
+    snprintf(buf, 64, "AGI: %d", my_agi);
+    render_text(renderer, buf, 14, y, (SDL_Color){255, 200, 100, 255}, 0);
+    if (my_skill_points > 0) {
+        btn_stat_agi = (SDL_Rect){14 + 100, y, 20, 20};
+        SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_stat_agi);
+        render_text(renderer, "+", btn_stat_agi.x + 5, btn_stat_agi.y + 2, col_white, 0);
+    } else {
+        btn_stat_agi = (SDL_Rect){0, 0, 0, 0};
+    }
+    y += 22;
+
+    // INT
+    snprintf(buf, 64, "INT: %d", my_intel);
+    render_text(renderer, buf, 14, y, (SDL_Color){255, 200, 100, 255}, 0);
+    if (my_skill_points > 0) {
+        btn_stat_int = (SDL_Rect){14 + 100, y, 20, 20};
+        SDL_SetRenderDrawColor(renderer, 0, 150, 0, 255); SDL_RenderFillRect(renderer, &btn_stat_int);
+        render_text(renderer, "+", btn_stat_int.x + 5, btn_stat_int.y + 2, col_white, 0);
+    } else {
+        btn_stat_int = (SDL_Rect){0, 0, 0, 0};
+    }
+    y += 22;
+
+    // PvP Toggle Indicator
+    btn_pvp_toggle = (SDL_Rect){14, y, 90, 24};
+    SDL_SetRenderDrawColor(renderer, 50, 50, 50, 200);
+    SDL_RenderFillRect(renderer, &btn_pvp_toggle);
+    SDL_SetRenderDrawColor(renderer, my_pvp_enabled ? 200 : 100, 50, 50, 255);
+    SDL_RenderDrawRect(renderer, &btn_pvp_toggle);
+    
+    render_text(renderer, my_pvp_enabled ? "PVP: ON" : "PVP: OFF", 20, y+4, my_pvp_enabled ? (SDL_Color){255, 100, 100, 255} : (SDL_Color){150, 150, 150, 255}, 0);
+    y += 35;
 
     // INBOX BUTTON (Top Right) - use passed scaled width, not SDL_GetRendererOutputSize
     btn_inbox = (SDL_Rect){screen_w - 50, 10, 40, 40};
@@ -1285,6 +1444,211 @@ void render_shop(SDL_Renderer *renderer, int w, int h) {
     SDL_SetRenderDrawColor(renderer, 200, 100, 100, 255);
     SDL_RenderDrawRect(renderer, &btn_close);
     render_text(renderer, "Close", btn_close.x + 20, btn_close.y + 8, col_white, 0);
+}
+
+void render_trade_window(SDL_Renderer *renderer, int w, int h) {
+    if (!show_trade) return;
+
+    // CENTER LARGE trade window
+    trade_window = (SDL_Rect){w/2 - 400, h/2 - 300, 800, 600};
+
+    // Get mouse position for tooltips
+    int mx, my;
+    SDL_GetMouseState(&mx, &my);
+    // Convert mouse coordinates to UI space
+    extern float scale_x, scale_y;
+    mx = (int)((mx * scale_x) / ui_scale);
+    my = (int)((my * scale_y) / ui_scale);
+    SDL_Point mp = {mx, my};
+    
+    // Reset tooltip for this frame (if we are rendering this window)
+    show_tooltip = 0;
+
+    // Background
+    SDL_SetRenderDrawColor(renderer, 20, 25, 35, 240);
+    SDL_RenderFillRect(renderer, &trade_window);
+    SDL_SetRenderDrawColor(renderer, 100, 150, 255, 255);
+    SDL_RenderDrawRect(renderer, &trade_window);
+
+    // Title
+    char title[128];
+    snprintf(title, 128, "Trading with %s", trade_partner_name);
+    render_text(renderer, title, trade_window.x + trade_window.w/2, trade_window.y + 10, col_cyan, 1);
+
+    // Offers Area
+    int offer_h = 240;
+    int half_w = (trade_window.w - 40) / 2;
+    SDL_Rect left_pane = {trade_window.x + 15, trade_window.y + 40, half_w, offer_h};
+    SDL_Rect right_pane = {trade_window.x + trade_window.w - half_w - 15, trade_window.y + 40, half_w, offer_h};
+
+    SDL_SetRenderDrawColor(renderer, 10, 15, 25, 200);
+    SDL_RenderFillRect(renderer, &left_pane);
+    SDL_RenderFillRect(renderer, &right_pane);
+    SDL_SetRenderDrawColor(renderer, 80, 80, 100, 255);
+    SDL_RenderDrawRect(renderer, &left_pane);
+    SDL_RenderDrawRect(renderer, &right_pane);
+
+    render_text(renderer, "Your Offer", left_pane.x + half_w/2, left_pane.y + 10, col_white, 1);
+    render_text(renderer, "Partner Offer", right_pane.x + half_w/2, right_pane.y + 10, col_white, 1);
+
+    // Render Offer Grids
+    int slot_size = 50;
+    int spacing = 5;
+    int slots_per_row = 5;
+    int grid_x_off = (half_w - (slots_per_row * (slot_size + spacing))) / 2;
+
+    for (int i = 0; i < 10; i++) {
+        int col = i % slots_per_row;
+        int row = i / slots_per_row;
+        
+        // Left
+        SDL_Rect l_slot = {left_pane.x + grid_x_off + col * (slot_size + spacing), left_pane.y + 40 + row * (slot_size + spacing), slot_size, slot_size};
+        SDL_SetRenderDrawColor(renderer, 30, 30, 40, 255);
+        SDL_RenderFillRect(renderer, &l_slot);
+        SDL_SetRenderDrawColor(renderer, 60, 60, 80, 255);
+        SDL_RenderDrawRect(renderer, &l_slot);
+        if (i < my_trade_count && my_trade_offer[i].item_id > 0) {
+            char id_str[8]; snprintf(id_str, 8, "%d", my_trade_offer[i].item_id);
+            render_text(renderer, id_str, l_slot.x + slot_size/2, l_slot.y + slot_size/2 - 10, col_white, 1);
+            if (my_trade_offer[i].quantity > 1) {
+                char qty_str[8]; snprintf(qty_str, 8, "x%d", my_trade_offer[i].quantity);
+                render_text(renderer, qty_str, l_slot.x + slot_size - 5, l_slot.y + slot_size - 15, col_white, 2);
+            }
+            
+            // Tooltip for your offer
+            if (SDL_PointInRect(&mp, &l_slot)) {
+                strncpy(tooltip_text, my_trade_offer[i].name, sizeof(tooltip_text) - 1);
+                tooltip_x = mx + 15;
+                tooltip_y = my - 30;
+                show_tooltip = 1;
+            }
+        }
+
+        // Right
+        SDL_Rect r_slot = {right_pane.x + grid_x_off + col * (slot_size + spacing), right_pane.y + 40 + row * (slot_size + spacing), slot_size, slot_size};
+        SDL_SetRenderDrawColor(renderer, 30, 30, 40, 255);
+        SDL_RenderFillRect(renderer, &r_slot);
+        SDL_SetRenderDrawColor(renderer, 60, 60, 80, 255);
+        SDL_RenderDrawRect(renderer, &r_slot);
+        if (i < partner_trade_count && partner_trade_offer[i].item_id > 0) {
+            char id_str[8]; snprintf(id_str, 8, "%d", partner_trade_offer[i].item_id);
+            render_text(renderer, id_str, r_slot.x + slot_size/2, r_slot.y + slot_size/2 - 10, col_white, 1);
+            if (partner_trade_offer[i].quantity > 1) {
+                char qty_str[8]; snprintf(qty_str, 8, "x%d", partner_trade_offer[i].quantity);
+                render_text(renderer, qty_str, r_slot.x + slot_size - 5, r_slot.y + slot_size - 15, col_white, 2);
+            }
+            
+            // Tooltip for partner offer
+            if (SDL_PointInRect(&mp, &r_slot)) {
+                strncpy(tooltip_text, partner_trade_offer[i].name, sizeof(tooltip_text) - 1);
+                tooltip_x = mx + 15;
+                tooltip_y = my - 30;
+                show_tooltip = 1;
+            }
+        }
+    }
+
+    // --- YOUR INVENTORY SECTION (Integrated) ---
+    SDL_Rect inv_pane = {trade_window.x + 15, trade_window.y + offer_h + 50, trade_window.w - 30, 220};
+    SDL_SetRenderDrawColor(renderer, 15, 20, 30, 200);
+    SDL_RenderFillRect(renderer, &inv_pane);
+    SDL_SetRenderDrawColor(renderer, 70, 70, 90, 255);
+    SDL_RenderDrawRect(renderer, &inv_pane);
+    render_text(renderer, "Choose Items from Your Inventory", inv_pane.x + inv_pane.w/2, inv_pane.y + 10, col_cyan, 1);
+
+    int inv_slot_size = 45;
+    int inv_slots_per_row = 15;
+    int inv_grid_x = (inv_pane.w - (inv_slots_per_row * (inv_slot_size + spacing))) / 2;
+    for (int i = 0; i < MAX_INVENTORY_SLOTS; i++) {
+        int col = i % inv_slots_per_row;
+        int row = i / inv_slots_per_row;
+        SDL_Rect slot_rect = {inv_pane.x + inv_grid_x + col * (inv_slot_size + spacing), inv_pane.y + 40 + row * (inv_slot_size + spacing), inv_slot_size, inv_slot_size};
+        
+        SDL_SetRenderDrawColor(renderer, 25, 25, 35, 255);
+        SDL_RenderFillRect(renderer, &slot_rect);
+        SDL_SetRenderDrawColor(renderer, 50, 50, 70, 255);
+        SDL_RenderDrawRect(renderer, &slot_rect);
+
+        if (my_inventory[i].item.item_id > 0) {
+            char id_str[8]; snprintf(id_str, 8, "%d", my_inventory[i].item.item_id);
+            render_text(renderer, id_str, slot_rect.x + inv_slot_size/2, slot_rect.y + inv_slot_size/2 - 10, col_white, 1);
+            if (my_inventory[i].item.quantity > 1) {
+                char qty_str[8]; snprintf(qty_str, 8, "x%d", my_inventory[i].item.quantity);
+                render_text(renderer, qty_str, slot_rect.x + inv_slot_size - 5, slot_rect.y + inv_slot_size - 15, col_white, 2);
+            }
+            
+            // Tooltip for inventory item in trade window
+            if (SDL_PointInRect(&mp, &slot_rect)) {
+                strncpy(tooltip_text, my_inventory[i].item.name, sizeof(tooltip_text) - 1);
+                tooltip_x = mx + 15;
+                tooltip_y = my - 30;
+                show_tooltip = 1;
+            }
+        }
+    }
+
+    // --- FOOTER (Gold & Buttons) ---
+    // Gold Inputs
+    SDL_Rect r_my_gold = {left_pane.x + 20, left_pane.y + left_pane.h - 40, half_w - 40, 30};
+    if (trade_gold_input_active) {
+        render_input_with_cursor(renderer, r_my_gold, trade_gold_buffer, 1, 0);
+    } else {
+        SDL_SetRenderDrawColor(renderer, 5, 10, 20, 255);
+        SDL_RenderFillRect(renderer, &r_my_gold);
+        SDL_SetRenderDrawColor(renderer, 60, 60, 80, 255);
+        SDL_RenderDrawRect(renderer, &r_my_gold);
+        if (my_trade_gold == 0) {
+            render_text(renderer, "Enter Gold...", r_my_gold.x + 10, r_my_gold.y + 5, (SDL_Color){100,100,120,255}, 0);
+        } else {
+            char g_lbl[32]; snprintf(g_lbl, 32, "Gold: %d", my_trade_gold);
+            render_text(renderer, g_lbl, r_my_gold.x + 10, r_my_gold.y + 5, (SDL_Color){255,215,0,255}, 0);
+        }
+    }
+
+    SDL_Rect r_p_gold = {right_pane.x + 20, right_pane.y + right_pane.h - 40, half_w - 40, 30};
+    SDL_SetRenderDrawColor(renderer, 10, 10, 10, 255);
+    SDL_RenderFillRect(renderer, &r_p_gold);
+    SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255);
+    SDL_RenderDrawRect(renderer, &r_p_gold);
+    char pg_str[32]; snprintf(pg_str, 32, "Partner Gold: %d", partner_trade_gold);
+    render_text(renderer, pg_str, r_p_gold.x + 10, r_p_gold.y + 5, (SDL_Color){255,215,0,255}, 0);
+
+    // Buttons
+    btn_trade_confirm = (SDL_Rect){trade_window.x + trade_window.w/2 - 130, trade_window.y + trade_window.h - 60, 120, 40};
+    btn_trade_cancel = (SDL_Rect){trade_window.x + trade_window.w/2 + 10, trade_window.y + trade_window.h - 60, 120, 40};
+
+    SDL_SetRenderDrawColor(renderer, my_trade_confirmed ? 0 : 60, my_trade_confirmed ? 200 : 60, 0, 255);
+    SDL_RenderFillRect(renderer, &btn_trade_confirm);
+    render_text(renderer, my_trade_confirmed ? "CONFIRMED" : "TRADE", btn_trade_confirm.x + 60, btn_trade_confirm.y + 10, col_white, 1);
+
+    SDL_SetRenderDrawColor(renderer, 150, 0, 0, 255);
+    SDL_RenderFillRect(renderer, &btn_trade_cancel);
+    render_text(renderer, "CANCEL", btn_trade_cancel.x + 15, btn_trade_cancel.y + 10, col_white, 0);
+}
+
+void render_trade_request_popup(SDL_Renderer *renderer, int w, int h) {
+    if (!pending_trade_req) return;
+
+    SDL_Rect win = {w/2 - 150, h/2 - 75, 300, 150};
+    SDL_SetRenderDrawColor(renderer, 10, 15, 25, 240);
+    SDL_RenderFillRect(renderer, &win);
+    SDL_SetRenderDrawColor(renderer, 255, 215, 0, 255);
+    SDL_RenderDrawRect(renderer, &win);
+
+    char msg[128];
+    snprintf(msg, 128, "Trade request from %s", trade_partner_name);
+    render_text(renderer, msg, win.x + 150, win.y + 20, col_white, 1);
+
+    SDL_Rect btn_acc = {win.x + 20, win.y + 80, 120, 40};
+    SDL_Rect btn_rej = {win.x + 160, win.y + 80, 120, 40};
+
+    SDL_SetRenderDrawColor(renderer, 0, 100, 0, 255);
+    SDL_RenderFillRect(renderer, &btn_acc);
+    render_text(renderer, "ACCEPT", btn_acc.x + 30, btn_acc.y + 10, col_white, 0);
+
+    SDL_SetRenderDrawColor(renderer, 100, 0, 0, 255);
+    SDL_RenderFillRect(renderer, &btn_rej);
+    render_text(renderer, "REJECT", btn_rej.x + 30, btn_rej.y + 10, col_white, 0);
 }
 
 void render_quest_log(SDL_Renderer *renderer, int w, int h) {
@@ -2430,7 +2794,8 @@ void render_profile(SDL_Renderer *renderer) {
     // Check My Role to adjust height for Admin Button
     int my_role = 0; 
     for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].id == local_player_id) my_role = local_players[i].role;
-    if (my_role >= ROLE_ADMIN) profile_win.h = 330; // Taller for admin
+    if (my_role >= ROLE_ADMIN) profile_win.h = 370; // Taller for admin
+    else profile_win.h = 320; // 280 + button height + margin
 
     SDL_SetRenderDrawColor(renderer, 30, 30, 50, 230); SDL_RenderFillRect(renderer, &profile_win);
     SDL_SetRenderDrawColor(renderer, 200, 200, 255, 255); SDL_RenderDrawRect(renderer, &profile_win);
@@ -2481,9 +2846,14 @@ void render_profile(SDL_Renderer *renderer) {
     else { SDL_SetRenderDrawColor(renderer, 200, 50, 50, 255); SDL_RenderFillRect(renderer, &btn_hide); render_text(renderer, get_string(STR_HIDE), btn_hide.x + (btn_w/2) - 20, btn_hide.y + 5, col_white, 0); }
     btn_hide_player_dyn = btn_hide;
 
+    SDL_Rect btn_trade = {profile_win.x + 20, start_y + 120, btn_w, 30};
+    SDL_SetRenderDrawColor(renderer, 0, 100, 200, 255); SDL_RenderFillRect(renderer, &btn_trade);
+    render_text(renderer, "Trade", btn_trade.x + (btn_w/2) - 20, btn_trade.y + 5, col_white, 0);
+    btn_trade_request_rect = btn_trade;
+
     // --- NEW: Sanction Button (Admin Only) ---
     if (my_role >= ROLE_ADMIN) {
-        btn_sanction_open = (SDL_Rect){profile_win.x + 20, start_y + 120, btn_w, 30};
+        btn_sanction_open = (SDL_Rect){profile_win.x + 20, start_y + 160, btn_w, 30};
         SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); SDL_RenderFillRect(renderer, &btn_sanction_open);
         render_text(renderer, get_string(STR_SANCTION), btn_sanction_open.x + (btn_w/2) - 35, btn_sanction_open.y + 5, col_white, 0);
     }
@@ -3108,6 +3478,28 @@ void render_game(SDL_Renderer *renderer) {
         }
     }
 
+    // --- Draw Floating Damage ---
+    Uint32 ticks = SDL_GetTicks();
+    for (int i = 0; i < 50; i++) {
+        if (floating_damages[i].timestamp > 0) {
+            Uint32 elapsed = ticks - floating_damages[i].timestamp;
+            if (elapsed > 1500) {
+                floating_damages[i].timestamp = 0;
+                continue;
+            }
+            // Animate up
+            float fly_y = (elapsed / 1000.0f) * 40.0f;
+            int rx = (int)floating_damages[i].x - cam_x;
+            int ry = (int)floating_damages[i].y - cam_y - (int)fly_y - 20;
+
+            // Fade out
+            SDL_Color c = floating_damages[i].color;
+            if (elapsed > 1000) c.a = (Uint8)(255 * (1.0f - (elapsed - 1000) / 500.0f));
+
+            render_text(renderer, floating_damages[i].msg, rx, ry, c, 1);
+        }
+    }
+
     // 2.4. Draw NPCs
     // Get player position for proximity check
     float player_x = 0, player_y = 0;
@@ -3247,6 +3639,40 @@ void render_game(SDL_Renderer *renderer) {
     }
 
     // 3. Reset scale before applying UI scale
+    // 2.6. Draw Enemies
+    for (int i = 0; i < client_enemy_count; i++) {
+         if (!client_enemies[i].active) continue;
+         
+         // Use camera coordinates
+         int draw_x = (int)client_enemies[i].x - cam_x;
+         int draw_y = (int)client_enemies[i].y - cam_y;
+         
+         // Only render if on screen (adding some margin)
+         // zoomed_w/h already accounts for zoom
+         if (draw_x < -50 || draw_x > zoomed_w + 50 || draw_y < -50 || draw_y > zoomed_h + 50) continue;
+         
+         // Simple Red Rectangle for enemy
+         SDL_Rect r = {draw_x, draw_y, 32, 32};
+         SDL_SetRenderDrawColor(renderer, 200, 50, 50, 255);
+         SDL_RenderFillRect(renderer, &r);
+         
+         // Name
+         render_text(renderer, client_enemies[i].name, draw_x + 16, draw_y - 20, col_red, 1);
+         
+         // HP Bar
+         SDL_Rect hp_bg = {draw_x, draw_y - 5, 32, 4};
+         SDL_SetRenderDrawColor(renderer, 50, 0, 0, 255);
+         SDL_RenderFillRect(renderer, &hp_bg);
+         
+         if (client_enemies[i].max_hp > 0) {
+             float hp_pct = (float)client_enemies[i].hp / client_enemies[i].max_hp;
+             SDL_Rect hp_fg = {draw_x, draw_y - 5, (int)(32 * hp_pct), 4};
+             SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
+             SDL_RenderFillRect(renderer, &hp_fg);
+         }
+    }
+
+    // 3. Reset scale before applying UI scale
     SDL_RenderSetScale(renderer, 1.0f, 1.0f);
     
     // 4. Apply UI scaling (affects all UI elements, not game world)
@@ -3277,8 +3703,10 @@ void render_game(SDL_Renderer *renderer) {
     render_inventory(renderer, scaled_w, scaled_h);
     render_dialogue(renderer, scaled_w, scaled_h);
     render_shop(renderer, scaled_w, scaled_h);
+    render_trade_window(renderer, scaled_w, scaled_h);
     render_quest_log(renderer, scaled_w, scaled_h);
     render_quest_offer(renderer, scaled_w, scaled_h);
+    render_trade_request_popup(renderer, scaled_w, scaled_h);
     render_debug_overlay(renderer, scaled_w);
     render_hud(renderer, scaled_w, scaled_h);
     render_mobile_controls(renderer, scaled_w);
@@ -3329,28 +3757,60 @@ void render_game(SDL_Renderer *renderer) {
         SDL_SetRenderDrawColor(renderer, 0,0,0,200); SDL_RenderFillRect(renderer, &win);
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
         
+        // Draw Channel Toggle Buttons
+        SDL_Rect btn_g = {win.x + win.w - 105, win.y + 5, 20, 20};
+        SDL_Rect btn_l = {win.x + win.w - 80, win.y + 5, 20, 20};
+        SDL_Rect btn_t = {win.x + win.w - 55, win.y + 5, 20, 20};
+        SDL_Rect btn_w = {win.x + win.w - 30, win.y + 5, 20, 20};
+        
+        // Global
+        SDL_SetRenderDrawColor(renderer, current_chat_channel == CHAT_CHANNEL_GLOBAL ? 100 : 40, 40, 40, 255);
+        SDL_RenderFillRect(renderer, &btn_g);
+        render_text(renderer, "G", btn_g.x + 10, btn_g.y + 2, col_white, 1);
+        
+        // Local
+        SDL_SetRenderDrawColor(renderer, current_chat_channel == CHAT_CHANNEL_LOCAL ? 100 : 40, 40, 40, 255);
+        SDL_RenderFillRect(renderer, &btn_l);
+        render_text(renderer, "L", btn_l.x + 10, btn_l.y + 2, col_cyan, 1);
+        
+        // Trade
+        SDL_SetRenderDrawColor(renderer, current_chat_channel == CHAT_CHANNEL_TRADE ? 100 : 40, 40, 40, 255);
+        SDL_RenderFillRect(renderer, &btn_t);
+        render_text(renderer, "T", btn_t.x + 10, btn_t.y + 2, col_yellow, 1);
+
+        // Whisper
+        SDL_SetRenderDrawColor(renderer, current_chat_channel == CHAT_CHANNEL_WHISPER ? 100 : 40, 40, 40, 255);
+        SDL_RenderFillRect(renderer, &btn_w);
+        render_text(renderer, "W", btn_w.x + 10, btn_w.y + 2, col_magenta, 1);
+        
         SDL_RenderSetClipRect(renderer, &win); 
 
-        // Draw History with scroll offset
-        // Calculate start position: show last CHAT_VISIBLE_LINES messages by default
         int total_content_height = CHAT_HISTORY * 15;
         int visible_height = CHAT_VISIBLE_LINES * 15;
-        int default_scroll = total_content_height - visible_height; // Start scrolled to bottom
+        int default_scroll = total_content_height - visible_height; 
         
-        // Apply user scroll offset (scroll up shows older messages)
-        int effective_scroll = default_scroll - chat_scroll;
+        int effective_scroll = default_scroll - chat_scrolls[current_chat_channel];
         if (effective_scroll < 0) effective_scroll = 0;
         if (effective_scroll > total_content_height - visible_height) effective_scroll = total_content_height - visible_height;
         
         int start_line = effective_scroll / 15;
         int offset_y = effective_scroll % 15;
         
-        for(int i=0; i<CHAT_VISIBLE_LINES + 2; i++) { // +2 for partial lines at top/bottom
+        for(int i=0; i<CHAT_VISIBLE_LINES + 2; i++) {
             int line_idx = start_line + i;
             if (line_idx >= 0 && line_idx < CHAT_HISTORY) {
                 SDL_Color line_col = col_white;
-                if (strncmp(chat_log[line_idx], "To [", 4) == 0 || strncmp(chat_log[line_idx], "From [", 6) == 0) line_col = col_magenta;
-                render_text(renderer, chat_log[line_idx], 15, win.y+10+(i*15)-offset_y, line_col, 0);
+                char *line_text = chat_logs[current_chat_channel][line_idx];
+                if (strncmp(line_text, "To [", 4) == 0 || strncmp(line_text, "From [", 6) == 0) {
+                    line_col = col_magenta;
+                } else if (strncmp(line_text, "[Local]", 7) == 0) {
+                    line_col = col_cyan;
+                } else if (strncmp(line_text, "[Trade]", 7) == 0) {
+                    line_col = col_yellow;
+                } else if (strncmp(line_text, "[Whisper]", 9) == 0) {
+                    line_col = col_magenta;
+                }
+                render_text(renderer, line_text, 15, win.y+10+(i*15)-offset_y, line_col, 0);
             }
         }
 
@@ -3375,7 +3835,16 @@ void render_game(SDL_Renderer *renderer) {
             snprintf(prefix, 64, "To %s: ", name);
             input_col = col_magenta;
         } else {
-            strcpy(prefix, "> ");
+            if (current_chat_channel == CHAT_CHANNEL_LOCAL) {
+                strcpy(prefix, "[Local] > ");
+                input_col = col_cyan;
+            } else if (current_chat_channel == CHAT_CHANNEL_TRADE) {
+                strcpy(prefix, "[Trade] > ");
+                input_col = col_yellow;
+            } else {
+                strcpy(prefix, "[Global] > ");
+                input_col = col_white;
+            }
         }
 
         // 2. Combine for Display
@@ -3510,6 +3979,14 @@ void render_game(SDL_Renderer *renderer) {
         // ---------------------------------
     }
     
+
+
+
+
+    // Render Quest Windows
+    render_quest_log(renderer, w, h);
+    render_quest_offer(renderer, w, h);
+
     // Render mobile text menu last so it appears on top of everything
     #if defined(__ANDROID__) || defined(__IPHONEOS__)
     render_mobile_text_menu(renderer);
@@ -3566,6 +4043,123 @@ void request_item_unequip(int equip_slot) {
 }
 
 void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
+    // ============================================================
+    // LAYER -3: TRADE WINDOW (top priority)
+    // ============================================================
+    if (show_trade) {
+        int w_scr, h_scr; SDL_GetRendererOutputSize(global_renderer, &w_scr, &h_scr);
+        SDL_Rect t_win = {w_scr/2 - 400, h_scr/2 - 300, 800, 600};
+        
+        // Confirm Button
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_trade_confirm)) {
+            my_trade_confirmed = !my_trade_confirmed;
+            Packet pkt; memset(&pkt, 0, sizeof(Packet));
+            pkt.type = PACKET_TRADE_CONFIRM;
+            pkt.trade_confirmed = my_trade_confirmed;
+            send_packet(&pkt);
+            return;
+        }
+        // Cancel Button
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_trade_cancel)) {
+            Packet pkt; memset(&pkt, 0, sizeof(Packet));
+            pkt.type = PACKET_TRADE_CANCEL;
+            send_packet(&pkt);
+            show_trade = 0;
+            return;
+        }
+
+        // Gold Input
+        int half_w = (t_win.w - 40) / 2;
+        SDL_Rect my_gold_rect = {t_win.x + 15 + 20, t_win.y + 40 + 240 - 40, half_w - 40, 30};
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &my_gold_rect)) {
+            trade_gold_input_active = 1;
+            active_field = FIELD_TRADE_GOLD;
+            active_input_rect = my_gold_rect;
+            SDL_StartTextInput();
+            snprintf(trade_gold_buffer, 16, "%d", my_trade_gold);
+            cursor_pos = strlen(trade_gold_buffer);
+            selection_start = 0; selection_len = 0;
+            return;
+        } else if (trade_gold_input_active) {
+            // ACCEPT / BLUR logic
+            int val = atoi(trade_gold_buffer);
+            if (val < 0) val = 0;
+            if (val > my_gold) val = my_gold;
+            my_trade_gold = val;
+            
+            Packet pkt; memset(&pkt, 0, sizeof(Packet));
+            pkt.type = PACKET_TRADE_OFFER;
+            pkt.trade_offer_count = my_trade_count;
+            pkt.trade_offer_gold = my_trade_gold;
+            memcpy(pkt.trade_offer_items, my_trade_offer, sizeof(Item) * my_trade_count);
+            send_packet(&pkt);
+            my_trade_confirmed = 0;
+            trade_gold_input_active = 0;
+            active_field = -1;
+            SDL_StopTextInput();
+            // Continue processing click in case they clicked a button or item
+        }
+
+        // Removing items from your offer
+        int slot_size = 50;
+        int spacing = 5;
+        int slots_per_row = 5;
+        int grid_x_off = (half_w - (slots_per_row * (slot_size + spacing))) / 2;
+        for (int i = 0; i < my_trade_count; i++) {
+            SDL_Rect s_rect = {t_win.x + 15 + grid_x_off + (i % slots_per_row) * (slot_size + spacing), t_win.y + 40 + 40 + (i / slots_per_row) * (slot_size + spacing), slot_size, slot_size};
+            if (SDL_PointInRect(&(SDL_Point){mx, my}, &s_rect)) {
+                for(int j=i; j<my_trade_count-1; j++) my_trade_offer[j] = my_trade_offer[j+1];
+                my_trade_count--;
+                Packet pkt; memset(&pkt, 0, sizeof(Packet));
+                pkt.type = PACKET_TRADE_OFFER;
+                pkt.trade_offer_count = my_trade_count;
+                pkt.trade_offer_gold = my_trade_gold;
+                memcpy(pkt.trade_offer_items, my_trade_offer, sizeof(Item) * my_trade_count);
+                send_packet(&pkt);
+                my_trade_confirmed = 0;
+                return;
+            }
+        }
+
+        // Integrated Inventory Interaction
+        SDL_Rect inv_pane = {t_win.x + 15, t_win.y + 240 + 50, t_win.w - 30, 220};
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &inv_pane)) {
+            int inv_slot_size = 45;
+            int inv_slots_per_row = 15;
+            int inv_grid_x = (inv_pane.w - (inv_slots_per_row * (inv_slot_size + spacing))) / 2;
+            for (int i = 0; i < MAX_INVENTORY_SLOTS; i++) {
+                int col = i % inv_slots_per_row;
+                int row = i / inv_slots_per_row;
+                SDL_Rect slot_rect = {inv_pane.x + inv_grid_x + col * (inv_slot_size + spacing), inv_pane.y + 40 + row * (inv_slot_size + spacing), inv_slot_size, inv_slot_size};
+                if (SDL_PointInRect(&(SDL_Point){mx, my}, &slot_rect)) {
+                    if (my_trade_count < 10 && my_inventory[i].item.item_id > 0) {
+                        int exists = -1;
+                        for(int j=0; j<my_trade_count; j++) if(my_trade_offer[j].item_id == my_inventory[i].item.item_id) exists=j;
+                        if(exists == -1) {
+                            my_trade_offer[my_trade_count] = my_inventory[i].item;
+                            my_trade_offer[my_trade_count].quantity = 1;
+                            my_trade_count++;
+                        } else if(my_trade_offer[exists].quantity < my_inventory[i].item.quantity) {
+                            my_trade_offer[exists].quantity++;
+                        }
+                        Packet pkt; memset(&pkt, 0, sizeof(Packet));
+                        pkt.type = PACKET_TRADE_OFFER;
+                        pkt.trade_offer_count = my_trade_count;
+                        pkt.trade_offer_gold = my_trade_gold;
+                        memcpy(pkt.trade_offer_items, my_trade_offer, sizeof(Item) * my_trade_count);
+                        send_packet(&pkt);
+                        my_trade_confirmed = 0;
+                    }
+                    return;
+                }
+            }
+            return;
+        }
+
+        // Consume all clicks if trade is open
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &t_win)) return;
+    }
+
 
     // ============================================================
     // LAYER -2: QUEST WINDOWS (highest priority)
@@ -3726,7 +4320,6 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
                     continue;
                 }
                 if (y_offset > list_area.h - 40) break;
-                visible_item_count++;
                 
                 SDL_Rect item_rect = {list_area.x + 10, list_area.y + 10 + y_offset, list_area.w - 20, 35};
                 
@@ -3740,7 +4333,7 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
                     pkt.buy_sell_quantity = 1;
                     pkt.item_slot = my_inventory[i].slot_index;
                     send_packet(&pkt);
-                    printf("Attempting to sell %s (slot %d, item_id %d)\\n", 
+                    printf("Attempting to sell %s (slot %d, item_id %d)\n", 
                         my_inventory[i].item.name, my_inventory[i].slot_index, my_inventory[i].item.item_id);
                     return;
                 }
@@ -3751,6 +4344,33 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         
         // If clicked inside shop window but not on interactive elements, consume the click
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &shop_window)) {
+            return;
+        }
+    }
+
+    // ============================================================
+    // HUD ELEMENTS (Skill point allocation)
+    // ============================================================
+    if (my_skill_points > 0) {
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_stat_str)) {
+            Packet pkt; memset(&pkt, 0, sizeof(Packet));
+            pkt.type = PACKET_ALLOCATE_STATS;
+            pkt.stat_type = 0; // STR
+            send_packet(&pkt);
+            return;
+        }
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_stat_agi)) {
+            Packet pkt; memset(&pkt, 0, sizeof(Packet));
+            pkt.type = PACKET_ALLOCATE_STATS;
+            pkt.stat_type = 1; // AGI
+            send_packet(&pkt);
+            return;
+        }
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_stat_int)) {
+            Packet pkt; memset(&pkt, 0, sizeof(Packet));
+            pkt.type = PACKET_ALLOCATE_STATS;
+            pkt.stat_type = 2; // INT
+            send_packet(&pkt);
             return;
         }
     }
@@ -3937,6 +4557,28 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &slot_rect)) {
                 selected_inv_slot = i;
+                
+                if (show_trade && my_trade_count < 10 && my_inventory[i].item.item_id > 0) {
+                    int exists = -1;
+                    for(int j=0; j<my_trade_count; j++) if(my_trade_offer[j].item_id == my_inventory[i].item.item_id) exists=j;
+                    
+                    if(exists == -1) {
+                        my_trade_offer[my_trade_count] = my_inventory[i].item;
+                        my_trade_offer[my_trade_count].quantity = 1;
+                        my_trade_count++;
+                    } else if(my_trade_offer[exists].quantity < my_inventory[i].item.quantity) {
+                        my_trade_offer[exists].quantity++;
+                    }
+                    
+                    Packet pkt; memset(&pkt, 0, sizeof(Packet));
+                    pkt.type = PACKET_TRADE_OFFER;
+                    pkt.trade_offer_count = my_trade_count;
+                    pkt.trade_offer_gold = my_trade_gold;
+                    memcpy(pkt.trade_offer_items, my_trade_offer, sizeof(Item) * my_trade_count);
+                    send_packet(&pkt);
+                    my_trade_confirmed = 0;
+                }
+                
                 printf("Selected inventory slot %d\n", i);
                 return;
             }
@@ -4269,7 +4911,12 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
                 if(sock > 0) close(sock); sock = -1; is_connected = 0; Mix_HaltMusic();
                 client_state = STATE_AUTH; is_settings_open = 0; local_player_id = -1;
                 for(int i=0; i<MAX_CLIENTS; i++) { local_players[i].active = 0; local_players[i].id = -1; }
-                friend_count = 0; chat_log_count = 0; for(int i=0; i<CHAT_HISTORY; i++) strcpy(chat_log[i], "");
+                friend_count = 0; 
+                chat_log_count = 0; 
+                for(int c=0; c<5; c++) {
+                    chat_scrolls[c] = 0;
+                    for(int i=0; i<CHAT_HISTORY; i++) strcpy(chat_logs[c][i], "");
+                }
                 strcpy(auth_message, get_string(STR_ENTER_CREDENTIALS)); return;
             }
             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_documentation_rect)) { show_documentation = 1; return; }
@@ -4300,6 +4947,23 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
     // LAYER 4: GAME WORLD & TOASTS
     // ============================================================
 
+    if (pending_trade_req) {
+        SDL_Rect win = {w/2 - 150, h/2 - 75, 300, 150};
+        SDL_Rect btn_acc = {win.x + 20, win.y + 80, 120, 40};
+        SDL_Rect btn_rej = {win.x + 160, win.y + 80, 120, 40};
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_acc)) {
+            Packet pkt; memset(&pkt, 0, sizeof(Packet));
+            pkt.type = PACKET_TRADE_RESPONSE; pkt.trade_partner_id = trade_partner_id; pkt.response_accepted = 1; send_packet(&pkt);
+            pending_trade_req = 0; return;
+        }
+        if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_rej)) {
+            Packet pkt; memset(&pkt, 0, sizeof(Packet));
+            pkt.type = PACKET_TRADE_RESPONSE; pkt.trade_partner_id = trade_partner_id; pkt.response_accepted = 0; send_packet(&pkt);
+            pending_trade_req = 0; return;
+        }
+        return;
+    }
+
     if (pending_friend_req_id != -1) {
         SDL_Rect btn_accept = {popup_win.x+20, popup_win.y+70, 120, 30};
         SDL_Rect btn_deny = {popup_win.x+160, popup_win.y+70, 120, 30};
@@ -4318,8 +4982,16 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
         }
         else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_send_pm)) {
             chat_target_id = selected_player_id; is_chat_open = 1; input_buffer[0] = 0; 
-            chat_input_active = 1; // Activate input for immediate typing
+            chat_input_active = 1; 
             SDL_StartTextInput(); 
+            selected_player_id = -1; return;
+        }
+        else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_trade_request_rect)) {
+            Packet pkt; memset(&pkt, 0, sizeof(Packet));
+            pkt.type = PACKET_TRADE_REQUEST;
+            pkt.trade_partner_id = selected_player_id;
+            send_packet(&pkt);
+            printf("Trade request sent to %d\n", selected_player_id);
             selected_player_id = -1; return;
         }
         else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_hide_player_dyn)) {
@@ -4388,10 +5060,28 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
                         client_npcs[i].name, distance, NPC_INTERACTION_RADIUS);
                 }
                 
+                // The original code had 'clicked = 1; return;' here.
+                // The instruction implies moving the packet send and return outside the distance check.
+                // However, the packet 'pkt' is only initialized inside the 'if (distance <= NPC_INTERACTION_RADIUS)' block.
+                // To make this syntactically correct and follow the spirit of the instruction,
+                // I will assume the 'send_packet(&pkt); return;' from the instruction refers to the NPC interaction packet,
+                // and that it should only be sent if interaction is successful.
+                // The 'clicked = 1;' and 'return;' from the original code will be kept as they are.
+                // The new PVP toggle block will be inserted after the NPC loop.
+                
                 clicked = 1;
                 return;
             }
         }
+    }
+    
+    // PVP Toggle Click
+    if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_pvp_toggle)) {
+        Packet pkt; memset(&pkt, 0, sizeof(Packet));
+        pkt.type = PACKET_PVP_TOGGLE;
+        pkt.pvp_enabled = !my_pvp_enabled;
+        send_packet(&pkt);
+        return;
     }
     
     // Check players
@@ -4603,7 +5293,6 @@ int main(int argc, char *argv[]) {
         printf("Failed. Error Code : %d", WSAGetLastError());
         return 1;
     }
-    FreeConsole();
     #endif
     
     // Configure NVIDIA Prime GPU selection on Linux if enabled in config
@@ -4974,6 +5663,64 @@ int main(int argc, char *argv[]) {
 
             if (event.type == SDL_QUIT) running = 0;
             
+            // --- Input Handling ---
+            else if (event.type == SDL_KEYDOWN) {
+                if (!chat_input_active && client_state == STATE_GAME) {
+                    if (event.key.keysym.sym == SDLK_SPACE) {
+                        // Find nearest enemy and attack
+                        int nearest = -1;
+                        float min_dist = 96.0f; // Attack range
+                        
+                        // Get my pos
+                        float px=0, py=0; 
+                        for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { px=local_players[i].x; py=local_players[i].y; }
+
+                        for(int i=0; i<client_enemy_count; i++) {
+                             if(!client_enemies[i].active) continue;
+                             float dx = client_enemies[i].x - px;
+                             float dy = client_enemies[i].y - py;
+                             float dist = sqrt(dx*dx + dy*dy);
+                             if(dist < min_dist) { min_dist=dist; nearest=i; }
+                        }
+                        
+                        if(nearest != -1) {
+                            Packet pkt; memset(&pkt, 0, sizeof(Packet));
+                            pkt.type = PACKET_ENEMY_ATTACK;
+                            pkt.enemy_id = client_enemies[nearest].enemy_id;
+                            send_packet(&pkt);
+                            printf("Attacking enemy %d\n", pkt.enemy_id);
+                        } else if (my_pvp_enabled) {
+                            // Target nearest player if PvP enabled
+                            int target_player = -1;
+                            float target_dist = 96.0f;
+                            for (int i = 0; i < MAX_CLIENTS; i++) {
+                                if (local_players[i].active && local_players[i].id != local_player_id) {
+                                    float dx = local_players[i].x - px;
+                                    float dy = local_players[i].y - py;
+                                    float dist = sqrt(dx*dx + dy*dy);
+                                    if (dist < target_dist) { target_dist = dist; target_player = i; }
+                                }
+                            }
+                            if (target_player != -1) {
+                                Packet pkt; memset(&pkt, 0, sizeof(Packet));
+                                pkt.type = PACKET_ATTACK;
+                                pkt.target_id = local_players[target_player].id;
+                                send_packet(&pkt);
+                                printf("Attacking player %d (%s)\n", pkt.target_id, local_players[target_player].username);
+                            }
+                        }
+                    }
+                    if (event.key.keysym.sym == SDLK_q) {
+                        show_quest_log = !show_quest_log;
+                        if(show_quest_log) {
+                             Packet pkt; memset(&pkt, 0, sizeof(Packet));
+                             pkt.type = PACKET_QUEST_LIST;
+                             send_packet(&pkt);
+                        }
+                    }
+                }
+            }
+
             // --- Scroll Handling ---
             else if (event.type == SDL_MOUSEWHEEL) {
                 int scroll_amount = event.wheel.y * SCROLL_SPEED;
@@ -5051,14 +5798,13 @@ int main(int argc, char *argv[]) {
                     if (blocked_scroll > max_scroll) blocked_scroll = max_scroll;
                 }
                 else if (is_chat_open) {
-                    chat_scroll += scroll_amount; // Note: inverted - scroll up increases scroll value to see older messages
-                    if (chat_scroll < 0) chat_scroll = 0;
-                    // Chat window: 100 messages * 15px = 1500px total, show last 10 (150px visible)
+                    chat_scrolls[current_chat_channel] += scroll_amount; 
+                    if (chat_scrolls[current_chat_channel] < 0) chat_scrolls[current_chat_channel] = 0;
                     int total_content = CHAT_HISTORY * 15;
                     int visible_content = CHAT_VISIBLE_LINES * 15;
                     int max_scroll = total_content - visible_content;
                     if (max_scroll < 0) max_scroll = 0;
-                    if (chat_scroll > max_scroll) chat_scroll = max_scroll;
+                    if (chat_scrolls[current_chat_channel] > max_scroll) chat_scrolls[current_chat_channel] = max_scroll;
                 }
                 else if (is_settings_open) {
                     settings_scroll_y -= scroll_amount; 
@@ -5736,14 +6482,13 @@ int main(int argc, char *argv[]) {
                     }
                     else if (scroll_window_id == 8 && is_chat_open) {
                         // Chat
-                        chat_scroll -= delta; // Touch drag down = see newer, drag up = see older
-                        if (chat_scroll < 0) chat_scroll = 0;
+                        chat_scrolls[current_chat_channel] -= delta; // Touch drag down = see newer, drag up = see older
+                        if (chat_scrolls[current_chat_channel] < 0) chat_scrolls[current_chat_channel] = 0;
                         int total_content = CHAT_HISTORY * 15;
                         int visible_content = CHAT_VISIBLE_LINES * 15;
                         int max_scroll = total_content - visible_content;
                         if (max_scroll < 0) max_scroll = 0;
-                        if (chat_scroll > max_scroll) chat_scroll = max_scroll;
-                        printf("[FINGERMOTION] Chat scroll: delta=%d scroll=%d\n", delta, chat_scroll);
+                        if (chat_scrolls[current_chat_channel] > max_scroll) chat_scrolls[current_chat_channel] = max_scroll;
                     }
                     else if (scroll_window_id == 9 && show_inventory) {
                         // Inventory
@@ -6205,6 +6950,32 @@ int main(int argc, char *argv[]) {
                                  keyboard_height = screen_h * 0.4;
                              }
                              #endif
+                         } else if (SDL_PointInRect(&(SDL_Point){mx, my}, &chat_win)) {
+                             // Check Channel Buttons
+                             int chat_y = screen_h - 240;
+                             #if defined(__ANDROID__) || defined(__IPHONEOS__)
+                             chat_y = get_chat_window_y(screen_h, ui_scale);
+                             #endif
+                             SDL_Rect chat_win_rect = {10, chat_y, 300, 190};
+                             
+                             SDL_Rect btn_g = {chat_win_rect.x + chat_win_rect.w - 105, chat_win_rect.y + 5, 20, 20};
+                             SDL_Rect btn_l = {chat_win_rect.x + chat_win_rect.w - 80, chat_win_rect.y + 5, 20, 20};
+                             SDL_Rect btn_t = {chat_win_rect.x + chat_win_rect.w - 55, chat_win_rect.y + 5, 20, 20};
+                             SDL_Rect btn_w = {chat_win_rect.x + chat_win_rect.w - 30, chat_win_rect.y + 5, 20, 20};
+                             
+                             if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_g)) {
+                                 current_chat_channel = CHAT_CHANNEL_GLOBAL;
+                                 add_chat_message(&(Packet){.type=PACKET_CHAT, .player_id=-1, .msg="Switched to Global channel."});
+                             } else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_l)) {
+                                 current_chat_channel = CHAT_CHANNEL_LOCAL;
+                                 add_chat_message(&(Packet){.type=PACKET_CHAT, .player_id=-1, .msg="Switched to Local channel."});
+                             } else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_t)) {
+                                 current_chat_channel = CHAT_CHANNEL_TRADE;
+                                 add_chat_message(&(Packet){.type=PACKET_CHAT, .player_id=-1, .msg="Switched to Trade channel."});
+                             } else if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_w)) {
+                                 current_chat_channel = CHAT_CHANNEL_WHISPER;
+                                 add_chat_message(&(Packet){.type=PACKET_CHAT, .player_id=-1, .msg="Switched to Whisper channel."});
+                             }
                          } else if (!SDL_PointInRect(&(SDL_Point){mx, my}, &chat_win)) {
                              chat_input_active = 0;
                              if (active_field < 0) SDL_StopTextInput();
@@ -6249,11 +7020,44 @@ int main(int argc, char *argv[]) {
                                 if (chat_target_id != -1) {
                                     pkt.type = PACKET_PRIVATE_MESSAGE; 
                                     pkt.target_id = chat_target_id; 
+                                } else if (strncmp(input_buffer, "/trade ", 7) == 0) {
+                                    pkt.type = PACKET_TRADE_REQUEST;
+                                    pkt.trade_partner_id = atoi(input_buffer + 7);
+                                } else if (strncmp(input_buffer, "/w ", 3) == 0 || strncmp(input_buffer, "/whisper ", 9) == 0) {
+                                    int skip = (input_buffer[2] == ' ') ? 3 : 9;
+                                    char *space = strchr(input_buffer + skip, ' ');
+                                    if (space) {
+                                        *space = 0;
+                                        int tid = atoi(input_buffer + skip);
+                                        char *msg = space + 1;
+                                        pkt.type = PACKET_PRIVATE_MESSAGE;
+                                        pkt.target_id = tid;
+                                        strncpy(pkt.msg, msg, 63);
+                                        send_packet(&pkt);
+                                        input_buffer[0] = 0; cursor_pos = 0; 
+                                        is_chat_open = 0; chat_input_active = 0; SDL_StopTextInput();
+                                    }
+                                } else if (strcmp(input_buffer, "/g") == 0 || strcmp(input_buffer, "/global") == 0) {
+                                    current_chat_channel = CHAT_CHANNEL_GLOBAL;
+                                    add_chat_message(&(Packet){.type=PACKET_CHAT, .player_id=-1, .chat_channel=CHAT_CHANNEL_GLOBAL, .msg="Switched to Global channel."});
+                                    input_buffer[0] = 0; cursor_pos = 0;
+                                } else if (strcmp(input_buffer, "/l") == 0 || strcmp(input_buffer, "/local") == 0 || strcmp(input_buffer, "/s") == 0 || strcmp(input_buffer, "/say") == 0) {
+                                    current_chat_channel = CHAT_CHANNEL_LOCAL;
+                                    add_chat_message(&(Packet){.type=PACKET_CHAT, .player_id=-1, .chat_channel=CHAT_CHANNEL_LOCAL, .msg="Switched to Local channel."});
+                                    input_buffer[0] = 0; cursor_pos = 0;
+                                } else if (strcmp(input_buffer, "/t") == 0 || strcmp(input_buffer, "/trade") == 0) {
+                                    current_chat_channel = CHAT_CHANNEL_TRADE;
+                                    add_chat_message(&(Packet){.type=PACKET_CHAT, .player_id=-1, .chat_channel=CHAT_CHANNEL_TRADE, .msg="Switched to Trade channel."});
+                                    input_buffer[0] = 0; cursor_pos = 0;
                                 } else { 
                                     pkt.type = PACKET_CHAT; 
+                                    pkt.chat_channel = current_chat_channel;
                                 }
-                                strcpy(pkt.msg, input_buffer); 
-                                send_packet(&pkt);
+                                
+                                if (strlen(input_buffer) > 0) {
+                                    strncpy(pkt.msg, input_buffer, 63); 
+                                    send_packet(&pkt);
+                                }
                                 
                                 input_buffer[0] = 0; 
                                 cursor_pos = 0;
@@ -6313,6 +7117,27 @@ int main(int argc, char *argv[]) {
                     if (active_field == 30) { target = input_sanction_reason; max = 63; }
                     if (active_field == 31) { target = input_ban_time; max = 15; }
                     if (target) handle_text_edit(target, max, &event);
+                }
+                else if (trade_gold_input_active && active_field == FIELD_TRADE_GOLD) {
+                    if (event.type == SDL_KEYDOWN && (event.key.keysym.sym == SDLK_RETURN || event.key.keysym.sym == SDLK_KP_ENTER)) {
+                        int val = atoi(trade_gold_buffer);
+                        if (val < 0) val = 0;
+                        if (val > my_gold) val = my_gold;
+                        my_trade_gold = val;
+                        
+                        Packet pkt; memset(&pkt, 0, sizeof(Packet));
+                        pkt.type = PACKET_TRADE_OFFER;
+                        pkt.trade_offer_count = my_trade_count;
+                        pkt.trade_offer_gold = my_trade_gold;
+                        memcpy(pkt.trade_offer_items, my_trade_offer, sizeof(Item) * my_trade_count);
+                        send_packet(&pkt);
+                        my_trade_confirmed = 0;
+                        trade_gold_input_active = 0;
+                        active_field = -1;
+                        SDL_StopTextInput();
+                    } else {
+                        handle_text_edit(trade_gold_buffer, 15, &event);
+                    }
                 }
                 else {
                     // Chat Trigger
@@ -6439,12 +7264,23 @@ int main(int argc, char *argv[]) {
                             
                             load_config(); 
                             
+                            my_gold = pkt.gold;
+                            my_xp = pkt.xp;
+                            my_level = pkt.level;
+                            my_str = pkt.str;
+                            my_agi = pkt.agi;
+                            my_intel = pkt.intel;
+                            my_hp = pkt.hp;
+                            my_max_hp = pkt.max_hp;
+                            my_mana = pkt.mana;
+                            my_max_mana = pkt.max_mana;
+                            my_skill_points = pkt.skill_points;
+
                             Packet cpkt; cpkt.type = PACKET_COLOR_CHANGE; 
                             cpkt.r = saved_r; cpkt.g = saved_g; cpkt.b = saved_b; 
                             cpkt.r2 = my_r2; cpkt.g2 = my_g2; cpkt.b2 = my_b2;
                             send_packet(&cpkt);
                             
-                            // Send telemetry data
                             send_telemetry();
                         }
                         else if (pkt.status == AUTH_REGISTER_SUCCESS) strcpy(auth_message, get_string(STR_SUCCESS_REGISTERED));
@@ -6535,6 +7371,12 @@ int main(int argc, char *argv[]) {
                             }
                         }
                     }
+                    if (pkt.type == PACKET_ENEMY_LIST) {
+                        client_enemy_count = pkt.enemy_count;
+                        for (int i=0; i<client_enemy_count; i++) {
+                             client_enemies[i] = pkt.enemies[i];
+                        }
+                    }
                     if (pkt.type == PACKET_FRIEND_LIST) { friend_count = pkt.friend_count; memcpy(my_friends, pkt.friends, sizeof(pkt.friends)); }                
                     if (pkt.type == PACKET_FRIEND_INCOMING) { 
                         if (inbox_count < 10) {
@@ -6562,6 +7404,56 @@ int main(int argc, char *argv[]) {
                             staff_list[i].id = pkt.roles[i].id;
                             strncpy(staff_list[i].name, pkt.roles[i].username, 31);
                             staff_list[i].role = pkt.roles[i].role;
+                        }
+                    }
+                    if (pkt.type == PACKET_TRADE_REQUEST) {
+                        trade_partner_id = pkt.player_id;
+                        strncpy(trade_partner_name, pkt.username, 63);
+                        pending_trade_req = 1;
+                        push_chat_line(CHAT_CHANNEL_WHISPER, "Received trade request. Open friend info or use /accept.");
+                    }
+                    if (pkt.type == PACKET_TRADE_RESPONSE) {
+                        if (pkt.response_accepted) {
+                            show_trade = 1;
+                            trade_partner_id = pkt.trade_partner_id;
+                            strncpy(trade_partner_name, pkt.username, 63);
+                            my_trade_count = 0;
+                            my_trade_gold = 0;
+                            partner_trade_count = 0;
+                            partner_trade_gold = 0;
+                            my_trade_confirmed = 0;
+                            partner_trade_confirmed = 0;
+                        } else {
+                            push_chat_line(CHAT_CHANNEL_WHISPER, "Trade request was rejected.");
+                        }
+                    }
+                    if (pkt.type == PACKET_TRADE_OFFER) {
+                        partner_trade_count = pkt.trade_offer_count;
+                        partner_trade_gold = pkt.trade_offer_gold;
+                        for (int i=0; i<pkt.trade_offer_count && i<10; i++) {
+                            partner_trade_offer[i] = pkt.trade_offer_items[i];
+                        }
+                        my_trade_confirmed = 0; // Reset confirmation if partner changes offer
+                    }
+                    if (pkt.type == PACKET_TRADE_CONFIRM) {
+                        partner_trade_confirmed = pkt.trade_confirmed;
+                    }
+                    if (pkt.type == PACKET_TRADE_CANCEL) {
+                        show_trade = 0;
+                        trade_partner_id = -1;
+                        if (pkt.response_accepted) push_chat_line(CHAT_CHANNEL_WHISPER, "Trade completed!");
+                        else push_chat_line(CHAT_CHANNEL_WHISPER, "Trade cancelled.");
+                    }
+                    if (pkt.type == PACKET_DAMAGE) {
+                        // Find empty slot for floating damage
+                        int slot = -1;
+                        for(int i=0; i<50; i++) if(floating_damages[i].timestamp == 0) { slot = i; break; }
+                        if (slot != -1) {
+                            sprintf(floating_damages[slot].msg, "%d", pkt.damage);
+                            floating_damages[slot].x = pkt.dx;
+                            floating_damages[slot].y = pkt.dy;
+                            floating_damages[slot].timestamp = SDL_GetTicks();
+                            floating_damages[slot].color = (SDL_Color){255, 50, 50, 255}; // Default red
                         }
                     }
                     if (pkt.type == PACKET_KICK) {
@@ -6601,11 +7493,40 @@ int main(int argc, char *argv[]) {
                         printf("NPCs updated: %d NPCs loaded\n", client_npc_count);
                     }
                     if (pkt.type == PACKET_CURRENCY_UPDATE) {
+                        // Detect Level Up
+                        if (pkt.level > my_level && my_level > 0) {
+                            int slot = -1;
+                            for(int i=0; i<50; i++) if(floating_damages[i].timestamp == 0) { slot = i; break; }
+                            if(slot != -1) {
+                                float px=0, py=0; 
+                                for(int i=0; i<MAX_CLIENTS; i++) if(local_players[i].active && local_players[i].id == local_player_id) { px=local_players[i].x; py=local_players[i].y; }
+                                
+                                strcpy(floating_damages[slot].msg, "LEVEL UP!");
+                                floating_damages[slot].x = px;
+                                floating_damages[slot].y = py;
+                                floating_damages[slot].timestamp = SDL_GetTicks();
+                                floating_damages[slot].color = (SDL_Color){255, 255, 0, 255}; // Yellow
+                            }
+                        }
+                        
                         // Update player currency and stats
                         my_gold = pkt.gold;
                         my_xp = pkt.xp;
                         my_level = pkt.level;
-                        printf("Currency updated: Gold=%d, XP=%d, Level=%d\n", my_gold, my_xp, my_level);
+                        my_str = pkt.str;
+                        my_agi = pkt.agi;
+                        my_intel = pkt.intel;
+                        my_hp = pkt.hp;
+                        my_max_hp = pkt.max_hp;
+                        my_mana = pkt.mana;
+                        my_max_mana = pkt.max_mana;
+                        my_skill_points = pkt.skill_points;
+                        my_pvp_enabled = pkt.pvp_enabled;
+                        printf("Currency updated: Gold=%d, XP=%d, Level=%d, SkillPoints=%d, PVP=%d\n", my_gold, my_xp, my_level, my_skill_points, my_pvp_enabled);
+                    }
+                    if (pkt.type == PACKET_PVP_TOGGLE) {
+                         my_pvp_enabled = pkt.pvp_enabled;
+                         printf("PvP state changed to: %d\n", my_pvp_enabled);
                     }
                     if (pkt.type == PACKET_INVENTORY_UPDATE) {
                         // Update local inventory from server

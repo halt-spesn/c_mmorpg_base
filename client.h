@@ -83,6 +83,7 @@ typedef enum {
 
 // --- Chat & Auth ---
 typedef struct { char msg[64]; Uint32 timestamp; } FloatingText;
+typedef struct { char msg[16]; float x, y; Uint32 timestamp; SDL_Color color; } FloatingDamage;
 #define CHAT_HISTORY 100
 #define CHAT_VISIBLE_LINES 10
 
@@ -105,6 +106,7 @@ typedef enum { STATE_AUTH, STATE_GAME } ClientState;
 #define FIELD_FRIEND_ID 25
 #define FIELD_SANCTION_REASON 30
 #define FIELD_BAN_TIME 31
+#define FIELD_TRADE_GOLD 40
 
 // --- Server List ---
 typedef struct { char name[32]; char ip[64]; int port; } ServerEntry;
@@ -201,11 +203,13 @@ extern SDL_Rect btn_toggle_fps;
 extern SDL_Rect btn_toggle_coords;
 
 extern FloatingText floating_texts[MAX_CLIENTS];
-extern char chat_log[CHAT_HISTORY][64];
+extern char chat_logs[5][CHAT_HISTORY][64];
 extern int chat_log_count;
-extern int chat_scroll;
+extern int chat_scrolls[5];
 extern int is_chat_open;
 extern int chat_target_id;
+extern FloatingDamage floating_damages[50];
+extern int floating_damage_count;
 extern int chat_input_active;
 extern char input_buffer[64];
 
@@ -415,6 +419,24 @@ extern int inventory_scroll;
 extern int selected_inv_slot;
 extern int dragging_item_slot;
 
+// --- Trading System ---
+extern int show_trade;
+extern int trade_partner_id;
+extern char trade_partner_name[64];
+extern Item my_trade_offer[10];
+extern int my_trade_count;
+extern int my_trade_gold;
+extern Item partner_trade_offer[10];
+extern int partner_trade_count;
+extern int partner_trade_gold;
+extern int my_trade_confirmed;
+extern int partner_trade_confirmed;
+extern SDL_Rect trade_window;
+extern SDL_Rect btn_trade_confirm;
+extern SDL_Rect btn_trade_cancel;
+extern int trade_gold_input_active;
+extern char trade_gold_buffer[16];
+
 // --- Function Declarations ---
 
 // Network functions (client_network.c)
@@ -442,7 +464,7 @@ void add_profile_to_list(const char* username, const char* password);
 // Utils functions (client_utils.c)
 int is_blocked(int id);
 void reset_avatar_cache(void);
-void push_chat_line(const char *text);
+void push_chat_line(int channel, const char *text);
 void toggle_block(int id);
 SDL_Color get_status_color(int status);
 int scale_ui(int value);

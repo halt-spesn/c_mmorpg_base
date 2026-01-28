@@ -69,7 +69,8 @@ typedef enum {
     PACKET_QUEST_LIST, PACKET_QUEST_ACCEPT, PACKET_QUEST_COMPLETE, PACKET_QUEST_ABANDON, PACKET_QUEST_PROGRESS,
     PACKET_SHOP_OPEN, PACKET_SHOP_BUY, PACKET_SHOP_SELL,
     PACKET_TRADE_REQUEST, PACKET_TRADE_RESPONSE, PACKET_TRADE_OFFER, PACKET_TRADE_CONFIRM, PACKET_TRADE_CANCEL,
-    PACKET_CURRENCY_UPDATE, PACKET_ENEMY_LIST, PACKET_ENEMY_ATTACK
+    PACKET_CURRENCY_UPDATE, PACKET_ENEMY_LIST, PACKET_ENEMY_ATTACK, PACKET_ATTACK, PACKET_DAMAGE,
+    PACKET_ALLOCATE_STATS, PACKET_PVP_TOGGLE, PACKET_HANDSHAKE
 } PacketType;
 
 typedef enum {
@@ -180,6 +181,9 @@ typedef struct {
     int32_t max_hp;
     int32_t active;
     char map_name[32];
+    int32_t attack_power;
+    int32_t defense;
+    uint32_t last_attack_time;
 } Enemy;
 
 typedef struct {
@@ -199,8 +203,14 @@ typedef struct {
     int32_t gold;             // Player currency
     int32_t xp;               // Experience points
     int32_t level;            // Player level
-    // NOTE: Quest data NOT included in Player struct for broadcast_state (too large)
-    // Quests are stored separately and sent via PACKET_QUEST_LIST
+    int32_t hp;               // Current health
+    int32_t max_hp;           // Maximum health
+    int32_t mana;             // Current mana
+    int32_t max_mana;         // Maximum mana
+    int32_t str, agi, intel;  // Combat stats
+    int32_t skill_points;     // Unallocated points
+    uint32_t last_attack_time; // Server-side cooldown tracking
+    int32_t pvp_enabled;      // 1 if enabled, 0 otherwise
 } Player;
 
 typedef struct {
@@ -252,6 +262,11 @@ typedef struct {
     int32_t gold;
     int32_t xp;
     int32_t level;
+    int32_t hp, max_hp;
+    int32_t mana, max_mana;
+    int32_t str, agi, intel;
+    int32_t skill_points;
+    int32_t stat_type; // For PACKET_ALLOCATE_STATS: 0=Str, 1=Agi, 2=Intel
     // NPC and quest fields
     NPC npcs[20];
     int32_t npc_count;
@@ -275,6 +290,9 @@ typedef struct {
     int32_t trade_confirmed;
     // Chat channel
     int32_t chat_channel;         // ChatChannel enum
+    int32_t damage;
+    int32_t pvp_enabled;
+    int32_t protocol_version; // For connection validation
 } Packet;
 
 #pragma pack(pop)
