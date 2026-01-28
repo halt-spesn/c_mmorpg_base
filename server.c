@@ -2214,6 +2214,9 @@ void handle_client_message(int index, Packet *pkt) {
                     }
                     
                     broadcast_state(); 
+                    if (players[index].clan_id != -1) {
+                        broadcast_clan_update(players[index].clan_id);
+                    }
                     return;
                 }
             } else {
@@ -4129,47 +4132,84 @@ void handle_client_message(int index, Packet *pkt) {
         }
     }
     else if (pkt->type == PACKET_CLAN_STORAGE_UPDATE) {
-        // Handle Clan Storage Updates (Gold Withdraw or Item Withdraw)
-        if (players[index].clan_id == -1 || players[index].clan_role != 1) {
-            Packet err; memset(&err, 0, sizeof(Packet));
-            err.type = PACKET_CHAT; err.player_id = -1;
-            strcpy(err.msg, "Only clan owners can manage storage.");
-            send_all(client_sockets[index], &err, sizeof(Packet), 0);
-            return;
-        }
+        if (players[index].clan_id == -1) return;
 
-        // 1. Gold Withdrawal
-        if (pkt->clan_gold < 0) {
-            int amount = -pkt->clan_gold;
+        // 1. Gold Update
+        if (pkt->clan_gold != 0) {
+            int amount = pkt->clan_gold;
             int clan_id = players[index].clan_id;
-            sqlite3_stmt *stmt;
-            int current_gold = 0;
-            const char *sql_g = "SELECT GOLD_STORAGE FROM clans WHERE ID = ?;";
-            if (sqlite3_prepare_v2(db, sql_g, -1, &stmt, 0) == SQLITE_OK) {
-                sqlite3_bind_int(stmt, 1, clan_id);
-                if (sqlite3_step(stmt) == SQLITE_ROW) current_gold = sqlite3_column_int(stmt, 0);
-                sqlite3_finalize(stmt);
+            
+            if (amount > 0) {
+                // DEPOSIT: Anyone can deposit
+                if (players[index].gold >= amount) {
+                    // Update DB
+                    char s_sql[128];
+                    snprintf(s_sql, 128, "UPDATE clans SET GOLD_STORAGE = GOLD_STORAGE + %d WHERE ID=%d;", amount, clan_id);
+                    sqlite3_exec(db, s_sql, 0, 0, 0);
+
+                    players[index].gold -= amount;
+                    snprintf(s_sql, 128, "UPDATE users SET GOLD = %d WHERE ID=%d;", players[index].gold, players[index].id);
+                    sqlite3_exec(db, s_sql, 0, 0, 0);
+
+                    LOG("Player %s deposited %d gold to clan %d\n", players[index].username, amount, clan_id);
+                    send_player_stats(index);
+                    broadcast_clan_update(clan_id);
+                    
+                    Packet p; memset(&p, 0, sizeof(Packet));
+                    p.type = PACKET_CHAT; p.player_id = -1;
+                    snprintf(p.msg, 127, "Deposited %d gold.", amount);
+                    send_all(client_sockets[index], &p, sizeof(Packet), 0);
+                } else {
+                    Packet err; memset(&err, 0, sizeof(Packet));
+                    err.type = PACKET_CHAT; err.player_id = -1;
+                    strcpy(err.msg, "Insufficient gold.");
+                    send_all(client_sockets[index], &err, sizeof(Packet), 0);
+                }
+            } 
+            else {
+                // WITHDRAW: Limit to Owner (role 1)
+                if (players[index].clan_role != 1) {
+                    Packet err; memset(&err, 0, sizeof(Packet));
+                    err.type = PACKET_CHAT; err.player_id = -1;
+                    strcpy(err.msg, "Only owner can withdraw gold.");
+                    send_all(client_sockets[index], &err, sizeof(Packet), 0);
+                    return;
+                }
+
+                int withdraw_amount = -amount;
+                sqlite3_stmt *stmt;
+                int current_gold = 0;
+                const char *sql_g = "SELECT GOLD_STORAGE FROM clans WHERE ID = ?;";
+                if (sqlite3_prepare_v2(db, sql_g, -1, &stmt, 0) == SQLITE_OK) {
+                    sqlite3_bind_int(stmt, 1, clan_id);
+                    if (sqlite3_step(stmt) == SQLITE_ROW) current_gold = sqlite3_column_int(stmt, 0);
+                    sqlite3_finalize(stmt);
+                }
+
+                if (withdraw_amount > current_gold) {
+                    Packet err; memset(&err, 0, sizeof(Packet));
+                    err.type = PACKET_CHAT; err.player_id = -1;
+                    strcpy(err.msg, "Insufficient clan gold.");
+                    send_all(client_sockets[index], &err, sizeof(Packet), 0);
+                } else {
+                    char s_sql[128];
+                    snprintf(s_sql, 128, "UPDATE clans SET GOLD_STORAGE = GOLD_STORAGE - %d WHERE ID=%d;", withdraw_amount, clan_id);
+                    sqlite3_exec(db, s_sql, 0, 0, 0);
+
+                    players[index].gold += withdraw_amount;
+                    snprintf(s_sql, 128, "UPDATE users SET GOLD = %d WHERE ID=%d;", players[index].gold, players[index].id);
+                    sqlite3_exec(db, s_sql, 0, 0, 0);
+
+                    LOG("Player %s withdrew %d gold from clan %d\n", players[index].username, withdraw_amount, clan_id);
+                    send_player_stats(index);
+                    broadcast_clan_update(clan_id);
+                    
+                    Packet p; memset(&p, 0, sizeof(Packet));
+                    p.type = PACKET_CHAT; p.player_id = -1;
+                    snprintf(p.msg, 127, "Withdrew %d gold.", withdraw_amount);
+                    send_all(client_sockets[index], &p, sizeof(Packet), 0);
+                }
             }
-
-            if (amount > current_gold) {
-                Packet err; memset(&err, 0, sizeof(Packet));
-                err.type = PACKET_CHAT; err.player_id = -1;
-                strcpy(err.msg, "Insufficient clan gold.");
-                send_all(client_sockets[index], &err, sizeof(Packet), 0);
-                return;
-            }
-
-            char s_sql[128];
-            snprintf(s_sql, 128, "UPDATE clans SET GOLD_STORAGE = GOLD_STORAGE - %d WHERE ID=%d;", amount, clan_id);
-            sqlite3_exec(db, s_sql, 0, 0, 0);
-
-            players[index].gold += amount;
-            snprintf(s_sql, 128, "UPDATE users SET GOLD = %d WHERE ID=%d;", players[index].gold, players[index].id);
-            sqlite3_exec(db, s_sql, 0, 0, 0);
-
-            LOG("Player %s withdrew %d gold from clan %d\n", players[index].username, amount, clan_id);
-            send_player_stats(index);
-            broadcast_clan_update(clan_id);
         }
         
         // 2. Item Withdrawal

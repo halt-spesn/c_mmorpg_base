@@ -4827,6 +4827,11 @@ void handle_game_click(int mx, int my, int cam_x, int cam_y, int w, int h) {
             send_packet(&pkt);
             push_chat_line(CHAT_CHANNEL_LOCAL, "Clan invitation sent.");
             return;
+        } else {
+             // Debug why it missed
+             if (my_clan_role == 1) { // Only log if button should exist
+                 printf("DEBUG MISS: Mouse(%d,%d) Button(%d,%d,%d,%d)\n", ui_mx, ui_my, btn_clan_invite.x, btn_clan_invite.y, btn_clan_invite.w, btn_clan_invite.h);
+             }
         }
         if (SDL_PointInRect(&(SDL_Point){mx, my}, &btn_sanction_open)) {
             int my_role = 0;
